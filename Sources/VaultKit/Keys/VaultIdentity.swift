@@ -56,6 +56,18 @@ public enum VaultIdentity {
     return key
   }
 
+  /// Takes over an existing Secure Enclave key of this device (its wrapped blob), so servers that already
+  /// trust it keep working: an app that had its own key before the vault (Shell) hands it over once. Does
+  /// nothing when the device already has a vault key.
+  public static func adopt(_ blob: Data) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    guard (try keychain.read(account, options: .thisDevice)) == nil else { return }
+    let key = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob)
+    try keychain.addNew(blob, account: account, options: .init(synchronizable: false, label: "v57 SSH key (Secure Enclave)"))
+    cached = key
+  }
+
   /// Whether the key exists (without making it).
   public static var exists: Bool {
     (try? keychain.read(account, options: .thisDevice)) != nil

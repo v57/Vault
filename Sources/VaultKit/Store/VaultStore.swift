@@ -115,6 +115,11 @@ public final class VaultStore: @unchecked Sendable {
     }
   }
 
+  /// The process's store at the default location (the app group container), opened on first use; nil when
+  /// it can't open. `Vault.shared` uses it, and code off the main actor (an SSH engine checking a host key)
+  /// can too.
+  public static let shared: VaultStore? = try? VaultStore()
+
   /// This process, as the owner of outbox leases.
   public static let processOwner: String = {
     let bundle = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName

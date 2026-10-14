@@ -8,7 +8,8 @@
     /// - `dev.v57.vault.dump`: writes the vault's state to `/tmp/vault-<bundle id>.json`.
     /// - `dev.v57.vault.command`: runs the commands in `/tmp/vault-command-<bundle id>.json` (an array of
     ///   objects: `{"add": "/path"}`, `{"remove": "/path"}`, `{"save": "<id>", "kind": "host", "fields": {…}}`,
-    ///   `{"delete": "<id>"}`, `{"sync": true}`), then dumps.
+    ///   `{"delete": "<id>"}`, `{"sealNote": "/path.mdenc", "text": "…"}`, `{"openNote": "/path"}` (its text goes
+    ///   in the dump), `{"sync": true}`), then dumps.
     ///
     ///     notifyutil -p dev.v57.vault.dump
     func listenForDumpRequests() {
@@ -18,6 +19,12 @@
       commandObserver = VaultChangeObserver(name: "dev.v57.vault.command") { [weak self] in
         Task { @MainActor in self?.runCommands() }
       }
+    }
+
+    nonisolated(unsafe) private static var lastNoteText: String?
+    private var noteText: String? {
+      get { Self.lastNoteText }
+      set { Self.lastNoteText = newValue }
     }
 
     private var bundleName: String { Bundle.main.bundleIdentifier ?? "app" }
@@ -39,6 +46,11 @@
             try store.save(id: id, kind: kind, changes: fields)
           } else if let id = command["delete"] as? String {
             try store.delete(id: id)
+          } else if let path = command["sealNote"] as? String {
+            let data = try EncryptedNote.seal(command["text"] as? String ?? "", keys: store.keys)
+            try data.write(to: URL(fileURLWithPath: path))
+          } else if let path = command["openNote"] as? String {
+            noteText = try EncryptedNote.text(of: Data(contentsOf: URL(fileURLWithPath: path)), keys: store.keys)
           } else if command["sync"] != nil {
             sync?.syncNow()
           }
@@ -84,6 +96,7 @@
         },
         "deviceKeys": deviceKeys.map { ["id": $0.id, "name": $0.deviceName, "fingerprint": $0.fingerprint ?? ""] },
       ]
+      if let noteText { dump["noteText"] = noteText }
       if VaultIdentity.exists, let key = try? VaultIdentity.key() {
         dump["identity"] = VaultIdentity.fingerprint(blob: VaultIdentity.publicKeyBlob(key))
       }

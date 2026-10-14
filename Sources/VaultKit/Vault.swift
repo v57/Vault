@@ -31,12 +31,8 @@ public final class Vault {
     if let store {
       self.store = store
     } else {
-      do {
-        self.store = try VaultStore()
-      } catch {
-        self.store = nil
-        self.error = error.localizedDescription
-      }
+      self.store = VaultStore.shared
+      if self.store == nil { self.error = "The shared store couldn’t be opened." }
     }
     observer = VaultChangeObserver { [weak self] in
       Task { @MainActor in self?.reload() }
