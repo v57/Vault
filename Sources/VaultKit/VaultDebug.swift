@@ -9,7 +9,7 @@
     /// - `dev.v57.vault.command`: runs the commands in `/tmp/vault-command-<bundle id>.json` (an array of
     ///   objects: `{"add": "/path"}`, `{"remove": "/path"}`, `{"save": "<id>", "kind": "host", "fields": {…}}`,
     ///   `{"delete": "<id>"}`, `{"sealNote": "/path.mdenc", "text": "…"}`, `{"openNote": "/path"}` (its text goes
-    ///   in the dump), `{"sync": true}`), then dumps.
+    ///   in the dump), `{"removeFile": "/path"}`, `{"sync": true}`), then dumps.
     ///
     ///     notifyutil -p dev.v57.vault.dump
     func listenForDumpRequests() {
@@ -51,6 +51,11 @@
             try data.write(to: URL(fileURLWithPath: path))
           } else if let path = command["openNote"] as? String {
             noteText = try EncryptedNote.text(of: Data(contentsOf: URL(fileURLWithPath: path)), keys: store.keys)
+          } else if let path = command["removeFile"] as? String {
+            var error: NSError?
+            NSFileCoordinator().coordinate(writingItemAt: URL(fileURLWithPath: path), options: .forDeleting, error: &error) {
+              try? FileManager.default.removeItem(at: $0)
+            }
           } else if command["sync"] != nil {
             sync?.syncNow()
           }
