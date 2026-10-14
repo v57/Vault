@@ -73,10 +73,18 @@ has, so a change is sent once and applied once. A conflict merges the server's c
 
 **Live updates.** Every write posts a Darwin notification, and `Vault` reloads in every app on the device.
 
-**Notes.** Notes are files in Markdown's iCloud Drive folder. An encrypted note is `Name.mdenc` (`EncryptedNote`):
-the name stays readable, the text is sealed with the vault key. When two devices save a note before seeing each
-other's version, `NoteConflicts` merges the iCloud Drive versions line by line (`TextMerge`) against the last version
-the device synced (`NoteBaseCache`). Lines both changed stay in the note twice, between conflict markers.
+**Notes.** A note is a record (`VaultNote`: folder, name, text, and whether its local file is encrypted). It syncs like
+everything else, encrypted titles included, with no need for iCloud Drive. Text that two devices edited at once merges
+line by line (`TextMerge`) against the server copy both started from (the store keeps the last server copy of each
+item), the same way on every device; lines both changed stay twice, between conflict markers.
+
+On each device Markdown keeps the notes as files in a local folder: `NotesMirror` reconciles the folder and the
+records both ways, so Finder, Files, other editors and git work on them. Each file carries its note's id in an
+extended attribute (recovered from the last known path when an editor's atomic save drops it), and an index of the
+last pass tells which side changed; edits on both sides merge against the last synced text. An encrypted note is
+`Name.mdenc` on disk (`EncryptedNote`, only the v57 apps read it), a plain one `Name.md`. Other files, like images a
+note links to, sync as `VaultNoteFile`. Shell edits the records directly. `NoteConflicts` still merges iCloud Drive
+conflict versions of notes in folders the user adds to Markdown.
 
 ## Layout
 
@@ -85,9 +93,9 @@ the device synced (`NoteBaseCache`). Lines both changed stay in the note twice, 
 | `Core/` | `JSONValue`, `HybridClock`, `ItemFields` (the merge), `VaultConfiguration` (identifiers) |
 | `Keys/` | `VaultKeychain` (shared group), `VaultKeys` (AES keys, sealing), `VaultIdentity` (SSH key), `VaultSecrets`, `VaultDevice` |
 | `Store/` | `VaultStore` (SQLite, outbox, merging records in), change notifications |
-| `Records/` | Typed records: `VaultProject`, `VaultHost`, `VaultKnownHost`, `VaultDeviceKey`, `VaultDatabase` |
+| `Records/` | Typed records: `VaultProject`, `VaultHost`, `VaultKnownHost`, `VaultDeviceKey`, `VaultDatabase`, `VaultNote`, `VaultNoteFile` |
 | `Sync/` | `SyncCoordinator` (the sync rules, testable), `CloudSync` (the `CKSyncEngine` adapter) |
-| `Notes/` | `EncryptedNote`, `NoteConflicts`, `NoteBaseCache`, `TextMerge` |
+| `Notes/` | `NotesMirror`, `EncryptedNote`, `NoteConflicts`, `NoteBaseCache`, `TextMerge` |
 
 `swift test` runs the merge, store and sync tests. The sync tests use a fake CloudKit (`Tests/.../FakeCloud.swift`)
 with several devices and several apps per device.
