@@ -1,8 +1,8 @@
 # Vault
 
 The data the v57 apps share, as a small Swift package: projects (Git, Code, Dev, Markdown, Shell), SSH hosts and
-the device's SSH key (Shell, Database, DatabasePro), database connections (Database, DatabasePro, Shell), known
-hosts, and encrypted notes (Markdown, Shell). Every app on a device reads the same store, sees the others'
+the device's SSH key (Shell, Database), database connections (Database, Shell), known hosts, and encrypted
+notes (Markdown, Shell). Every app on a device reads the same store, sees the others'
 changes within a second, and syncs through the user's iCloud. Nothing in it is readable by other apps or other
 users.
 
@@ -48,7 +48,7 @@ keychain, and sync stays off.
 
 **One store per device.** `VaultStore` is a SQLite file in the app group container. Each item is one row: an id,
 its kind, and its fields sealed with AES-GCM. The table never changes shape. Fields live inside the payload, so
-apps of any version share the file, and an app that knows fewer fields than another (Shell's view of a DatabasePro
+apps of any version share the file, and an app that knows fewer fields than another (Shell's view of a Database
 connection) keeps the ones it doesn't know.
 
 **Encryption.** The AES-256 keys are iCloud Keychain items in the shared access group `dev.v57.shared`, which only
