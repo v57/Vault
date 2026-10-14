@@ -102,6 +102,9 @@
         "deviceKeys": deviceKeys.map { ["id": $0.id, "name": $0.deviceName, "fingerprint": $0.fingerprint ?? ""] },
       ]
       if let noteText { dump["noteText"] = noteText }
+      if let notes = try? store?.records(VaultNote.self) {
+        dump["notes"] = notes.map { ["id": $0.id, "path": $0.path, "text": String($0.text.prefix(80))] }
+      }
       // Items of kind "test", written by `save` commands while testing sync.
       if let tests = try? store?.items(kind: "test") {
         dump["test"] = Dictionary(uniqueKeysWithValues: tests.map { item in
