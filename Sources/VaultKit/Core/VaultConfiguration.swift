@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 /// Where the vault lives: the identifiers every app declares in its entitlements.
 public enum VaultConfiguration {
@@ -38,7 +39,7 @@ public enum VaultConfiguration {
       }
     #endif
     let fileManager = FileManager.default
-    if let group = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroup),
+    if isEntitledToGroup, let group = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroup),
       isUsable(group)
     {
       return group.appendingPathComponent("Vault", isDirectory: true)
@@ -46,8 +47,23 @@ public enum VaultConfiguration {
     return URL.applicationSupportDirectory.appendingPathComponent("dev.v57.vault", isDirectory: true)
   }
 
-  /// The group container exists and can be written (unsandboxed macOS apps get a URL for any group,
-  /// entitled or not, so check by creating the folder).
+  /// Whether this build is signed with the app group. Unsandboxed macOS apps get a container URL for any group,
+  /// and one built without the team's signing (someone else's build, signed to run locally) that opens the
+  /// signed apps' container gets "Operation not permitted" and a privacy prompt instead of a store.
+  private static var isEntitledToGroup: Bool {
+    #if os(macOS)
+      guard let task = SecTaskCreateFromSelf(nil),
+        let groups = SecTaskCopyValueForEntitlement(task, "com.apple.security.application-groups" as CFString, nil)
+          as? [String]
+      else { return false }
+      return groups.contains(appGroup)
+    #else
+      // iOS hands out only the containers the app is entitled to.
+      return true
+    #endif
+  }
+
+  /// The group container exists and can be written.
   private static func isUsable(_ url: URL) -> Bool {
     let folder = url.appendingPathComponent("Vault", isDirectory: true)
     do {

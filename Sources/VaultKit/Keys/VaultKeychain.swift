@@ -48,6 +48,7 @@ public struct VaultKeychain: Sendable {
 
   /// Whether the shared group is usable (the app is entitled), checked once per process.
   public static let isShared: Bool = {
+    guard dataProtection else { return false }
     let probe = VaultKeychain(service: "dev.v57.vault.probe")
     let status = SecItemCopyMatching(probe.query(account: "probe", options: .thisDevice, group: probe.accessGroup) as CFDictionary, nil)
     return status != errSecMissingEntitlement
@@ -71,14 +72,20 @@ public struct VaultKeychain: Sendable {
   }
 
   /// The data-protection keychain needs a signed app with an application identifier; without one (a plain
-  /// `swift test` binary or an ad-hoc build) only the old file keychain works.
+  /// `swift test` binary, or an ad-hoc build: someone building the apps without the team's signing) only the old
+  /// file keychain works. Reading the data-protection keychain without it can still succeed; adding fails.
   private static let dataProtection: Bool = {
-    let query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: "dev.v57.vault.probe",
-      kSecUseDataProtectionKeychain as String: true,
-    ]
-    return SecItemCopyMatching(query as CFDictionary, nil) != errSecMissingEntitlement
+    #if os(macOS)
+      guard let task = SecTaskCreateFromSelf(nil) else { return false }
+      return SecTaskCopyValueForEntitlement(task, "com.apple.application-identifier" as CFString, nil) != nil
+    #else
+      let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "dev.v57.vault.probe",
+        kSecUseDataProtectionKeychain as String: true,
+      ]
+      return SecItemCopyMatching(query as CFDictionary, nil) != errSecMissingEntitlement
+    #endif
   }()
 
   public func read(_ account: String, options: Options) throws -> Data? {
@@ -94,6 +101,12 @@ public struct VaultKeychain: Sendable {
 
   /// Every item's account and data in this service.
   public func readAll(options: Options) throws -> [(account: String, data: Data)] {
+    // The file keychain can't return the data of several items at once (-50): list the accounts, then read each.
+    guard Self.dataProtection else {
+      return try accounts(options: options).compactMap { account in
+        try read(account, options: options).map { (account, $0) }
+      }
+    }
     var query = query(account: nil, options: options, group: effectiveGroup)
     query[kSecReturnData as String] = true
     query[kSecReturnAttributes as String] = true
@@ -108,6 +121,17 @@ public struct VaultKeychain: Sendable {
       else { return nil }
       return (account, data)
     }
+  }
+
+  private func accounts(options: Options) throws -> [String] {
+    var query = query(account: nil, options: options, group: effectiveGroup)
+    query[kSecReturnAttributes as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitAll
+    var result: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    if status == errSecItemNotFound { return [] }
+    guard status == errSecSuccess else { throw KeychainError.status(status) }
+    return (result as? [[String: Any]] ?? []).compactMap { $0[kSecAttrAccount as String] as? String }
   }
 
   /// Adds the item, or replaces its data.
