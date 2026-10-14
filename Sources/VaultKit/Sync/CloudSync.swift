@@ -270,11 +270,13 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     case .sentRecordZoneChanges(let changes):
       if !changes.savedRecords.isEmpty { isHealthy = true }
       for saved in changes.savedRecords {
+        Self.removeAssetFile(of: saved)
         let action = coordinator.saved(
           id: saved.recordID.recordName, changeTag: saved.recordChangeTag, systemFields: Self.archive(saved))
         if action == .resend { queue([saved.recordID.recordName]) }
       }
       for failure in changes.failedRecordSaves {
+        Self.removeAssetFile(of: failure.record)
         let id = failure.record.recordID.recordName
         let action = coordinator.failed(id: id, Self.failure(failure.error))
         switch action {
@@ -317,16 +319,48 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
 
   static let recordType = "Item"
 
+  /// Payloads bigger than this go as an asset (a record holds about 1 MB in all).
+  static let assetThreshold = 700_000
+
   static func makeRecord(_ outgoing: OutgoingRecord, id: CKRecord.ID) -> CKRecord {
     let record =
       outgoing.systemFields.flatMap(unarchive) ?? CKRecord(recordType: recordType, recordID: id)
-    record["payload"] = outgoing.payload as NSData
     record["keyID"] = outgoing.keyID as NSString
+    if outgoing.payload.count > assetThreshold, let file = try? assetFile(for: outgoing) {
+      record["payload"] = nil
+      record["payloadAsset"] = CKAsset(fileURL: file)
+    } else {
+      record["payload"] = outgoing.payload as NSData
+      record["payloadAsset"] = nil
+    }
     return record
   }
 
+  /// The encrypted payload as a file for a `CKAsset` (removed after the send).
+  static func assetFile(for outgoing: OutgoingRecord) throws -> URL {
+    let folder = URL.cachesDirectory.appendingPathComponent("VaultAssets", isDirectory: true)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let file = folder.appendingPathComponent("\(outgoing.id)-\(outgoing.version)")
+    try outgoing.payload.write(to: file, options: .atomic)
+    return file
+  }
+
+  static func removeAssetFile(of record: CKRecord) {
+    if let url = (record["payloadAsset"] as? CKAsset)?.fileURL, url.path.contains("/VaultAssets/") {
+      try? FileManager.default.removeItem(at: url)
+    }
+  }
+
   static func remote(_ record: CKRecord) -> RemoteRecord? {
-    guard let payload = record["payload"] as? Data, let keyID = record["keyID"] as? String else { return nil }
+    guard let keyID = record["keyID"] as? String else { return nil }
+    let payload: Data
+    if let data = record["payload"] as? Data {
+      payload = data
+    } else if let url = (record["payloadAsset"] as? CKAsset)?.fileURL, let data = try? Data(contentsOf: url) {
+      payload = data
+    } else {
+      return nil
+    }
     return RemoteRecord(
       id: record.recordID.recordName, keyID: keyID, payload: payload, changeTag: record.recordChangeTag,
       systemFields: archive(record))

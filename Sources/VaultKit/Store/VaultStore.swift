@@ -80,6 +80,10 @@ public final class VaultStore: @unchecked Sendable {
   }
   private var _didWriteLocally: (@Sendable ([String]) -> Void)?
 
+  /// Fields merged line by line when two devices changed them (`ItemFields.merged(with:base:textKeys:)`),
+  /// by kind.
+  public static let textFields: [String: Set<String>] = ["note": ["text"]]
+
   /// How long a lease on an outbox row lasts before another app may send it.
   public var lease: TimeInterval = 120
 
@@ -110,6 +114,7 @@ public final class VaultStore: @unchecked Sendable {
         CREATE TABLE IF NOT EXISTS outbox(
           id TEXT PRIMARY KEY, version INTEGER NOT NULL, queued REAL NOT NULL, owner TEXT, until REAL NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS engines(name TEXT PRIMARY KEY, state BLOB);
+        CREATE TABLE IF NOT EXISTS server_copies(id TEXT PRIMARY KEY, key_id TEXT NOT NULL, payload BLOB NOT NULL);
         CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
         """)
     }
@@ -271,13 +276,18 @@ public final class VaultStore: @unchecked Sendable {
 
   /// Records a successful send. Returns true when the item changed while it was on its way, so it must be
   /// sent again.
+  ///
+  /// `sent` is the payload that went up: the server's copy now, kept as the base of the next text merge.
   @discardableResult
-  public func markSent(id: String, version: Int64, changeTag: String?, systemFields: Data?) throws -> Bool {
+  public func markSent(
+    id: String, version: Int64, changeTag: String?, systemFields: Data?, sent: (keyID: String, payload: Data)? = nil
+  ) throws -> Bool {
     try withLock {
       try database.transaction {
         try database.query(
           "UPDATE items SET change_tag = ?, system_fields = ? WHERE id = ?",
           [.init(changeTag), .init(systemFields), .text(id)])
+        if let sent { try setServerCopy(id: id, keyID: sent.keyID, payload: sent.payload) }
         try database.query("DELETE FROM outbox WHERE id = ? AND version <= ?", [.text(id), .int(version)])
         return try !database.query("SELECT 1 FROM outbox WHERE id = ?", [.text(id)]).isEmpty
       }
@@ -347,8 +357,12 @@ public final class VaultStore: @unchecked Sendable {
 
         try observe(remote.fields.latestClock)
         let local = row?.item
-        let merged = local.map { $0.fields.merged(with: remote.fields) } ?? remote.fields
         let kind = local?.kind.isEmpty == false ? local!.kind : remote.kind
+        let base = try serverCopy(id: record.id)
+        let merged =
+          local.map { $0.fields.merged(with: remote.fields, base: base, textKeys: Self.textFields[kind] ?? []) }
+          ?? remote.fields
+        try setServerCopy(id: record.id, keyID: record.keyID, payload: record.payload)
         var needsSend = false
         if merged == remote.fields {
           // The server's copy has everything: keep its payload as it is.
@@ -393,6 +407,7 @@ public final class VaultStore: @unchecked Sendable {
         }
         let existed = try !database.query("SELECT 1 FROM items WHERE id = ?", [.text(id)]).isEmpty
         try database.query("DELETE FROM items WHERE id = ?", [.text(id)])
+        try database.query("DELETE FROM server_copies WHERE id = ?", [.text(id)])
         if existed { try bumpRevision() }
         return existed
       }
@@ -405,7 +420,8 @@ public final class VaultStore: @unchecked Sendable {
   public func resetServerState() throws {
     try withLock {
       try database.transaction {
-        try database.execute("UPDATE items SET change_tag = NULL, system_fields = NULL; DELETE FROM engines;")
+        try database.execute(
+          "UPDATE items SET change_tag = NULL, system_fields = NULL; DELETE FROM engines; DELETE FROM server_copies;")
         let now = Date.now.timeIntervalSince1970
         try database.query(
           "INSERT OR REPLACE INTO outbox(id, version, queued, owner, until) SELECT id, version, ?, NULL, 0 FROM items",
@@ -418,7 +434,7 @@ public final class VaultStore: @unchecked Sendable {
   public func deleteAll() throws {
     try withLock {
       try database.transaction {
-        try database.execute("DELETE FROM items; DELETE FROM outbox; DELETE FROM engines;")
+        try database.execute("DELETE FROM items; DELETE FROM outbox; DELETE FROM engines; DELETE FROM server_copies;")
         try bumpRevision()
       }
     }
@@ -435,7 +451,10 @@ public final class VaultStore: @unchecked Sendable {
           "SELECT id FROM items WHERE deleted = 1 AND modified < ? AND id NOT IN (SELECT id FROM outbox)",
           [.double(cutoff)]
         ).compactMap { $0[0].text }
-        for id in ids { try database.query("DELETE FROM items WHERE id = ?", [.text(id)]) }
+        for id in ids {
+          try database.query("DELETE FROM items WHERE id = ?", [.text(id)])
+          try database.query("DELETE FROM server_copies WHERE id = ?", [.text(id)])
+        }
         return ids
       }
     }
@@ -516,6 +535,20 @@ public final class VaultStore: @unchecked Sendable {
         owner = COALESCE(excluded.owner, outbox.owner), until = MAX(excluded.until, outbox.until)
       """,
       [.text(id), .int(version), .double(now), leased ? .text(owner) : .null, .double(leased ? now + lease : 0)])
+  }
+
+  /// The fields of the server's copy this device last saw (sent or fetched), the base of text merges.
+  private func serverCopy(id: String) throws -> ItemFields? {
+    guard let row = try database.query("SELECT key_id, payload FROM server_copies WHERE id = ?", [.text(id)]).first,
+      let item = try? decode(id: id, keyID: row[0].text ?? "", payload: row[1].blob ?? Data())
+    else { return nil }
+    return item.fields
+  }
+
+  private func setServerCopy(id: String, keyID: String, payload: Data) throws {
+    try database.query(
+      "INSERT OR REPLACE INTO server_copies(id, key_id, payload) VALUES(?, ?, ?)",
+      [.text(id), .text(keyID), .blob(payload)])
   }
 
   private func setServerFields(id: String, changeTag: String?, systemFields: Data?) throws {

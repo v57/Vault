@@ -36,7 +36,7 @@ public final class SyncCoordinator: @unchecked Sendable {
   private let lock = NSLock()
   /// The version of each record on its way (to tell whether the item changed during the send), and when it
   /// left: one the engine never reported back on counts as gone after five minutes.
-  private var inFlight: [String: (version: Int64, sent: Date)] = [:]
+  private var inFlight: [String: (record: OutgoingRecord, sent: Date)] = [:]
 
   public init(store: VaultStore) {
     self.store = store
@@ -55,27 +55,30 @@ public final class SyncCoordinator: @unchecked Sendable {
     lock.unlock()
     guard !isOnItsWay, let record = try? store.outgoing(id: id) else { return nil }
     lock.lock()
-    inFlight[id] = (record.version, .now)
+    inFlight[id] = (record, .now)
     lock.unlock()
     return record
   }
 
-  private func takeVersion(_ id: String) -> Int64 {
+  private func takeRecord(_ id: String) -> OutgoingRecord? {
     lock.lock()
     defer { lock.unlock() }
-    return inFlight.removeValue(forKey: id)?.version ?? 0
+    return inFlight.removeValue(forKey: id)?.record
   }
 
   /// The server saved a record. Returns `.resend` when the item changed while it was on its way.
   public func saved(id: String, changeTag: String?, systemFields: Data?) -> SyncAction {
-    let version = takeVersion(id)
-    let again = (try? store.markSent(id: id, version: version, changeTag: changeTag, systemFields: systemFields)) ?? true
+    let sent = takeRecord(id)
+    let again =
+      (try? store.markSent(
+        id: id, version: sent?.version ?? 0, changeTag: changeTag, systemFields: systemFields,
+        sent: sent.map { ($0.keyID, $0.payload) })) ?? true
     return again ? .resend : .done
   }
 
   /// The server refused a record.
   public func failed(id: String, _ failure: SyncFailure) -> SyncAction {
-    _ = takeVersion(id)
+    _ = takeRecord(id)
     switch failure {
     case .conflict(let server):
       // Merge their copy in; the merged item goes up again with the server's change tag.

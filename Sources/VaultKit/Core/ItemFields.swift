@@ -67,6 +67,32 @@ public struct ItemFields: Hashable, Sendable, Codable {
     return ItemFields(result)
   }
 
+  /// Like `merged(with:)`, but text fields (`textKeys`) that both copies changed since `base` (the version both
+  /// started from, the last one the server had) are merged line by line instead of keeping the later write.
+  ///
+  /// The merge is the same on every device: the copy with the earlier clock is "ours", the later one "theirs",
+  /// and the result gets a clock derived from the later one, so devices that merge the same pair converge
+  /// (and one that only receives the result takes it, its clock being later than either).
+  public func merged(with other: ItemFields, base: ItemFields?, textKeys: Set<String>) -> ItemFields {
+    var result = merged(with: other)
+    guard !textKeys.isEmpty else { return result }
+    for key in textKeys {
+      guard let mine = stamped[key], let theirs = other.stamped[key], mine.clock != theirs.clock,
+        let mineText = mine.value.stringValue, let theirText = theirs.value.stringValue, mineText != theirText
+      else { continue }
+      let baseText = base?[key]?.stringValue ?? ""
+      guard mineText != baseText, theirText != baseText else { continue }
+      let (earlier, later) = mine.clock < theirs.clock ? (mine, theirs) : (theirs, mine)
+      let text = TextMerge.merge(
+        base: baseText, ours: earlier.value.stringValue ?? "", theirs: later.value.stringValue ?? "",
+        oursLabel: "Edited on one device", theirsLabel: "Edited on another device"
+      ).text
+      let clock = HybridClock(millis: later.clock.millis, counter: later.clock.counter + 1, device: later.clock.device + "+merge")
+      result.stamped[key] = StampedValue(.string(text), clock: clock)
+    }
+    return result
+  }
+
   /// Writes `changes` stamped with `clock`, skipping values that are already there, and reports whether
   /// anything changed. Fields not in `changes` keep their value and clock.
   @discardableResult
