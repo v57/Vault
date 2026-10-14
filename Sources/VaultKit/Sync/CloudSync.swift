@@ -77,8 +77,20 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     outboxTimer = Timer.scheduledTimer(withTimeInterval: store.lease, repeats: true) { [weak self] _ in
       self?.queueOutbox()
     }
+    // CloudKit's pushes (other devices' changes) come through the app's remote notification registration,
+    // once the app is running (`start` may be called from the App's init).
+    DispatchQueue.main.async {
+      #if canImport(AppKit)
+        NSApplication.shared.registerForRemoteNotifications()
+      #else
+        UIApplication.shared.registerForRemoteNotifications()
+      #endif
+    }
     startIfSignedIn()
   }
+
+  /// Whether the engine runs (signed in, entitled).
+  public var isRunning: Bool { currentEngine != nil }
 
   private var changeObserver: VaultChangeObserver?
 
@@ -104,16 +116,20 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   }
 
   private func startEngine(_ container: CKContainer) {
-    lock.lock()
-    defer { lock.unlock() }
-    guard engine == nil else { return }
     let saved = (try? store.engineState(name)).flatMap {
       try? JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: $0)
+    }
+    lock.lock()
+    guard engine == nil else {
+      lock.unlock()
+      return
     }
     let configuration = CKSyncEngine.Configuration(
       database: container.privateCloudDatabase, stateSerialization: saved, delegate: self)
     let engine = CKSyncEngine(configuration)
     self.engine = engine
+    lock.unlock()
+
     if saved == nil || (try? store.engineState(name + ".zone")) == nil {
       engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
     }

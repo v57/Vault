@@ -23,6 +23,8 @@ public final class Vault {
   @ObservationIgnored public private(set) var sync: CloudSync?
   @ObservationIgnored private var observer: VaultChangeObserver?
   @ObservationIgnored private var loadedRevision: Int64 = -1
+  @ObservationIgnored var dumpObserver: VaultChangeObserver?
+  @ObservationIgnored var commandObserver: VaultChangeObserver?
 
   /// Opens the shared store (or a given one, for tests and previews).
   public init(store: VaultStore? = nil) {
@@ -40,10 +42,13 @@ public final class Vault {
       Task { @MainActor in self?.reload() }
     }
     reload(force: true)
+    #if DEBUG && os(macOS)
+      listenForDumpRequests()
+    #endif
   }
 
-  /// Starts iCloud sync for this app (call once at launch). Does nothing without an iCloud account or the
-  /// CloudKit entitlement.
+  /// Starts iCloud sync for this app: call it once from the App's init. Does nothing without an iCloud account
+  /// or the CloudKit entitlement.
   public func startSync() {
     guard sync == nil, let store else { return }
     sync = CloudSync(store: store) { [weak self] in
