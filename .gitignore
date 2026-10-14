@@ -1,0 +1,26 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+CLAUDE.md
+/.claude
+
+# macOS
+# Finder folder icon: a file named Icon plus a carriage return
+Icon[]
+
+# Build
+build/
+*.xcuserstate
+
+# Secrets
+.env
+
+# Agents (local agent instructions, settings and boards)
+AGENTS.md
+.claude/
+.codex/
+.commandcode/
+.hermes/
+KANBAN*.md

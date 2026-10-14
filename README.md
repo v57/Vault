@@ -1,0 +1,93 @@
+# Vault
+
+The data the v57 apps share, as a small Swift package: projects (Git, Code, Dev, Markdown, Shell), SSH hosts and
+the device's SSH key (Shell, Database, DatabasePro), database connections (Database, DatabasePro, Shell), known
+hosts, and encrypted notes (Markdown, Shell). Every app on a device reads the same store, sees the others'
+changes within a second, and syncs through the user's iCloud. Nothing in it is readable by other apps or other
+users.
+
+```swift
+import VaultKit
+
+@main struct MyApp: App {
+  init() { Vault.shared.startSync() }  // iCloud sync, when the user is signed in
+
+  var body: some Scene {
+    WindowGroup { ProjectList() }
+  }
+}
+
+struct ProjectList: View {
+  @State private var vault = Vault.shared
+
+  var body: some View {
+    List(vault.localProjects) { Text($0.name) }   // live: changes from any app or device appear
+  }
+}
+
+// Writing
+try Vault.shared.store?.addProject(path: url.path, remoteURL: origin)
+Vault.shared.save(VaultHost(name: "prod", hostname: "prod.example.com", user: "deploy"))
+try VaultSecrets.setPassword(password, for: database.id)
+```
+
+## What each app declares
+
+| Entitlement | Value |
+|---|---|
+| `com.apple.security.application-groups` | `$(TeamIdentifierPrefix)dev.v57` (macOS), `group.dev.v57` (iOS) |
+| `keychain-access-groups` | `$(AppIdentifierPrefix)dev.v57.shared` |
+| `com.apple.developer.icloud-container-identifiers` | `iCloud.dev.v57` (+ `iCloud.dev.v57.md` for notes) |
+| `com.apple.developer.icloud-services` | `CloudKit` (+ `CloudDocuments` for notes) |
+| `com.apple.developer.aps-environment` (`aps-environment` on iOS) | `development` / `production`, for sync pushes |
+
+A build without them (ad-hoc signed) still runs: the store falls back to the app's own Application Support and
+keychain, and sync stays off.
+
+## How it works
+
+**One store per device.** `VaultStore` is a SQLite file in the app group container. Each item is one row: an id,
+its kind, and its fields sealed with AES-GCM. The table never changes shape. Fields live inside the payload, so
+apps of any version share the file, and an app that knows fewer fields than another (Shell's view of a DatabasePro
+connection) keeps the ones it doesn't know.
+
+**Encryption.** The AES-256 keys are iCloud Keychain items in the shared access group `dev.v57.shared`, which only
+the team's apps that list it can read. Other apps, other users and CloudKit see ciphertext. Each item names its key,
+so a device can hold several: if two devices make the first key at once, both keys reach both devices and the one
+with the smaller id becomes everyone's key for new writes. Passwords are separate iCloud Keychain items
+(`VaultSecrets`). Each device's SSH key is a Secure Enclave key (`VaultIdentity`) shared by the apps on that device.
+
+**Merging.** Every field carries a hybrid logical clock (wall time, a counter, the device id). Merging two copies
+of an item keeps each field's later write, so edits made on an iPhone and a Mac at once both survive unless they
+changed the same field, and then every device keeps the same one. A delete is a write too, and loses to an edit made
+after it.
+
+**No duplicates.** Ids come from content where there is one: a project is a keyed hash of its remote URL and
+folder name, so the same checkout added on two Macs is one record. If two ids for the same thing appear anyway
+(made before the keys synced), every device folds them into the one with the smaller id.
+
+**Sync without a helper.** Every app runs its own `CKSyncEngine` against the `Vault` zone of the private database.
+A write puts the item in the outbox and leases it to the app that wrote it, which sends it. If that app quits
+first, the lease runs out and any other app sends it. Every app fetches, and the store skips records it already
+has, so a change is sent once and applied once. A conflict merges the server's copy and sends the merge on top.
+
+**Live updates.** Every write posts a Darwin notification, and `Vault` reloads in every app on the device.
+
+**Notes.** Notes are files in Markdown's iCloud Drive folder. An encrypted note is `Name.mdenc` (`EncryptedNote`):
+the name stays readable, the text is sealed with the vault key. When two devices save a note before seeing each
+other's version, `NoteConflicts` merges the iCloud Drive versions line by line (`TextMerge`) against the last version
+the device synced (`NoteBaseCache`). Lines both changed stay in the note twice, between conflict markers.
+
+## Layout
+
+| Folder | What |
+|---|---|
+| `Core/` | `JSONValue`, `HybridClock`, `ItemFields` (the merge), `VaultConfiguration` (identifiers) |
+| `Keys/` | `VaultKeychain` (shared group), `VaultKeys` (AES keys, sealing), `VaultIdentity` (SSH key), `VaultSecrets`, `VaultDevice` |
+| `Store/` | `VaultStore` (SQLite, outbox, merging records in), change notifications |
+| `Records/` | Typed records: `VaultProject`, `VaultHost`, `VaultKnownHost`, `VaultDeviceKey`, `VaultDatabase` |
+| `Sync/` | `SyncCoordinator` (the sync rules, testable), `CloudSync` (the `CKSyncEngine` adapter) |
+| `Notes/` | `EncryptedNote`, `NoteConflicts`, `NoteBaseCache`, `TextMerge` |
+
+`swift test` runs the merge, store and sync tests. The sync tests use a fake CloudKit (`Tests/.../FakeCloud.swift`)
+with several devices and several apps per device.
