@@ -51,6 +51,13 @@
             try data.write(to: URL(fileURLWithPath: path))
           } else if let path = command["openNote"] as? String {
             noteText = try EncryptedNote.text(of: Data(contentsOf: URL(fileURLWithPath: path)), keys: store.keys)
+          } else if let path = command["writeFile"] as? String {
+            // As another editor would: a plain write, no file coordination.
+            try Data((command["text"] as? String ?? "").utf8).write(to: URL(fileURLWithPath: path))
+          } else if let path = command["readFile"] as? String {
+            noteText = (try? Data(contentsOf: URL(fileURLWithPath: path))).map { data in
+              (try? EncryptedNote.text(of: data, keys: store.keys)) ?? "<\(data.count) bytes>"
+            } ?? "<missing>"
           } else if let path = command["removeFile"] as? String {
             var error: NSError?
             NSFileCoordinator().coordinate(writingItemAt: URL(fileURLWithPath: path), options: .forDeleting, error: &error) {
