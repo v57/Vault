@@ -176,7 +176,8 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     queueOutbox()
   }
 
-  /// Sends and fetches now (the app came to the front).
+  /// Sends now, and fetches what pushes reported (the app came to the front). Changes from other devices
+  /// arrive by push (the app's own subscription) within a minute or so, and at launch.
   public func syncNow() {
     guard let engine = currentEngine else { return }
     queueOutbox()
@@ -285,7 +286,10 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         case .done:
           break
         }
-        if action == .retryLater || action == .done { record(failure.error) }
+        // A conflict that merged is the normal path, not a problem to report.
+        if action == .retryLater || (action == .done && failure.error.code != .serverRecordChanged) {
+          record(failure.error)
+        }
       }
       onChange()
 

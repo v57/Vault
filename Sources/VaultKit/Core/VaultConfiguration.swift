@@ -31,6 +31,12 @@ public enum VaultConfiguration {
   /// The store's folder: the app group container, or Application Support when the app isn't entitled
   /// (a debug build signed without the group), so it still runs, without sharing.
   public static func defaultDirectory() -> URL {
+    #if DEBUG
+      // Testing a second device on one Mac: a fresh store that fetches everything from iCloud.
+      if let path = ProcessInfo.processInfo.environment["VAULT_DIRECTORY"] {
+        return URL(fileURLWithPath: path, isDirectory: true)
+      }
+    #endif
     let fileManager = FileManager.default
     if let group = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroup),
       isUsable(group)

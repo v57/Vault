@@ -217,4 +217,12 @@ struct SyncTests {
     #expect(cloud.records["x"] != nil)
     #expect(try working.store.pendingCount() == 0)
   }
+
+  @Test func aRecordOnItsWayIsntBuiltTwice() throws {
+    let mac = try device("mac")
+    try mac.store.save(id: "h", kind: "host", changes: ["name": "a"])
+    let id = mac.sync.idsToSend()[0]
+    #expect(mac.sync.record(for: id) != nil)
+    #expect(mac.sync.record(for: id) == nil)
+  }
 }

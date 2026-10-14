@@ -9,6 +9,9 @@ public enum VaultDevice {
   /// A random id made once per device, kept in the shared keychain group as a this-device-only item, so a
   /// backup restored onto another device doesn't bring it along. Clocks and project paths are tagged with it.
   public static let id: String = {
+    #if DEBUG
+      if let id = ProcessInfo.processInfo.environment["VAULT_DEVICE"] { return id }
+    #endif
     let keychain = VaultKeychain()
     if let data = try? keychain.read("device-id", options: .thisDevice), let id = String(data: data, encoding: .utf8) {
       return id

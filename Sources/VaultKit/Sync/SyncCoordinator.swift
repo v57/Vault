@@ -34,8 +34,9 @@ public enum SyncAction: Sendable, Equatable {
 public final class SyncCoordinator: @unchecked Sendable {
   public let store: VaultStore
   private let lock = NSLock()
-  /// The version of each record on its way, to tell whether the item changed during the send.
-  private var inFlight: [String: Int64] = [:]
+  /// The version of each record on its way (to tell whether the item changed during the send), and when it
+  /// left: one the engine never reported back on counts as gone after five minutes.
+  private var inFlight: [String: (version: Int64, sent: Date)] = [:]
 
   public init(store: VaultStore) {
     self.store = store
@@ -46,11 +47,15 @@ public final class SyncCoordinator: @unchecked Sendable {
     (try? store.claimOutbox(limit: limit)) ?? []
   }
 
-  /// The record for an id, or nil when this process shouldn't send it (no lease, sent already).
+  /// The record for an id, or nil when this process shouldn't send it now: another app holds the lease,
+  /// nothing is waiting, or it's already on its way (a send that finds a newer version sends again).
   public func record(for id: String) -> OutgoingRecord? {
-    guard let record = try? store.outgoing(id: id) else { return nil }
     lock.lock()
-    inFlight[id] = record.version
+    let isOnItsWay = inFlight[id].map { Date.now.timeIntervalSince($0.sent) < 300 } ?? false
+    lock.unlock()
+    guard !isOnItsWay, let record = try? store.outgoing(id: id) else { return nil }
+    lock.lock()
+    inFlight[id] = (record.version, .now)
     lock.unlock()
     return record
   }
@@ -58,7 +63,7 @@ public final class SyncCoordinator: @unchecked Sendable {
   private func takeVersion(_ id: String) -> Int64 {
     lock.lock()
     defer { lock.unlock() }
-    return inFlight.removeValue(forKey: id) ?? 0
+    return inFlight.removeValue(forKey: id)?.version ?? 0
   }
 
   /// The server saved a record. Returns `.resend` when the item changed while it was on its way.

@@ -64,7 +64,7 @@
     private static func json(_ value: Any) -> JSONValue {
       switch value {
       case let value as String: .string(value)
-      case let value as Bool: .bool(value)
+      case let number as NSNumber where CFGetTypeID(number) == CFBooleanGetTypeID(): .bool(number.boolValue)
       case let value as Int: .int(Int64(value))
       case let value as Double: .double(value)
       case let value as [Any]: .array(value.map(json))
@@ -97,6 +97,18 @@
         "deviceKeys": deviceKeys.map { ["id": $0.id, "name": $0.deviceName, "fingerprint": $0.fingerprint ?? ""] },
       ]
       if let noteText { dump["noteText"] = noteText }
+      // Items of kind "test", written by `save` commands while testing sync.
+      if let tests = try? store?.items(kind: "test") {
+        dump["test"] = Dictionary(uniqueKeysWithValues: tests.map { item in
+          (item.id, item.values.mapValues { value -> Any in
+            switch value {
+            case .string(let text): text
+            case .int(let number): number
+            default: "\(value)"
+            }
+          })
+        })
+      }
       if VaultIdentity.exists, let key = try? VaultIdentity.key() {
         dump["identity"] = VaultIdentity.fingerprint(blob: VaultIdentity.publicKeyBlob(key))
       }
