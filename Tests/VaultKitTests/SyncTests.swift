@@ -201,4 +201,20 @@ struct SyncTests {
     let item = try #require(try one.item(id: "x"))
     #expect(item.values["name"] == "B")
   }
+
+  @Test func anAppWhoseSyncIsStuckLetsGoOfItsWrites() throws {
+    let directory = temporaryDirectory()
+    let stuck = try FakeApp(directory: directory, keys: keys, device: "mac", name: "stuck")
+    stuck.store.lease = 0.05
+    let working = try FakeApp(directory: directory, keys: keys, device: "mac", name: "working")
+    try stuck.store.save(id: "x", kind: "host", changes: ["name": "x"])
+    // The stuck app keeps asking for its outbox but never sends.
+    _ = stuck.sync.idsToSend()
+    Thread.sleep(forTimeInterval: 0.07)
+    _ = stuck.sync.idsToSend()
+    Thread.sleep(forTimeInterval: 0.07)
+    working.push(cloud)
+    #expect(cloud.records["x"] != nil)
+    #expect(try working.store.pendingCount() == 0)
+  }
 }

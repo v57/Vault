@@ -223,20 +223,26 @@ public final class VaultStore: @unchecked Sendable {
 
   // MARK: Outbox (used by the sync engine)
 
-  /// Leases up to `limit` outbox rows that nobody else holds, and returns their ids.
+  /// Leases up to `limit` outbox rows that nobody holds (or whose lease ran out), and returns them with the
+  /// ones this process already holds. A lease is renewed only by a send attempt (`outgoing`), so an app whose
+  /// sync is stuck lets go of its writes after `lease`, and another app sends them.
   public func claimOutbox(limit: Int = 200, now: Date = .now) throws -> [String] {
     try withLock {
       try database.transaction {
-        let ids = try database.query(
-          "SELECT id FROM outbox WHERE owner IS NULL OR owner = ? OR until < ? ORDER BY queued LIMIT ?",
-          [.text(owner), .double(now.timeIntervalSince1970), .int(Int64(limit))]
+        let time = now.timeIntervalSince1970
+        let held = try database.query(
+          "SELECT id FROM outbox WHERE owner = ? AND until >= ? ORDER BY queued LIMIT ?",
+          [.text(owner), .double(time), .int(Int64(limit))]
         ).compactMap { $0[0].text }
-        for id in ids {
+        let free = try database.query(
+          "SELECT id FROM outbox WHERE owner IS NULL OR until < ? ORDER BY queued LIMIT ?",
+          [.double(time), .int(Int64(max(limit - held.count, 0)))]
+        ).compactMap { $0[0].text }
+        for id in free {
           try database.query(
-            "UPDATE outbox SET owner = ?, until = ? WHERE id = ?",
-            [.text(owner), .double(now.timeIntervalSince1970 + lease), .text(id)])
+            "UPDATE outbox SET owner = ?, until = ? WHERE id = ?", [.text(owner), .double(time + lease), .text(id)])
         }
-        return ids
+        return held + free
       }
     }
   }

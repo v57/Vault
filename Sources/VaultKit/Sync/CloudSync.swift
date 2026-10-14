@@ -31,6 +31,17 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   /// The last problem, for a status line.
   public private(set) var lastError: String?
 
+  /// Whether this app's sync works: nil until it's known. While it fails, the app takes no outbox leases and
+  /// leaves its own writes unleased, so an app whose sync works sends them.
+  private var isHealthy: Bool? {
+    get { lock.withLock { healthy } }
+    set {
+      lock.withLock { healthy = newValue }
+      store.sendsOwnWrites = newValue != false
+    }
+  }
+  private var healthy: Bool?
+
   public init(store: VaultStore, onChange: @escaping @Sendable () -> Void = {}) {
     self.store = store
     coordinator = SyncCoordinator(store: store)
@@ -108,14 +119,37 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
           Self.log.notice("iCloud account not available (\(status.rawValue)): the vault stays on this device")
           return
         }
-        startEngine(container)
+        let subscription = await ensureSubscription(in: container.privateCloudDatabase)
+        startEngine(container, subscriptionID: subscription)
       } catch {
         record(error)
       }
     }
   }
 
-  private func startEngine(_ container: CKContainer) {
+  /// Each app's own database subscription (its pushes): a sync engine left to itself uses one fixed
+  /// subscription id, which the first app to save it owns, and the server refuses it to every other app
+  /// ("Invalid bundle ID for container"). Made once; nil when it can't be saved (the engine then fetches on
+  /// launch and activation only).
+  private func ensureSubscription(in database: CKDatabase) async -> CKSubscription.ID? {
+    let id = "vault-" + name
+    if (try? store.engineState(name + ".subscription")) != nil { return id }
+    let subscription = CKDatabaseSubscription(subscriptionID: id)
+    let info = CKSubscription.NotificationInfo()
+    info.shouldSendContentAvailable = true
+    subscription.notificationInfo = info
+    do {
+      _ = try await database.modifySubscriptions(saving: [subscription], deleting: [])
+      try? store.setEngineState(Data("1".utf8), for: name + ".subscription")
+      return id
+    } catch {
+      record(error)
+      isHealthy = false
+      return nil
+    }
+  }
+
+  private func startEngine(_ container: CKContainer, subscriptionID: CKSubscription.ID?) {
     let saved = (try? store.engineState(name)).flatMap {
       try? JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: $0)
     }
@@ -124,8 +158,9 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       lock.unlock()
       return
     }
-    let configuration = CKSyncEngine.Configuration(
+    var configuration = CKSyncEngine.Configuration(
       database: container.privateCloudDatabase, stateSerialization: saved, delegate: self)
+    configuration.subscriptionID = subscriptionID
     let engine = CKSyncEngine(configuration)
     self.engine = engine
     lock.unlock()
@@ -133,7 +168,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     if saved == nil || (try? store.engineState(name + ".zone")) == nil {
       engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
     }
-    store.sendsOwnWrites = true
+    store.sendsOwnWrites = isHealthy != false
     store.didWriteLocally = { [weak self] ids in self?.queue(ids) }
     if let purged = try? store.purgeTombstones(), !purged.isEmpty {
       engine.state.add(pendingRecordZoneChanges: purged.map { .deleteRecord(recordID($0)) })
@@ -149,8 +184,10 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       do {
         try await engine.fetchChanges()
         try await engine.sendChanges()
+        isHealthy = true
       } catch {
         record(error)
+        isHealthy = false
       }
     }
   }
@@ -161,8 +198,9 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     return engine
   }
 
-  /// Leases what's waiting in the outbox and hands it to the engine.
+  /// Leases what's waiting in the outbox and hands it to the engine (not while this app's sync fails).
   private func queueOutbox() {
+    guard isHealthy != false else { return }
     queue(coordinator.idsToSend())
   }
 
@@ -218,6 +256,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       let modified = changes.modifications.compactMap { Self.remote($0.record) }
       let deleted = changes.deletions.map(\.recordID.recordName)
       let resend = coordinator.fetched(modified: modified, deleted: deleted)
+      isHealthy = true
       queue(resend)
       onChange()
 
@@ -228,6 +267,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       for failure in changes.failedZoneSaves { record(failure.error) }
 
     case .sentRecordZoneChanges(let changes):
+      if !changes.savedRecords.isEmpty { isHealthy = true }
       for saved in changes.savedRecords {
         let action = coordinator.saved(
           id: saved.recordID.recordName, changeTag: saved.recordChangeTag, systemFields: Self.archive(saved))
