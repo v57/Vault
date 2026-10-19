@@ -60,6 +60,8 @@ struct FieldReader {
   func int(_ key: String, default value: Int) -> Int { values[key]?.intValue ?? value }
   func bool(_ key: String, default value: Bool = false) -> Bool { values[key]?.boolValue ?? value }
   func date(_ key: String) -> Date? { values[key]?.dateValue }
+  /// Bytes kept as a base64 string.
+  func data(_ key: String) -> Data? { values[key]?.stringValue.flatMap { Data(base64Encoded: $0) } }
 
   /// Fields under `prefix.`, keyed by the rest of the name.
   func strings(prefixed prefix: String) -> [String: String] {

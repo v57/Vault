@@ -28,6 +28,10 @@ public final class Vault {
   @ObservationIgnored private var loadedRevision: Int64 = -1
   @ObservationIgnored var dumpObserver: VaultChangeObserver?
   @ObservationIgnored var commandObserver: VaultChangeObserver?
+  @ObservationIgnored private var iconFinder: (find: @Sendable (URL) -> URL?, thumbnail: @Sendable (URL) -> Data?)?
+  /// The projects whose folders `iconFinder` has looked at in this process.
+  @ObservationIgnored private var iconsLookedAt: Set<String> = []
+  @ObservationIgnored private var iconTask: Task<Void, Never>?
 
   /// Opens the shared store (or a given one, for tests and previews).
   public init(store: VaultStore? = nil) {
@@ -56,6 +60,33 @@ public final class Vault {
     sync?.start()
   }
 
+  /// Keeps the icons of this device's projects current (`VaultStore.refreshProjectIcons`), in the background: looks
+  /// at every project's folder now, and at each project that arrives later. Apps that can find icons call it once at
+  /// launch with Code's `ProjectIcon.find` and `ProjectIcon.thumbnail`.
+  public func findProjectIcons(
+    with find: @escaping @Sendable (URL) -> URL?, thumbnail: @escaping @Sendable (URL) -> Data?
+  ) {
+    iconFinder = (find, thumbnail)
+    lookForIcons()
+  }
+
+  private func lookForIcons() {
+    guard let store, let finder = iconFinder, iconTask == nil else { return }
+    let ids = Set(localProjects.map(\.id)).subtracting(iconsLookedAt)
+    guard !ids.isEmpty else { return }
+    iconsLookedAt.formUnion(ids)
+    iconTask = Task.detached(priority: .utility) { [weak self] in
+      try? store.refreshProjectIcons(ids: ids, find: finder.find, thumbnail: finder.thumbnail)
+      await self?.iconsFound()
+    }
+  }
+
+  /// Looks again for projects that arrived while the last look ran.
+  private func iconsFound() {
+    iconTask = nil
+    lookForIcons()
+  }
+
   /// Re-reads the records if the store changed since the last read.
   public func reload(force: Bool = false) {
     guard let store else { return }
@@ -74,6 +105,7 @@ public final class Vault {
     } catch {
       self.error = error.localizedDescription
     }
+    lookForIcons()
   }
 
   /// Saves a record, reporting failures in `error`.

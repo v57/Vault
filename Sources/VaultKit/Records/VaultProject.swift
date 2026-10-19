@@ -6,7 +6,8 @@ import Foundation
 /// one its own field, so two Macs adding their own checkout never overwrite each other. The project's
 /// identity is its remote URL when it has one (the same repository on every device), else its path on the
 /// device that added it (see `identity`). Its place in the sidebars is `groupID` and `order` (see
-/// `VaultProjectTree`). What it is (an Xcode project, a Swift package) is `kinds`, one `kind.<name>` field each.
+/// `VaultProjectTree`). What it is (an Xcode project, a Swift package) is `kinds`, one `kind.<name>` field each, and
+/// its picture is `icon` (see `VaultStore.refreshProjectIcons`).
 public struct VaultProject: VaultRecord, Hashable {
   public static let kind = "project"
   public static let dynamicPrefixes = ["path.", "kind."]
@@ -23,13 +24,17 @@ public struct VaultProject: VaultRecord, Hashable {
   public var paths: [String: String]
   /// What the folder holds (see `Kind.detect`), kept current by `VaultStore.refreshProjectKinds`.
   public var kinds: Set<Kind>
+  /// A small square PNG of the project's app icon, for every app's project rows (even where the folder isn't).
+  public var icon: Data?
+  /// The hash of the file `icon` was made from, so it is made again only when that file changes.
+  public var iconSource: String?
   /// The app that added it (bundle id).
   public var addedBy: String?
   public var added: Date?
 
   public init(
     id: String, name: String, remoteURL: String? = nil, groupID: String? = nil, order: Int = 0,
-    paths: [String: String] = [:], kinds: Set<Kind> = [], addedBy: String? = Bundle.main.bundleIdentifier, added: Date? = .now
+    paths: [String: String] = [:], kinds: Set<Kind> = [], icon: Data? = nil, iconSource: String? = nil, addedBy: String? = Bundle.main.bundleIdentifier, added: Date? = .now
   ) {
     self.id = id
     self.name = name
@@ -38,6 +43,8 @@ public struct VaultProject: VaultRecord, Hashable {
     self.order = order
     self.paths = paths
     self.kinds = kinds
+    self.icon = icon
+    self.iconSource = iconSource
     self.addedBy = addedBy
     self.added = added
   }
@@ -51,6 +58,8 @@ public struct VaultProject: VaultRecord, Hashable {
     order = read.int("order", default: 0)
     paths = read.strings(prefixed: "path")
     kinds = Set(read.flags(prefixed: "kind").map(Kind.init(rawValue:)))
+    icon = read.data("icon")
+    iconSource = read.string("iconSource")
     addedBy = read.string("addedBy")
     added = read.date("added")
   }
@@ -59,6 +68,7 @@ public struct VaultProject: VaultRecord, Hashable {
     var values: [String: JSONValue] = [
       "name": .string(name), "remoteURL": .init(remoteURL), "groupID": .init(groupID), "order": .init(order),
       "addedBy": .init(addedBy), "added": .init(added), "_identity": .init(identity),
+      "icon": .init(icon?.base64EncodedString()), "iconSource": .init(iconSource),
     ]
     values.set(paths, prefixed: "path")
     for kind in kinds { values["kind.\(kind.rawValue)"] = .bool(true) }
@@ -127,13 +137,13 @@ extension VaultStore {
     if var project = try project(path: path, remoteURL: remoteURL) {
       project.paths[deviceID] = path
       if project.remoteURL == nil, let remoteURL { project.remoteURL = remoteURL }
-      if !kinds.isEmpty { project.kinds = kinds }
+      if let kinds, !kinds.isEmpty { project.kinds = kinds }
       try save(project)
       return project
     }
     let project = VaultProject(
       id: VaultProject.newID(remoteURL: remoteURL, path: path, in: self), name: name ?? folderName,
-      remoteURL: remoteURL, order: try endOrder(in: nil), paths: [deviceID: path], kinds: kinds)
+      remoteURL: remoteURL, order: try endOrder(in: nil), paths: [deviceID: path], kinds: kinds ?? [])
     try save(project)
     return project
   }

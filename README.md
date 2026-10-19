@@ -83,7 +83,9 @@ own state.
 **Project kinds.** A project notes what its folder holds (`VaultProject.Kind`: `xcode` for an `.xcodeproj` at the top
 or one folder down, `swiftPackage`), one `kind.<name>` field each, so an app can pick the projects it works on (Dev
 lists only Xcode projects). `addProject` detects them, and `refreshProjectKinds` looks again at this device's
-folders and saves only what changed.
+folders and saves only what changed. A project's `icon` is a small PNG of its app icon (at most 64 KB) that every app can show, even
+where the folder isn't: an app that can find icons (Code's `ProjectIcon`) passes its finder and thumbnailer to
+`refreshProjectIcons`, which makes it again only when the source file's hash (`iconSource`) changes.
 
 **Live updates.** Every write posts a Darwin notification, and `Vault` reloads in every app on the device.
 
