@@ -69,6 +69,13 @@ struct FieldReader {
     }
     return result
   }
+
+  /// The names of the `prefix.` fields that are true.
+  func flags(prefixed prefix: String) -> [String] {
+    values.compactMap { key, value in
+      key.hasPrefix(prefix + ".") && value.boolValue == true ? String(key.dropFirst(prefix.count + 1)) : nil
+    }
+  }
 }
 
 extension Dictionary where Key == String, Value == JSONValue {

@@ -6,10 +6,10 @@ import Foundation
 /// one its own field, so two Macs adding their own checkout never overwrite each other. The project's
 /// identity is its remote URL when it has one (the same repository on every device), else its path on the
 /// device that added it (see `identity`). Its place in the sidebars is `groupID` and `order` (see
-/// `VaultProjectTree`).
+/// `VaultProjectTree`). What it is (an Xcode project, a Swift package) is `kinds`, one `kind.<name>` field each.
 public struct VaultProject: VaultRecord, Hashable {
   public static let kind = "project"
-  public static let dynamicPrefixes = ["path."]
+  public static let dynamicPrefixes = ["path.", "kind."]
 
   public var id: String
   public var name: String
@@ -21,13 +21,15 @@ public struct VaultProject: VaultRecord, Hashable {
   public var order: Int
   /// Device id → folder path.
   public var paths: [String: String]
+  /// What the folder holds (see `Kind.detect`), kept current by `VaultStore.refreshProjectKinds`.
+  public var kinds: Set<Kind>
   /// The app that added it (bundle id).
   public var addedBy: String?
   public var added: Date?
 
   public init(
     id: String, name: String, remoteURL: String? = nil, groupID: String? = nil, order: Int = 0,
-    paths: [String: String] = [:], addedBy: String? = Bundle.main.bundleIdentifier, added: Date? = .now
+    paths: [String: String] = [:], kinds: Set<Kind> = [], addedBy: String? = Bundle.main.bundleIdentifier, added: Date? = .now
   ) {
     self.id = id
     self.name = name
@@ -35,6 +37,7 @@ public struct VaultProject: VaultRecord, Hashable {
     self.groupID = groupID
     self.order = order
     self.paths = paths
+    self.kinds = kinds
     self.addedBy = addedBy
     self.added = added
   }
@@ -47,6 +50,7 @@ public struct VaultProject: VaultRecord, Hashable {
     groupID = read.string("groupID")
     order = read.int("order", default: 0)
     paths = read.strings(prefixed: "path")
+    kinds = Set(read.flags(prefixed: "kind").map(Kind.init(rawValue:)))
     addedBy = read.string("addedBy")
     added = read.date("added")
   }
@@ -57,6 +61,7 @@ public struct VaultProject: VaultRecord, Hashable {
       "addedBy": .init(addedBy), "added": .init(added), "_identity": .init(identity),
     ]
     values.set(paths, prefixed: "path")
+    for kind in kinds { values["kind.\(kind.rawValue)"] = .bool(true) }
     return values
   }
 
@@ -113,20 +118,22 @@ extension VaultStore {
     return projects.first { $0.identity == identity && $0.paths[deviceID] == nil }
   }
 
-  /// Adds a folder on this device as a project, or adds this device's path to the existing one. A new
-  /// project goes at the end of the top level of the tree.
+  /// Adds a folder on this device as a project, or adds this device's path to the existing one, and notes its
+  /// kinds. A new project goes at the end of the top level of the tree.
   @discardableResult
   public func addProject(path: String, name: String? = nil, remoteURL: String? = nil) throws -> VaultProject {
     let folderName = (path as NSString).lastPathComponent
+    let kinds = VaultProject.Kind.detect(in: URL(fileURLWithPath: path, isDirectory: true))
     if var project = try project(path: path, remoteURL: remoteURL) {
       project.paths[deviceID] = path
       if project.remoteURL == nil, let remoteURL { project.remoteURL = remoteURL }
+      if !kinds.isEmpty { project.kinds = kinds }
       try save(project)
       return project
     }
     let project = VaultProject(
       id: VaultProject.newID(remoteURL: remoteURL, path: path, in: self), name: name ?? folderName,
-      remoteURL: remoteURL, order: try endOrder(in: nil), paths: [deviceID: path])
+      remoteURL: remoteURL, order: try endOrder(in: nil), paths: [deviceID: path], kinds: kinds)
     try save(project)
     return project
   }

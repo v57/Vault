@@ -80,6 +80,11 @@ other at once) breaks at the group with the smallest id. Change it through the s
 move leaves empty. `filter` gives what one device shows (`Vault.localProjectTree`). Collapsing a group is each app's
 own state.
 
+**Project kinds.** A project notes what its folder holds (`VaultProject.Kind`: `xcode` for an `.xcodeproj` at the top
+or one folder down, `swiftPackage`), one `kind.<name>` field each, so an app can pick the projects it works on (Dev
+lists only Xcode projects). `addProject` detects them, and `refreshProjectKinds` looks again at this device's
+folders and saves only what changed.
+
 **Live updates.** Every write posts a Darwin notification, and `Vault` reloads in every app on the device.
 
 **Notes.** A note is a record (`VaultNote`: folder, name, text, and whether its local file is encrypted). It syncs like

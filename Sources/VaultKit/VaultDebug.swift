@@ -100,7 +100,7 @@
         "projects": projects.map {
           [
             "id": $0.id, "name": $0.name, "remote": $0.remoteURL ?? "", "paths": $0.paths, "groupID": $0.groupID ?? "",
-            "order": $0.order,
+            "order": $0.order, "kinds": $0.kinds.sorted().map(\.rawValue),
           ]
         },
         "projectGroups": projectGroups.map {
