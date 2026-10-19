@@ -71,6 +71,15 @@ A write puts the item in the outbox and leases it to the app that wrote it, whic
 first, the lease runs out and any other app sends it. Every app fetches, and the store skips records it already
 has, so a change is sent once and applied once. A conflict merges the server's copy and sends the merge on top.
 
+**Project tree.** Projects sit in groups that nest (`VaultProjectGroup`), so every app's sidebar can show the same
+arrangement on every device. A project's place is its `groupID` and `order`, a group's its `parentID` and `order`;
+groups and projects share one order. `VaultProjectTree` builds the tree from the records alone, the same way
+everywhere: an item whose group is gone sits at the top level, and a loop (two devices moving two groups into each
+other at once) breaks at the group with the smallest id. Change it through the store (`moveProjects`,
+`addProjectGroup`, `groupProjects`, `ungroupProjects`), which renumbers the items it touches and deletes the groups a
+move leaves empty. `filter` gives what one device shows (`Vault.localProjectTree`). Collapsing a group is each app's
+own state.
+
 **Live updates.** Every write posts a Darwin notification, and `Vault` reloads in every app on the device.
 
 **Notes.** A note is a record (`VaultNote`: folder, name, text, and whether its local file is encrypted). It syncs like
@@ -93,7 +102,7 @@ conflict versions of notes in folders the user adds to Markdown.
 | `Core/` | `JSONValue`, `HybridClock`, `ItemFields` (the merge), `VaultConfiguration` (identifiers) |
 | `Keys/` | `VaultKeychain` (shared group), `VaultKeys` (AES keys, sealing), `VaultIdentity` (SSH key), `VaultSecrets`, `VaultDevice` |
 | `Store/` | `VaultStore` (SQLite, outbox, merging records in), change notifications |
-| `Records/` | Typed records: `VaultProject`, `VaultHost`, `VaultKnownHost`, `VaultDeviceKey`, `VaultDatabase`, `VaultNote`, `VaultNoteFile` |
+| `Records/` | Typed records: `VaultProject`, `VaultProjectGroup` (with `VaultProjectTree`), `VaultHost`, `VaultKnownHost`, `VaultDeviceKey`, `VaultDatabase`, `VaultNote`, `VaultNoteFile` |
 | `Sync/` | `SyncCoordinator` (the sync rules, testable), `CloudSync` (the `CKSyncEngine` adapter) |
 | `Notes/` | `NotesMirror`, `EncryptedNote`, `NoteConflicts`, `NoteBaseCache`, `TextMerge` |
 

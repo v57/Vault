@@ -98,7 +98,13 @@
         "revision": store?.revision ?? -1,
         "pending": (try? store?.pendingCount()) ?? -1,
         "projects": projects.map {
-          ["id": $0.id, "name": $0.name, "remote": $0.remoteURL ?? "", "paths": $0.paths, "group": $0.group ?? ""]
+          [
+            "id": $0.id, "name": $0.name, "remote": $0.remoteURL ?? "", "paths": $0.paths, "groupID": $0.groupID ?? "",
+            "order": $0.order,
+          ]
+        },
+        "projectGroups": projectGroups.map {
+          ["id": $0.id, "name": $0.name, "parentID": $0.parentID ?? "", "order": $0.order, "paths": $0.paths]
         },
         "hosts": hosts.map {
           ["id": $0.id, "name": $0.displayName, "hostname": $0.hostname, "port": $0.port, "user": $0.user, "auth": $0.auth.rawValue]

@@ -12,6 +12,9 @@ public final class Vault {
   public static let shared = Vault()
 
   public private(set) var projects: [VaultProject] = []
+  public private(set) var projectGroups: [VaultProjectGroup] = []
+  /// The projects in their groups, on every device.
+  public private(set) var projectTree = VaultProjectTree(projects: [], groups: [])
   public private(set) var hosts: [VaultHost] = []
   public private(set) var databases: [VaultDatabase] = []
   public private(set) var deviceKeys: [VaultDeviceKey] = []
@@ -63,6 +66,8 @@ public final class Vault {
       projects = try store.records(VaultProject.self).sorted {
         $0.name.localizedStandardCompare($1.name) == .orderedAscending
       }
+      projectGroups = try store.records(VaultProjectGroup.self)
+      projectTree = VaultProjectTree(projects: projects, groups: projectGroups)
       hosts = try store.records(VaultHost.self).sorted { ($0.order, $0.displayName) < ($1.order, $1.displayName) }
       databases = try store.records(VaultDatabase.self).sorted { ($0.order, $0.name) < ($1.order, $1.name) }
       deviceKeys = try store.records(VaultDeviceKey.self).sorted { $0.deviceName < $1.deviceName }
@@ -98,6 +103,11 @@ public final class Vault {
   /// Projects with a folder on this device.
   public var localProjects: [VaultProject] {
     projects.filter { $0.paths[deviceID] != nil }
+  }
+
+  /// The tree of the projects with a folder on this device, and the groups holding them.
+  public var localProjectTree: VaultProjectTree {
+    projectTree.filter { $0.paths[deviceID] != nil }
   }
 
   public func host(id: String?) -> VaultHost? {

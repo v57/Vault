@@ -5,7 +5,8 @@ import Foundation
 /// The folder's path is per device: `paths` maps a device id to where the project is on that device, each
 /// one its own field, so two Macs adding their own checkout never overwrite each other. The project's
 /// identity is its remote URL when it has one (the same repository on every device), else its path on the
-/// device that added it (see `identity`).
+/// device that added it (see `identity`). Its place in the sidebars is `groupID` and `order` (see
+/// `VaultProjectTree`).
 public struct VaultProject: VaultRecord, Hashable {
   public static let kind = "project"
   public static let dynamicPrefixes = ["path."]
@@ -14,8 +15,10 @@ public struct VaultProject: VaultRecord, Hashable {
   public var name: String
   /// The `origin` remote, as git prints it.
   public var remoteURL: String?
-  /// A group name (Git's sidebar groups).
-  public var group: String?
+  /// The `VaultProjectGroup` it is in; nil at the top level (see `VaultProjectTree`).
+  public var groupID: String?
+  /// Its place among the items in its group.
+  public var order: Int
   /// Device id → folder path.
   public var paths: [String: String]
   /// The app that added it (bundle id).
@@ -23,13 +26,14 @@ public struct VaultProject: VaultRecord, Hashable {
   public var added: Date?
 
   public init(
-    id: String, name: String, remoteURL: String? = nil, group: String? = nil, paths: [String: String] = [:],
-    addedBy: String? = Bundle.main.bundleIdentifier, added: Date? = .now
+    id: String, name: String, remoteURL: String? = nil, groupID: String? = nil, order: Int = 0,
+    paths: [String: String] = [:], addedBy: String? = Bundle.main.bundleIdentifier, added: Date? = .now
   ) {
     self.id = id
     self.name = name
     self.remoteURL = remoteURL
-    self.group = group
+    self.groupID = groupID
+    self.order = order
     self.paths = paths
     self.addedBy = addedBy
     self.added = added
@@ -40,7 +44,8 @@ public struct VaultProject: VaultRecord, Hashable {
     self.id = id
     name = read.string("name", default: "")
     remoteURL = read.string("remoteURL")
-    group = read.string("group")
+    groupID = read.string("groupID")
+    order = read.int("order", default: 0)
     paths = read.strings(prefixed: "path")
     addedBy = read.string("addedBy")
     added = read.date("added")
@@ -48,8 +53,8 @@ public struct VaultProject: VaultRecord, Hashable {
 
   public var values: [String: JSONValue] {
     var values: [String: JSONValue] = [
-      "name": .string(name), "remoteURL": .init(remoteURL), "group": .init(group), "addedBy": .init(addedBy),
-      "added": .init(added), "_identity": .init(identity),
+      "name": .string(name), "remoteURL": .init(remoteURL), "groupID": .init(groupID), "order": .init(order),
+      "addedBy": .init(addedBy), "added": .init(added), "_identity": .init(identity),
     ]
     values.set(paths, prefixed: "path")
     return values
@@ -108,32 +113,33 @@ extension VaultStore {
     return projects.first { $0.identity == identity && $0.paths[deviceID] == nil }
   }
 
-  /// Adds a folder on this device as a project, or adds this device's path to the existing one.
+  /// Adds a folder on this device as a project, or adds this device's path to the existing one. A new
+  /// project goes at the end of the top level of the tree.
   @discardableResult
-  public func addProject(path: String, name: String? = nil, remoteURL: String? = nil, group: String? = nil) throws
-    -> VaultProject
-  {
+  public func addProject(path: String, name: String? = nil, remoteURL: String? = nil) throws -> VaultProject {
     let folderName = (path as NSString).lastPathComponent
     if var project = try project(path: path, remoteURL: remoteURL) {
       project.paths[deviceID] = path
       if project.remoteURL == nil, let remoteURL { project.remoteURL = remoteURL }
-      if let group, project.group == nil { project.group = group }
       try save(project)
       return project
     }
     let project = VaultProject(
       id: VaultProject.newID(remoteURL: remoteURL, path: path, in: self), name: name ?? folderName,
-      remoteURL: remoteURL, group: group, paths: [deviceID: path])
+      remoteURL: remoteURL, order: try endOrder(in: nil), paths: [deviceID: path])
     try save(project)
     return project
   }
 
-  /// Removes this device's folder from a project; the project goes when no device has it any more.
+  /// Removes this device's folder from a project; the project goes when no device has it any more, and so
+  /// does its group if that leaves it empty.
   public func removeProject(path: String) throws {
     guard var project = try records(VaultProject.self).first(where: { $0.paths[deviceID] == path }) else { return }
     project.paths[deviceID] = nil
     if project.paths.isEmpty {
+      let group = try projectTree().parent(of: project.id)
       try delete(id: project.id)
+      try removeEmptyProjectGroups(group.map { [$0] } ?? [])
     } else {
       try save(project)
     }
