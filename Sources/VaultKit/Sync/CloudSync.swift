@@ -1,3 +1,4 @@
+#if canImport(CloudKit)
 import CloudKit
 import Foundation
 import os
@@ -397,3 +398,4 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     }
   }
 }
+#endif

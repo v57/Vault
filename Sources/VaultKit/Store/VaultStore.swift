@@ -93,7 +93,7 @@ public final class VaultStore: @unchecked Sendable {
     directory: URL = VaultConfiguration.defaultDirectory(),
     keys: VaultKeyProvider = KeychainKeyProvider(),
     deviceID: String = VaultDevice.id,
-    notifier: VaultChangeNotifier? = DarwinChangeNotifier(),
+    notifier: VaultChangeNotifier? = SystemChangeNotifier(),
     owner: String = VaultStore.processOwner
   ) throws {
     self.directory = directory

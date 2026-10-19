@@ -71,6 +71,10 @@ public enum NoteConflicts {
   /// Returns the merged text, or nil when there was no conflict.
   @discardableResult
   public static func resolve(at url: URL, base: String?, keys: VaultKeyProvider) throws -> String? {
+    #if !canImport(ObjectiveC)
+      // Conflict versions are iCloud Drive's; elsewhere a note has none.
+      return nil
+    #else
     guard let versions = NSFileVersion.unresolvedConflictVersionsOfItem(at: url), !versions.isEmpty else { return nil }
     let encrypted = EncryptedNote.isEncrypted(url)
     var merged = try EncryptedNote.text(of: Data(contentsOf: url), keys: keys)
@@ -90,6 +94,7 @@ public enum NoteConflicts {
     for version in versions { version.isResolved = true }
     try NSFileVersion.removeOtherVersionsOfItem(at: url)
     return merged
+    #endif
   }
 }
 
@@ -100,7 +105,8 @@ public final class NoteBaseCache: @unchecked Sendable {
   private let keys: VaultKeyProvider
 
   public init(
-    directory: URL = URL.cachesDirectory.appendingPathComponent("NoteBases", isDirectory: true),
+    directory: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("NoteBases", isDirectory: true),
     keys: VaultKeyProvider
   ) {
     self.directory = directory

@@ -33,8 +33,10 @@ public enum VaultDevice {
   @MainActor public static var name: String {
     #if os(macOS)
       Host.current().localizedName ?? "Mac"
-    #else
+    #elseif canImport(UIKit)
       UIDevice.current.name
+    #else
+      ProcessInfo.processInfo.hostName
     #endif
   }
 }

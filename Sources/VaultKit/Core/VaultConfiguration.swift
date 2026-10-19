@@ -1,5 +1,8 @@
 import Foundation
-import Security
+
+#if canImport(Security)
+  import Security
+#endif
 
 /// Where the vault lives: the identifiers every app declares in its entitlements.
 public enum VaultConfiguration {
@@ -38,20 +41,25 @@ public enum VaultConfiguration {
         return URL(fileURLWithPath: path, isDirectory: true)
       }
     #endif
-    let fileManager = FileManager.default
-    if isEntitledToGroup, let group = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroup),
-      isUsable(group)
-    {
-      return group.appendingPathComponent("Vault", isDirectory: true)
-    }
-    return URL.applicationSupportDirectory.appendingPathComponent("dev.v57.vault", isDirectory: true)
+    #if canImport(Security)
+      let fileManager = FileManager.default
+      if isEntitledToGroup, let group = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroup),
+        isUsable(group)
+      {
+        return group.appendingPathComponent("Vault", isDirectory: true)
+      }
+    #endif
+    // Off Apple platforms every app of the user shares Application Support (Windows: AppData).
+    return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("dev.v57.vault", isDirectory: true)
   }
 
   /// Whether this build is signed with the app group. Unsandboxed macOS apps get a container URL for any group,
   /// and one built without the team's signing (someone else's build, signed to run locally) that opens the
   /// signed apps' container gets "Operation not permitted" and a privacy prompt instead of a store.
   private static var isEntitledToGroup: Bool {
-    #if os(macOS)
+    #if !canImport(Security)
+      return false
+    #elseif os(macOS)
       guard let task = SecTaskCreateFromSelf(nil),
         let groups = SecTaskCopyValueForEntitlement(task, "com.apple.security.application-groups" as CFString, nil)
           as? [String]

@@ -83,13 +83,17 @@ public final class NotesMirror: @unchecked Sendable {
     try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     observer = VaultChangeObserver { [weak self] in self?.scheduleReconcile() }
     let presenter = MirrorPresenter(url: folder) { [weak self] in self?.scheduleReconcile() }
-    NSFileCoordinator.addFilePresenter(presenter)
+    #if canImport(ObjectiveC)
+      NSFileCoordinator.addFilePresenter(presenter)
+    #endif
     self.presenter = presenter
     scheduleReconcile(after: 0)
   }
 
   public func stop() {
-    if let presenter { NSFileCoordinator.removeFilePresenter(presenter) }
+    #if canImport(ObjectiveC)
+      if let presenter { NSFileCoordinator.removeFilePresenter(presenter) }
+    #endif
     presenter = nil
     observer = nil
   }
@@ -366,6 +370,7 @@ public final class NotesMirror: @unchecked Sendable {
     if let data = try? JSONEncoder().encode(index) { try? data.write(to: indexURL, options: .atomic) }
   }
 
+  #if canImport(ObjectiveC)
   private func coordinatedRead(_ url: URL) -> Data? {
     var result: Data?
     var error: NSError?
@@ -420,6 +425,25 @@ public final class NotesMirror: @unchecked Sendable {
     }
     if let failure = error ?? removeError { throw failure }
   }
+  #else
+  // No file coordination off Apple platforms: plain file operations.
+  private func coordinatedRead(_ url: URL) -> Data? {
+    try? Data(contentsOf: url)
+  }
+
+  private func coordinateWrite(_ data: Data, to url: URL) throws {
+    try data.write(to: url, options: .atomic)
+  }
+
+  private func coordinateMove(from source: URL, to target: URL) throws {
+    if FileManager.default.fileExists(atPath: target.path) { try FileManager.default.removeItem(at: target) }
+    try FileManager.default.moveItem(at: source, to: target)
+  }
+
+  private func removeFile(_ url: URL) throws {
+    try FileManager.default.removeItem(at: url)
+  }
+  #endif
 
   static func availableURL(for url: URL) -> URL {
     let base = url.deletingPathExtension().lastPathComponent
@@ -439,21 +463,51 @@ public final class NotesMirror: @unchecked Sendable {
 
   // MARK: - Note ids on files
 
-  static func id(of url: URL) -> String? {
-    let size = getxattr(url.path, idAttribute, nil, 0, 0, 0)
-    guard size > 0 else { return nil }
-    var buffer = [UInt8](repeating: 0, count: size)
-    guard getxattr(url.path, idAttribute, &buffer, size, 0, 0) == size else { return nil }
-    return String(decoding: buffer, as: UTF8.self)
-  }
+  #if os(Windows)
+    // An NTFS alternate data stream holds the id: it travels with the file through moves and renames.
+    static func id(of url: URL) -> String? {
+      guard let data = try? Data(contentsOf: URL(fileURLWithPath: url.path + ":" + idAttribute)), !data.isEmpty else { return nil }
+      return String(decoding: data, as: UTF8.self)
+    }
 
-  static func setID(_ id: String, of url: URL) {
-    guard self.id(of: url) != id else { return }
-    let bytes = Array(id.utf8)
-    _ = setxattr(url.path, idAttribute, bytes, bytes.count, 0, 0)
-  }
+    static func setID(_ id: String, of url: URL) {
+      guard self.id(of: url) != id else { return }
+      try? Data(id.utf8).write(to: URL(fileURLWithPath: url.path + ":" + idAttribute))
+    }
+  #elseif canImport(Glibc)
+    // Linux keeps user attributes in the "user." namespace.
+    static func id(of url: URL) -> String? {
+      let name = "user." + idAttribute
+      let size = getxattr(url.path, name, nil, 0)
+      guard size > 0 else { return nil }
+      var buffer = [UInt8](repeating: 0, count: size)
+      guard getxattr(url.path, name, &buffer, size) == size else { return nil }
+      return String(decoding: buffer, as: UTF8.self)
+    }
+
+    static func setID(_ id: String, of url: URL) {
+      guard self.id(of: url) != id else { return }
+      let bytes = Array(id.utf8)
+      _ = setxattr(url.path, "user." + idAttribute, bytes, bytes.count, 0)
+    }
+  #else
+    static func id(of url: URL) -> String? {
+      let size = getxattr(url.path, idAttribute, nil, 0, 0, 0)
+      guard size > 0 else { return nil }
+      var buffer = [UInt8](repeating: 0, count: size)
+      guard getxattr(url.path, idAttribute, &buffer, size, 0, 0) == size else { return nil }
+      return String(decoding: buffer, as: UTF8.self)
+    }
+
+    static func setID(_ id: String, of url: URL) {
+      guard self.id(of: url) != id else { return }
+      let bytes = Array(id.utf8)
+      _ = setxattr(url.path, idAttribute, bytes, bytes.count, 0, 0)
+    }
+  #endif
 }
 
+#if canImport(ObjectiveC)
 /// Reports changes inside the mirrored folder.
 private final class MirrorPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
   let presentedItemURL: URL?
@@ -474,3 +528,42 @@ private final class MirrorPresenter: NSObject, NSFilePresenter, @unchecked Senda
     completionHandler(nil)
   }
 }
+#else
+/// Reports changes inside the mirrored folder: off Apple platforms, by comparing the folder's files (names, sizes,
+/// modification dates) once a second.
+private final class MirrorPresenter: @unchecked Sendable {
+  private let url: URL
+  private let changed: @Sendable () -> Void
+  private let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+  private var snapshot: [String: [Double]] = [:]
+
+  init(url: URL, changed: @escaping @Sendable () -> Void) {
+    self.url = url
+    self.changed = changed
+    snapshot = Self.snapshot(of: url)
+    timer.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(200))
+    timer.setEventHandler { [weak self] in self?.check() }
+    timer.resume()
+  }
+
+  private func check() {
+    let current = Self.snapshot(of: url)
+    guard current != snapshot else { return }
+    snapshot = current
+    changed()
+  }
+
+  private static func snapshot(of folder: URL) -> [String: [Double]] {
+    let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
+    guard let files = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys) else { return [:] }
+    var result: [String: [Double]] = [:]
+    for case let file as URL in files {
+      let values = try? file.resourceValues(forKeys: Set(keys))
+      result[file.path] = [values?.contentModificationDate?.timeIntervalSince1970 ?? 0, Double(values?.fileSize ?? 0)]
+    }
+    return result
+  }
+
+  deinit { timer.cancel() }
+}
+#endif
