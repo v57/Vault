@@ -7,17 +7,24 @@ extension VaultStore {
 
   /// Gives this device's projects their icons. `find` names the image file that is a folder's icon (Code's
   /// `ProjectIcon.find`), `thumbnail` turns it into the small PNG the vault keeps (`ProjectIcon.thumbnail`). An icon
-  /// is made again only when its file's contents changed (`iconSource` is their hash), and a project keeps its icon
-  /// when this device finds none. `ids` limits it to some projects. Safe to call off the main thread (the store is
-  /// locked only to read and save, not while looking).
+  /// is made again only when its file's contents changed (`iconSource` is their hash). A folder that has no icon
+  /// loses the one it had; a folder this device can't read keeps it. `ids` limits it to some projects. Safe to call
+  /// off the main thread (the store is locked only to read and save, not while looking).
   public func refreshProjectIcons(
     ids: Set<String>? = nil, find: (URL) -> URL?, thumbnail: (URL) -> Data?
   ) throws {
     for project in try records(VaultProject.self) where ids?.contains(project.id) ?? true {
-      guard let path = project.paths[deviceID],
-        let file = find(URL(fileURLWithPath: path, isDirectory: true)),
-        let contents = try? Data(contentsOf: file)
+      guard let path = project.paths[deviceID], (try? FileManager.default.contentsOfDirectory(atPath: path)) != nil
       else { continue }
+      guard let file = find(URL(fileURLWithPath: path, isDirectory: true)), let contents = try? Data(contentsOf: file)
+      else {
+        if project.icon != nil || project.iconSource != nil, var current = try record(VaultProject.self, id: project.id) {
+          current.icon = nil
+          current.iconSource = nil
+          try save(current)
+        }
+        continue
+      }
       let source = SHA256.hash(data: contents).prefix(12).map { String(format: "%02x", $0) }.joined()
       guard source != project.iconSource, let icon = thumbnail(file), icon.count <= Self.maxProjectIconSize,
         var current = try record(VaultProject.self, id: project.id)

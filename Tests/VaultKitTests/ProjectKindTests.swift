@@ -112,9 +112,17 @@ struct ProjectIconTests {
     #expect(made == 2)
     #expect(try mac.record(VaultProject.self, id: project.id)?.icon == Data("second".utf8))
 
-    // Nothing found here: the icon stays.
+    // The folder isn't on this device: the icon stays.
+    let away = root.deletingLastPathComponent().appendingPathComponent("away-\(UUID())")
+    try FileManager.default.moveItem(at: root, to: away)
     try mac.refreshProjectIcons(find: { _ in nil }) { _ in nil }
     #expect(try mac.record(VaultProject.self, id: project.id)?.icon == Data("second".utf8))
+    try FileManager.default.moveItem(at: away, to: root)
+
+    // The folder has no icon any more: neither has the project.
+    try FileManager.default.removeItem(at: file)
+    try mac.refreshProjectIcons(find: { _ in nil }) { _ in nil }
+    #expect(try mac.record(VaultProject.self, id: project.id)?.icon == nil)
   }
 
   @MainActor @Test func theVaultLooksForIconsOfProjectsAsTheyArrive() async throws {
