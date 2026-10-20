@@ -22,6 +22,8 @@ struct LoginsView: View {
   @Environment(AppModel.self) private var app
   @State private var filter = LoginFilter.all
   @State private var search = ""
+  /// The list's own selection: a login in Favorites is "fav:<id>", so its two rows are two values.
+  @State private var listSelection: String?
 
   private var logins: [VaultLogin] {
     let query = search.trimmingCharacters(in: .whitespaces).lowercased()
@@ -54,11 +56,17 @@ struct LoginsView: View {
         }
         .padding(.horizontal, KitMetrics.gutter + 4)
         .padding(.vertical, 6)
-        KitList(selection: $app.selectedLogin) {
+        KitList(selection: Binding(
+          get: { listSelection ?? app.selectedLogin },
+          set: { value in
+            listSelection = value
+            app.selectedLogin = value.map { $0.hasPrefix("fav:") ? String($0.dropFirst(4)) : $0 }
+          }
+        )) {
           let favorites = logins.filter(\.favorite)
           if filter == .all, search.isEmpty, !favorites.isEmpty {
             KitSection("Favorites", meta: ["\(favorites.count) logins", "pinned on every device"], systemImage: "star", hue: .yellow) {
-              ForEach(favorites) { LoginRow(login: $0) }
+              ForEach(favorites) { LoginRow(login: $0, value: "fav:" + $0.id) }
             }
           }
           KitSection(
@@ -102,10 +110,11 @@ struct LoginsView: View {
 /// A login in the list: its letter tile, title, "username · domain", and the links and code it has.
 private struct LoginRow: View {
   let login: VaultLogin
+  var value: String?
   @Environment(AppModel.self) private var app
 
   var body: some View {
-    SidebarRow(value: login.id, login.displayName, subtitle: [login.username, login.domain ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")) {
+    SidebarRow(value: value ?? login.id, login.displayName, subtitle: [login.username, login.domain ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")) {
       LetterTile(name: login.displayName, size: KitMetrics.rowTile(.pad) - 4)
     } trailing: {
       HStack(spacing: 6) {
