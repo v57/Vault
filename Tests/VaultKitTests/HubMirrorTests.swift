@@ -123,5 +123,10 @@ struct HubMirrorTests {
     read = try #require(try store.record(VaultHubServer.self, id: hub.id))
     #expect(read.connects.isEmpty)
     #expect(!VaultHubServer(url: "ws://192.168.1.20:1997").isPlayground)
+    read.members = ["studio-vault-id": "8cef065b7af83669150b7d32704d3d3e"]
+    try store.save(read)
+    read = try #require(try store.record(VaultHubServer.self, id: hub.id))
+    #expect(read.vaultDevice(forHubDevice: "8cef065b7af83669150b7d32704d3d3e") == "studio-vault-id")
+    #expect(read.vaultDevice(forHubDevice: "other") == nil)
   }
 }

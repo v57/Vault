@@ -197,4 +197,11 @@ public final class Vault {
 
   /// The hosts that are devices on the user's Hubs, reached through Hub Network.
   public var hubHosts: [VaultHost] { hosts.filter(\.isViaHub) }
+
+  /// The vault device a host via Hub is, when that device runs a v57 app connected to the Hub: the key to its
+  /// per-device fields, such as where a project is on it (`project.paths[device]`).
+  public func vaultDevice(of host: VaultHost) -> String? {
+    guard let route = host.hub else { return nil }
+    return hub(id: route.hubID)?.vaultDevice(forHubDevice: route.deviceID)
+  }
 }

@@ -7,7 +7,7 @@ import Foundation
 /// at the same address fail to connect instead of being trusted.
 public struct VaultHubServer: VaultRecord, Hashable {
   public static let kind = "hub"
-  public static let dynamicPrefixes = ["connects."]
+  public static let dynamicPrefixes = ["connects.", "member."]
 
   public var id: String
   public var name: String
@@ -17,18 +17,22 @@ public struct VaultHubServer: VaultRecord, Hashable {
   public var hubKey: String?
   /// The devices that connect to it.
   public var connects: Set<String>
+  /// Each vault device's id on this Hub (`member.<vault device>`), written by the device itself when it connects, so
+  /// a Hub device can be matched to the vault's per-device fields (a project's `path.<device>`).
+  public var members: [String: String]
   public var order: Int
   public var added: Date?
 
   public init(
     id: String = UUID().uuidString, name: String = "", url: String, hubKey: String? = nil, connects: Set<String> = [],
-    order: Int = 0, added: Date? = .now
+    members: [String: String] = [:], order: Int = 0, added: Date? = .now
   ) {
     self.id = id
     self.name = name
     self.url = url
     self.hubKey = hubKey
     self.connects = connects
+    self.members = members
     self.order = order
     self.added = added
   }
@@ -40,6 +44,7 @@ public struct VaultHubServer: VaultRecord, Hashable {
     url = read.string("url", default: "")
     hubKey = read.string("hubKey")
     connects = Set(read.flags(prefixed: "connects"))
+    members = read.strings(prefixed: "member")
     order = read.int("order", default: 0)
     added = read.date("added")
   }
@@ -50,6 +55,7 @@ public struct VaultHubServer: VaultRecord, Hashable {
       "added": .init(added),
     ]
     for device in connects { values["connects.\(device)"] = .bool(true) }
+    values.set(members, prefixed: "member")
     return values
   }
 
@@ -67,6 +73,11 @@ public struct VaultHubServer: VaultRecord, Hashable {
   }
 
   public func connects(on device: String) -> Bool { connects.contains(device) }
+
+  /// The vault device that is `hubDevice` on this Hub, once it connected and said so.
+  public func vaultDevice(forHubDevice hubDevice: String) -> String? {
+    members.first { $0.value == hubDevice }?.key
+  }
 }
 
 /// A device in a Hub's directory, as Vault sees it: the Hub's registry entry (name, platform, presence) and what the

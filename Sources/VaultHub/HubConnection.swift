@@ -116,6 +116,11 @@ public final class HubConnection: Identifiable {
     guard let info: HubWire.Info = try? await client.send("hub/info") else { return }
     securityMode = info.mode
     guard var hub else { return }
+    // Tell the other devices which Hub device this vault device is (a project's folder on it, for remote builds).
+    if hub.members[vault.deviceID] != device.id {
+      hub.members[vault.deviceID] = device.id
+      vault.save(hub)
+    }
     if let pinned = hub.hubKey {
       if pinned != info.key {
         status = .wrongHub
