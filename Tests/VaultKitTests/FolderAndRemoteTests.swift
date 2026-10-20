@@ -114,10 +114,18 @@ struct RemotePathTests {
 /// The same rules for every backend.
 struct RemoteFileSystemTests {
   static func backends() -> [any RemoteFileSystem] {
-    [MemoryRemoteFileSystem(), LocalRemoteFileSystem(root: temporaryDirectory())]
+    [
+      MemoryRemoteFileSystem(), LocalRemoteFileSystem(root: temporaryDirectory()),
+      // Small pages, so listings follow continuation tokens.
+      S3FileSystem(
+        configuration: S3Configuration(
+          endpoint: URL(string: "http://127.0.0.1:9000")!, bucket: "vault-test", region: "us-east-1",
+          accessKeyID: "AKIDTEST", secretAccessKey: "secret"),
+        transport: FakeS3(), pageSize: 2),
+    ]
   }
 
-  @Test(arguments: [0, 1]) func writeReadList(_ index: Int) async throws {
+  @Test(arguments: [0, 1, 2]) func writeReadList(_ index: Int) async throws {
     let fs = Self.backends()[index]
     try await fs.write(Data("hello world".utf8), to: "/docs/notes/a.txt")
     try await fs.write(Data("b".utf8), to: "docs/b.txt")
@@ -135,7 +143,7 @@ struct RemoteFileSystemTests {
     #expect(try await fs.read("docs/b.txt") == Data("new".utf8))
   }
 
-  @Test(arguments: [0, 1]) func rangeReads(_ index: Int) async throws {
+  @Test(arguments: [0, 1, 2]) func rangeReads(_ index: Int) async throws {
     let fs = Self.backends()[index]
     try await fs.write(Data("0123456789".utf8), to: "f")
     #expect(try await fs.read("f", range: 2..<5) == Data("234".utf8))
@@ -144,7 +152,7 @@ struct RemoteFileSystemTests {
     #expect(try await fs.read("f", range: 0..<0) == Data())
   }
 
-  @Test(arguments: [0, 1]) func errors(_ index: Int) async throws {
+  @Test(arguments: [0, 1, 2]) func errors(_ index: Int) async throws {
     let fs = Self.backends()[index]
     try await fs.write(Data("x".utf8), to: "file")
     try await fs.createDirectory("dir/sub")
@@ -162,7 +170,7 @@ struct RemoteFileSystemTests {
     try await fs.createDirectory("dir")
   }
 
-  @Test(arguments: [0, 1]) func renameAndDelete(_ index: Int) async throws {
+  @Test(arguments: [0, 1, 2]) func renameAndDelete(_ index: Int) async throws {
     let fs = Self.backends()[index]
     try await fs.write(Data("1".utf8), to: "a/one")
     try await fs.write(Data("2".utf8), to: "a/two")
