@@ -4,8 +4,9 @@ import Foundation
 /// item they belong to. They sync end to end encrypted, so a connection added on the Mac opens on the iPad
 /// without typing the password again.
 ///
-/// A demo run or a test calls `useInMemoryStore()` first: from then on, secrets live in memory for the rest of
-/// the process and the user's keychain is never read or written.
+/// A demo run or a test calls `useInMemoryStore()` first: from then on, secrets and the personal identity
+/// (`VaultPersonalIdentity`) live in memory for the rest of the process and the user's keychain is never read
+/// or written.
 public enum VaultSecrets {
   static let keychain = VaultKeychain(service: "dev.v57.vault.secrets")
 
@@ -21,12 +22,13 @@ public enum VaultSecrets {
   /// Whether secrets live in memory (a demo run or a test).
   public static var isInMemory: Bool { backing is MemorySecretBacking }
 
-  /// Keeps secrets in memory for the rest of the process, so a demo or a test never
+  /// Keeps secrets and the personal identity in memory for the rest of the process, so a demo or a test never
   /// touches the user's keychain. Calling it again keeps what the memory store already holds.
   public static func useInMemoryStore() {
     lock.withLock {
       if !(_backing is MemorySecretBacking) { _backing = MemorySecretBacking() }
     }
+    VaultPersonalIdentity.useInMemoryStore()
   }
 
   /// The password saved for an item (a host, a database, a login).

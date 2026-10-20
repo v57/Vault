@@ -23,6 +23,8 @@ public final class Vault {
   /// Logins, by title.
   public private(set) var logins: [VaultLogin] = []
   public private(set) var cards: [VaultCard] = []
+  /// People the user shares with, by name.
+  public private(set) var people: [VaultPerson] = []
   /// Why the store couldn't open or save, for the UI.
   public var error: String?
 
@@ -110,6 +112,9 @@ public final class Vault {
       knownHosts = try store.records(VaultKnownHost.self).sorted { ($0.host, $0.port) < ($1.host, $1.port) }
       logins = try store.records(VaultLogin.self).sorted {
         $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+      }
+      people = try store.records(VaultPerson.self).sorted {
+        $0.name.localizedStandardCompare($1.name) == .orderedAscending
       }
       cards = try store.records(VaultCard.self).sorted {
         ($0.order, $0.title.localizedLowercase) < ($1.order, $1.title.localizedLowercase)
