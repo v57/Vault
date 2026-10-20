@@ -55,7 +55,8 @@ connection) keeps the ones it doesn't know.
 the team's apps that list it can read. Other apps, other users and CloudKit see ciphertext. Each item names its key,
 so a device can hold several: if two devices make the first key at once, both keys reach both devices and the one
 with the smaller id becomes everyone's key for new writes. Passwords are separate iCloud Keychain items
-(`VaultSecrets`; a demo run or a test keeps them in memory instead with `VaultSecrets.useInMemoryStore()`). Each device's SSH key is a Secure Enclave key (`VaultIdentity`) shared by the apps on that device.
+(`VaultSecrets`; a demo run or a test keeps them in memory instead with `VaultSecrets.useInMemoryStore()`). Each
+device's SSH key is a Secure Enclave key (`VaultIdentity`) shared by the apps on that device.
 
 **Merging.** Every field carries a hybrid logical clock (wall time, a counter, the device id). Merging two copies
 of an item keeps each field's later write, so edits made on an iPhone and a Mac at once both survive unless they
@@ -111,6 +112,7 @@ conflict versions of notes in folders the user adds to Markdown.
 | `Store/` | `VaultStore` (SQLite, outbox, merging records in), change notifications |
 | `Records/` | Typed records: `VaultProject`, `VaultProjectGroup` (with `VaultProjectTree`), `VaultHost`, `VaultKnownHost`, `VaultDeviceKey`, `VaultDatabase`, `VaultNote`, `VaultNoteFile` |
 | `Sync/` | `SyncCoordinator` (the sync rules, testable), `CloudSync` (the `CKSyncEngine` adapter) |
+| `Passwords/` | `OneTimeCode` (TOTP/HOTP, `otpauth://` URLs), `Base32` |
 | `Notes/` | `NotesMirror`, `EncryptedNote`, `NoteConflicts`, `NoteBaseCache`, `TextMerge` |
 
 `swift test` runs the merge, store and sync tests. The sync tests use a fake CloudKit (`Tests/.../FakeCloud.swift`)
