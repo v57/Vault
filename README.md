@@ -109,7 +109,7 @@ conflict versions of notes in folders the user adds to Markdown.
 |---|---|
 | `Core/` | `JSONValue`, `HybridClock`, `ItemFields` (the merge), `VaultConfiguration` (identifiers) |
 | `Keys/` | `VaultKeychain` (shared group), `VaultKeys` (AES keys, sealing), `VaultIdentity` (SSH key), `VaultSecrets`, `VaultDevice` |
-| `Store/` | `VaultStore` (SQLite, outbox, merging records in), change notifications |
+| `Store/` | `VaultStore` (SQLite, outbox, merging records in), change notifications, `VaultFieldChange` (each field's last write: when, which device) |
 | `Records/` | Typed records: `VaultProject`, `VaultProjectGroup` (with `VaultProjectTree`), `VaultHost`, `VaultKnownHost`, `VaultDeviceKey`, `VaultDatabase`, `VaultNote`, `VaultNoteFile`, `VaultLogin`, `VaultCard` |
 | `Sync/` | `SyncCoordinator` (the sync rules, testable), `CloudSync` (the `CKSyncEngine` adapter) |
 | `Passwords/` | `OneTimeCode` (TOTP/HOTP, `otpauth://` URLs), `Base32`, `PasswordGenerator`, `PasswordStrength` |
