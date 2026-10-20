@@ -23,6 +23,10 @@ public final class Vault {
   /// Logins, by title.
   public private(set) var logins: [VaultLogin] = []
   public private(set) var cards: [VaultCard] = []
+  /// Encrypted and synced folders.
+  public private(set) var folders: [VaultFolder] = []
+  /// Remotes folders sync through.
+  public private(set) var remotes: [VaultRemote] = []
   /// People the user shares with, by name.
   public private(set) var people: [VaultPerson] = []
   /// Why the store couldn't open or save, for the UI.
@@ -113,6 +117,12 @@ public final class Vault {
       logins = try store.records(VaultLogin.self).sorted {
         $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
       }
+      folders = try store.records(VaultFolder.self).sorted {
+        ($0.order, $0.name.localizedLowercase) < ($1.order, $1.name.localizedLowercase)
+      }
+      remotes = try store.records(VaultRemote.self).sorted {
+        ($0.order, $0.displayName.localizedLowercase) < ($1.order, $1.displayName.localizedLowercase)
+      }
       people = try store.records(VaultPerson.self).sorted {
         $0.name.localizedStandardCompare($1.name) == .orderedAscending
       }
@@ -157,6 +167,19 @@ public final class Vault {
   /// The tree of the projects with a folder on this device, and the groups holding them.
   public var localProjectTree: VaultProjectTree {
     projectTree.filter { $0.paths[deviceID] != nil }
+  }
+
+  /// Folders with a path on this device.
+  public var localFolders: [VaultFolder] {
+    folders.filter { $0.paths[deviceID] != nil }
+  }
+
+  public func folder(id: String?) -> VaultFolder? {
+    id.flatMap { id in folders.first { $0.id == id } }
+  }
+
+  public func remote(id: String?) -> VaultRemote? {
+    id.flatMap { id in remotes.first { $0.id == id } }
   }
 
   public func host(id: String?) -> VaultHost? {
