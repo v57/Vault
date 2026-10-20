@@ -40,6 +40,10 @@ struct ContentView: View {
     }
     .onChange(of: app.selection) { _, _ in compactColumn = .detail }
     .onOpenURL { url in app.sharing.open(url) }
+    .task(id: app.vault.logins) {
+      // What the system offers in password fields (only once Vault is turned on in AutoFill settings).
+      if !app.isDemo { await VaultAutoFill.publish(app.vault.logins) }
+    }
     .onAppear {
       #if os(macOS)
         if LaunchOptions.flag("--welcome") || (showWelcome && !app.isDemo) { openWindow(id: "welcome") }
