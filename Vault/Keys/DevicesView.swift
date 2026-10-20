@@ -9,39 +9,52 @@ struct DevicesView: View {
   @Environment(AppModel.self) private var app
   @State private var search = ""
   @State private var identityError: String?
+  @State private var pushed: String?
+  @Environment(\.kitIdiom) private var idiom
 
   var body: some View {
     @Bindable var app = app
     let people = app.sharing.people
     ListAndInspector(name: "devices") {
-      KitList(selection: $app.selectedPerson) {
+      KitList(selection: Binding(get: { app.selectedPerson }, set: { id in
+        app.selectedPerson = id
+        if idiom == .phone { pushed = id }
+      })) {
         if let device = app.thisDevice {
-          KitSection(device.deviceName, meta: [device.platform == "macOS" ? "This Mac" : "This iPad", device.platform == "macOS" ? "macOS" : "iPadOS", "Secure Enclave"], systemImage: DeviceGlyph.systemImage(device)) {
+          KitSection(
+            idiom == .phone ? "This \(ThisDevice.word)" : device.deviceName,
+            meta: idiom == .phone ? [ThisDevice.system, "Secure Enclave"] : ["This \(ThisDevice.word)", ThisDevice.system, "Secure Enclave"],
+            systemImage: DeviceGlyph.systemImage(device)
+          ) {
             InspectorRow("SSH key", copyText: device.publicKey) {
-              Text("ecdsa-sha2-nistp256 \(ShortKey.fingerprint(device.fingerprint))").kitFont(.mono).lineLimit(1)
+              Text(idiom == .phone ? ShortKey.fingerprint(device.fingerprint) : "ecdsa-sha2-nistp256 \(ShortKey.fingerprint(device.fingerprint))")
+                .kitFont(.mono).lineLimit(1)
             }
-            InspectorRow("Never leaves", value: "this \(device.platform == "macOS" ? "Mac" : "iPad")’s Secure Enclave", copyable: false)
-            InspectorRow("Used by", value: "Shell, Database, Vault", copyable: false)
+            InspectorRow("Never leaves", value: idiom == .phone ? "this \(ThisDevice.word)" : "this \(ThisDevice.word)’s Secure Enclave", copyable: false)
+            if idiom != .phone { InspectorRow("Used by", value: "Shell, Database, Vault", copyable: false) }
           }
         }
         KitSection(
-          "Your other devices", meta: ["\(app.otherDevices.count) devices", "vault keys arrive through iCloud Keychain"],
+          "Your other devices", meta: ["\(app.otherDevices.count) devices", idiom == .phone ? "keys through iCloud Keychain" : "vault keys arrive through iCloud Keychain"],
           systemImage: "laptopcomputer", hue: .gray
         ) {
           ForEach(app.otherDevices) { device in
-            SidebarRow(device.deviceName, subtitle: "\(device.platform == "iOS" ? "iPadOS" : "macOS") · key \(ShortKey.fingerprint(device.fingerprint)) · seen \(device.updated.map { RelativeTime.day($0).lowercased() } ?? "")") {
+            let day = device.updated.map { RelativeTime.day($0) } ?? ""
+            let seen = "seen \(day == "Today" || day == "Yesterday" ? day.lowercased() : day)"
+            SidebarRow(device.deviceName, subtitle: idiom == .phone ? seen : "\(device.platform == "iOS" ? "iPadOS" : "macOS") · key \(ShortKey.fingerprint(device.fingerprint)) · \(seen)") {
               RowTile(systemImage: DeviceGlyph.systemImage(device))
             } trailing: {
               Chip("Up to date", hue: .green).controlSize(.small)
             }
           }
-          LinkRow(title: "A device without iCloud Keychain", subtitle: "Linux, Windows or Android: it scans an invite from this \(KitDevice.name.contains("iPad") ? "iPad" : "Mac")", systemImage: "qrcode") {
+          LinkRow(title: "A device without iCloud Keychain", subtitle: "Linux, Windows or Android: it scans an invite from this \(ThisDevice.word)", systemImage: "qrcode") {
             app.sheet = .addDevice
           }
         } accessory: {
-          Button("Add Device…") { app.sheet = .addDevice }.buttonStyle(.kit).controlSize(.small)
+          // On iPhone Add Device is in the bottom bar.
+          if idiom != .phone { Button("Add Device…") { app.sheet = .addDevice }.buttonStyle(.kit).controlSize(.small) }
         }
-        identitySection
+        if idiom != .phone { identitySection }
         KitSection(
           "People", meta: ["\(people.filter { $0.status == .verified }.count) verified", "\(people.filter { $0.status != .verified }.count) waiting"],
           systemImage: "person.2", hue: .blue
@@ -55,8 +68,13 @@ struct DevicesView: View {
           }
           if people.isEmpty { Text("No one yet. Invite someone to share a folder or logins.").kitFont(.caption).padding(8) }
         } accessory: {
-          Button("Invite…") { app.sheet = .invite }.buttonStyle(.kit).controlSize(.small)
+          if idiom == .phone {
+            Button("Invite", systemImage: "plus") { app.sheet = .invite }.buttonStyle(.kitIcon)
+          } else {
+            Button("Invite…") { app.sheet = .invite }.buttonStyle(.kit).controlSize(.small)
+          }
         }
+        if idiom == .phone { identitySection }
       }
       .padding(.top, KitMetrics.gutter)
     } inspector: {
@@ -66,13 +84,34 @@ struct DevicesView: View {
         EmptyState(systemImage: "person.2", title: "No One Selected", message: "Pick someone to compare your safety code.")
       }
     }
-    .kitToolbar("Devices & People", meta: ["\(app.devices.count) devices", "\(people.count) people", "keys in iCloud Keychain"], systemImage: "checkmark.shield", hue: .green) {
-      ToolGroup {
-        Button("Add Device", systemImage: "qrcode") { app.sheet = .addDevice }
-        Button("Scan Invite", systemImage: "qrcode.viewfinder") { app.sheet = .scanInvite }
-        Button("Invite", systemImage: "person.badge.plus") { app.sheet = .invite }
+    .kitToolbar("Devices & People", meta: ["\(app.devices.count) devices", "\(people.count) people", idiom == .phone ? "" : "keys in iCloud Keychain"], systemImage: "checkmark.shield", hue: .green) {
+      if idiom == .phone {
+        Button("Invite", systemImage: "person.badge.plus") { app.sheet = .invite }.buttonStyle(.kitRound)
+      } else {
+        ToolGroup {
+          Button("Add Device", systemImage: "qrcode") { app.sheet = .addDevice }
+          Button("Scan Invite", systemImage: "qrcode.viewfinder") { app.sheet = .scanInvite }
+          Button("Invite", systemImage: "person.badge.plus") { app.sheet = .invite }
+        }
+        ToolbarSearch(text: $search, prompt: "Search")
       }
-      ToolbarSearch(text: $search, prompt: "Search")
+    }
+    .phoneBottomBar(prompt: "Search", search: $search) {
+      Button("Add Device", systemImage: "qrcode") { app.sheet = .addDevice }
+    }
+    .onAppear { if idiom == .phone, LaunchOptions.pushes { pushed = app.selectedPerson } }
+    .navigationDestination(item: $pushed) { id in
+      if let person = people.first(where: { $0.id == id }) {
+        PushedDetail(title: person.name, meta: [person.status == .verified ? "Verified" : "Waiting", "shares \(person.record.roles.count) things"]) {
+          Avatar(name: person.name, letters: LetterTile.initials(person.name), size: 30)
+        } content: {
+          PersonInspector(person: person)
+        } trailing: {
+          EmptyView()
+        } actions: {
+          Button("Share…", systemImage: "person.badge.plus") { if let folder = app.folders.folders.first { app.sheet = .share(folder.id) } }
+        }
+      }
     }
   }
 
@@ -84,7 +123,7 @@ struct DevicesView: View {
         InspectorRow("Key wrapping", value: identity.agreementFingerprint, copyable: false)
         InspectorRow("Kept in", value: "iCloud Keychain, apart from the device keys", copyable: false)
       } accessory: {
-        Button("Show QR Code") { app.sheet = .invite }.buttonStyle(.kit).controlSize(.small)
+        if idiom != .phone { Button("Show QR Code") { app.sheet = .invite }.buttonStyle(.kit).controlSize(.small) }
       }
     } else {
       KitSection("Your identity", meta: "made when you first share", systemImage: "person", hue: .purple) {
@@ -114,20 +153,23 @@ struct DevicesView: View {
 private struct PersonInspector: View {
   let person: PersonItem
   @Environment(AppModel.self) private var app
+  @Environment(\.pushedDetail) private var pushed
   @State private var confirmsRemove = false
 
   var body: some View {
     let first = person.name.split(separator: " ").first.map(String.init) ?? person.name
     let shared = app.folders.folders.filter { person.record.roles[$0.id] != nil }
     let otherShares = person.record.roles.filter { key, _ in !shared.contains { $0.id == key } }
-    RichHeader(Text(person.name), size: .title) {
-      Avatar(name: person.name, letters: LetterTile.initials(person.name), size: 30)
-    } meta: {
-      MetaLine(person.status == .verified ? "Verified \(person.record.verified.map { RelativeTime.day($0) } ?? "")" : "Not verified yet", "shares \(person.record.roles.count) things")
-    } accessory: {
-      EmptyView()
+    if !pushed {
+      RichHeader(Text(person.name), size: .title) {
+        Avatar(name: person.name, letters: LetterTile.initials(person.name), size: 30)
+      } meta: {
+        MetaLine(person.status == .verified ? "Verified \(person.record.verified.map { RelativeTime.day($0) } ?? "")" : "Not verified yet", "shares \(person.record.roles.count) things")
+      } accessory: {
+        EmptyView()
+      }
+      .padding(.horizontal, 6)
     }
-    .padding(.horizontal, 6)
     if let code = app.sharing.safetyCode(with: person) {
       KitSection(
         "Safety code", meta: person.status == .verified ? ["matched on \(person.record.verified.map { RelativeTime.day($0) } ?? "")", "in person"] : ["compare it with \(first)"],
@@ -157,9 +199,13 @@ private struct PersonInspector: View {
         InspectorRow("Key wrapping", value: identity.agreementFingerprint, copyable: false)
       }
     }
-    ActionBar {
-      Button("Share…") { if let folder = app.folders.folders.first { app.sheet = .share(folder.id) } }
-      Button("Remove…", role: .destructive) { confirmsRemove = true }
+    if pushed {
+      Button("Remove \(first)…", role: .destructive) { confirmsRemove = true }.buttonStyle(.kit).frame(maxWidth: .infinity)
+    } else {
+      ActionBar {
+        Button("Share…") { if let folder = app.folders.folders.first { app.sheet = .share(folder.id) } }
+        Button("Remove…", role: .destructive) { confirmsRemove = true }
+      }
     }
     Text("Removing \(first) rotates the keys of what you share, so \(first) can’t read anything new. What \(first) already downloaded stays theirs.")
       .kitFont(.caption)

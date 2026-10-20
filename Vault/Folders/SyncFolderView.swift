@@ -10,6 +10,8 @@ struct SyncFolderView: View {
   let activity: FolderSyncActivity
   @Environment(AppModel.self) private var app
   @State private var search = ""
+  @State private var showsSettings = false
+  @Environment(\.kitIdiom) private var idiom
 
   var body: some View {
     let sync = app.folders.sync
@@ -24,28 +26,47 @@ struct SyncFolderView: View {
               theirs: ConflictSide("Remote", ref: conflict.theirsRef, code: conflict.theirs)
             )
             .padding([.horizontal, .bottom], 6)
-          } accessory: {
-            HStack(spacing: 6) {
-              Button("Keep Mine") { withKitAnimation { sync.keepMine(conflict.name, in: folder.id) } }.buttonStyle(.kit)
-              Button("Revert to Remote") { withKitAnimation { sync.revert(conflict.name, in: folder.id) } }.buttonStyle(.kitPrimary)
+            if idiom == .phone {
+              // Full width under the two copies (iPhone).
+              HStack(spacing: KitMetrics.gutter) {
+                Button { withKitAnimation { sync.keepMine(conflict.name, in: folder.id) } } label: {
+                  Text("Keep Mine").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.kit)
+                Button { withKitAnimation { sync.revert(conflict.name, in: folder.id) } } label: {
+                  Text("Revert to Remote").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.kitPrimary)
+              }
+              .controlSize(.small)
+              .padding([.horizontal, .bottom], 6)
             }
-            .controlSize(.small)
+          } accessory: {
+            if idiom != .phone {
+              HStack(spacing: 6) {
+                Button("Keep Mine") { withKitAnimation { sync.keepMine(conflict.name, in: folder.id) } }.buttonStyle(.kit)
+                Button("Revert to Remote") { withKitAnimation { sync.revert(conflict.name, in: folder.id) } }.buttonStyle(.kitPrimary)
+              }
+              .controlSize(.small)
+            }
           }
         }
         if !activity.changedHere.isEmpty {
           KitSection(
-            "Changed here", meta: folder.isReadOnly ? ["this \(KitDevice.name.contains("iPad") ? "iPad" : "Mac") only receives", "these edits aren’t sent"] : ["not sent yet"],
+            "Changed here", meta: folder.isReadOnly ? ["this \(ThisDevice.word) only receives", "these edits aren’t sent"] : ["not sent yet"],
             systemImage: "pencil", hue: .orange
           ) {
             ForEach(activity.changedHere) { file in
               HStack(spacing: 10) {
                 RowTile(systemImage: KitFileCell.Kind.of(file.name).systemImage)
                 VStack(alignment: .leading, spacing: 1) {
-                  Text(file.name)
-                  Text(file.detail).kitFont(.caption)
+                  Text(file.name).lineLimit(1)
+                  Text(file.detail).kitFont(.caption).lineLimit(1)
                 }
                 Spacer()
-                Button("Keep Mine") { withKitAnimation { sync.keepMine(file.name, in: folder.id) } }.buttonStyle(.kitPlain)
+                if idiom != .phone {
+                  Button("Keep Mine") { withKitAnimation { sync.keepMine(file.name, in: folder.id) } }.buttonStyle(.kitPlain)
+                }
                 Button("Revert") { withKitAnimation { sync.revert(file.name, in: folder.id) } }.buttonStyle(.kit)
               }
               .controlSize(.small)
@@ -55,7 +76,9 @@ struct SyncFolderView: View {
           } accessory: {
             HStack(spacing: 6) {
               Count(edits, .attention)
-              Button("Revert All") { withKitAnimation { sync.revertAll(in: folder.id) } }.buttonStyle(.kit).controlSize(.small)
+              if idiom != .phone {
+                Button("Revert All") { withKitAnimation { sync.revertAll(in: folder.id) } }.buttonStyle(.kit).controlSize(.small)
+              }
             }
           }
         }
@@ -104,7 +127,7 @@ struct SyncFolderView: View {
           }
         }
       }
-      .kitStatusBar(systemImage: "arrow.triangle.2.circlepath", status: activity.isReceiving ? .working(progress: Double(activity.receivingDone) / Double(activity.receivingTotal)) : .done) {
+      .paneStatusBar(systemImage: "arrow.triangle.2.circlepath", status: activity.isReceiving ? .working(progress: Double(activity.receivingDone) / Double(activity.receivingTotal)) : .done) {
         Text("Receiving \(activity.progressLine) · checked \(activity.source) \(activity.checked)")
         Text("\(totals.items) items · \(Bytes.text(totals.bytes))").foregroundStyle(.kitSecondary)
       }
@@ -114,16 +137,32 @@ struct SyncFolderView: View {
     .kitToolbar(folder.name, title: {
       KitTitle(
         folder.name,
-        meta: [activity.isReceiving ? "Receiving \(activity.progressLine)" : "Synced", edits > 0 ? "\(edits) edits kept here" : "",
+        meta: [activity.isReceiving ? "Receiving \(activity.progressLine)" : "Synced", edits > 0 && idiom != .phone ? "\(edits) edits kept here" : "",
                activity.conflicts.isEmpty ? "" : "\(activity.conflicts.count) conflict"],
         systemImage: "arrow.triangle.2.circlepath",
         status: activity.isReceiving ? .working(progress: Double(activity.receivingDone) / Double(activity.receivingTotal)) : .idle)
     }) {
-      ToolGroup {
-        Button("Sync Now", systemImage: "arrow.clockwise") { app.syncNow() }
-        if let url = folder.localURL { Button(KitDesktop.fileManagerName, systemImage: "folder") { KitDesktop.reveal([url]) } }
+      if idiom == .phone {
+        Button("Folder Settings", systemImage: "ellipsis") { showsSettings = true }.buttonStyle(.kitRound)
+      } else {
+        ToolGroup {
+          Button("Sync Now", systemImage: "arrow.clockwise") { app.syncNow() }
+          if let url = folder.localURL { Button(KitDesktop.fileManagerName, systemImage: "folder") { KitDesktop.reveal([url]) } }
+        }
+        ToolbarSearch(text: $search, prompt: "Search \(folder.name)")
       }
-      ToolbarSearch(text: $search, prompt: "Search \(folder.name)")
+    }
+    .phoneBottomBar(prompt: "Search \(folder.name)", search: $search) {
+      Button("Sync Now", systemImage: "arrow.clockwise") { app.syncNow() }
+    }
+    .navigationDestination(isPresented: $showsSettings) {
+      PushedDetail(title: folder.name, meta: ["Synced folder", folder.isEncrypted ? "encrypted here" : "plain here"], systemImage: "folder", hue: .blue) {
+        SyncInspector(folder: folder)
+      } trailing: {
+        EmptyView()
+      } actions: {
+        if let url = folder.localURL { Button("Open in Files", systemImage: "folder") { KitDesktop.reveal([url]) } }
+      }
     }
   }
 }
@@ -132,13 +171,16 @@ struct SyncFolderView: View {
 private struct SyncInspector: View {
   let folder: FolderItem
   @Environment(AppModel.self) private var app
+  @Environment(\.pushedDetail) private var pushed
 
   var body: some View {
     let record = folder.record
     let device = app.vault.deviceID
-    InspectorHeader(folder.name, meta: ["Synced folder", folder.isEncrypted ? "encrypted here" : "plain here"], systemImage: "folder", hue: .blue) {}
+    if !pushed {
+      InspectorHeader(folder.name, meta: ["Synced folder", folder.isEncrypted ? "encrypted here" : "plain here"], systemImage: "folder", hue: .blue) {}
+    }
     KitSection(
-      "On this \(KitDevice.name.contains("iPad") ? "iPad" : "Mac")",
+      "On this \(ThisDevice.word)",
       meta: [app.thisDevice?.deviceName ?? KitDevice.name, folder.localURL.map { ProjectsView.tilde($0.path) } ?? ""],
       systemImage: "desktopcomputer"
     ) {

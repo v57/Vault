@@ -8,6 +8,7 @@ struct NewItemSheet: View {
   @State var kind: NewItemKind
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.kitIdiom) private var idiom
 
   var body: some View {
     if kind == .remote {
@@ -21,19 +22,18 @@ struct NewItemSheet: View {
 
   private var sheet: some View {
     KitSheet(
-      title: title, meta: "Saved in iCloud Keychain on your \(app.devices.count) devices. Only v57 apps and AutoFill can read it.",
+      title: title,
+      meta: "Saved in iCloud Keychain on your \(app.devices.count) devices" + (idiom == .phone ? "" : ". Only v57 apps and AutoFill can read it."),
       systemImage: kindImage(kind), width: 660
     ) {
       VStack(alignment: .leading, spacing: 6) {
         Text("Kind").kitFont(.headline).padding(.leading, 4)
-        Grid(horizontalSpacing: KitMetrics.gutter, verticalSpacing: KitMetrics.gutter) {
-          GridRow {
-            choice(.login, "Login", "Website or app")
-            choice(.card, "Card", "Payment card")
-            choice(.note, "Note", "Encrypted text")
-          }
-          GridRow {
-            choice(.host, "SSH Host", "Shell, Database")
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: KitMetrics.gutter), count: idiom == .phone ? 2 : 3), spacing: KitMetrics.gutter) {
+          choice(.login, "Login", "Website or app")
+          choice(.card, "Card", "Payment card")
+          choice(.note, "Note", "Encrypted text")
+          choice(.host, "SSH Host", "Shell, Database")
+          if idiom != .phone {
             choice(.database, "Database", "A connection")
             choice(.remote, "Remote", "S3, SFTP, SMB")
           }
@@ -104,6 +104,7 @@ struct LabeledField<Content: View>: View {
 private struct LoginForm: View {
   var onSave: () -> Void
   @Environment(AppModel.self) private var app
+  @Environment(\.kitIdiom) private var idiom
   @State private var title = ""
   @State private var website = ""
   @State private var username = ""
@@ -116,12 +117,12 @@ private struct LoginForm: View {
 
   var body: some View {
     let strength = PasswordStrength(password: password)
-    Grid(horizontalSpacing: 12, verticalSpacing: 12) {
-      GridRow {
+    VStack(spacing: 12) {
+      FieldRow {
         LabeledField("Title") { TextField("Build server console", text: $title).kitField() }
         LabeledField("Website") { TextField("example.com", text: $website).kitField() }
       }
-      GridRow(alignment: .top) {
+      FieldRow {
         LabeledField("Username") { TextField("you@example.com", text: $username).kitField() }
         LabeledField("Password") {
           TextField("Password", text: $password)
@@ -135,7 +136,7 @@ private struct LoginForm: View {
               total: 4, height: 6
             )
             .frame(width: 120)
-            Text(PasswordStrength.description(of: password) + " from this \(KitDevice.name.contains("iPad") ? "iPad" : "Mac")’s generator")
+            Text(PasswordStrength.description(of: password) + (idiom == .phone ? "" : " from this \(ThisDevice.word)’s generator"))
               .kitFont(.caption).lineLimit(2)
           }
           .padding(.top, 2)
@@ -149,10 +150,16 @@ private struct LoginForm: View {
             KitOneTimeCode(period: TimeInterval(code.period), showsSeconds: false) { code.code(at: $0) }
           }
         } else {
-          FormRow("Add a code", help: codeError ?? "Paste the setup key, or scan the QR code the site shows on screen.", systemImage: "clock", error: codeError) {
+          FormRow(
+            "Add a code", help: codeError ?? (idiom == .phone ? "Paste the setup key" : "Paste the setup key, or scan the QR code the site shows on screen."),
+            systemImage: "clock", error: codeError
+          ) {
             HStack(spacing: 6) {
               if KitQRReader.canScanScreen {
                 Button("Scan Screen") { scanScreen() }
+              } else if idiom == .phone {
+                Button { withKitAnimation { scansCamera.toggle() } } label: { Image(systemName: "qrcode.viewfinder") }
+                  .accessibilityLabel("Scan Code")
               } else {
                 Button("Scan Code") { withKitAnimation { scansCamera.toggle() } }
               }
@@ -178,7 +185,7 @@ private struct LoginForm: View {
       LinkPicker(selection: $links)
     }
     if let error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text) }
-    SheetFooterButtons(saveTitle: "Save", canSave: !title.isEmpty || !website.isEmpty, status: "Fills in Safari and apps through AutoFill", onSave: save)
+    SheetFooterButtons(saveTitle: "Save", canSave: !title.isEmpty || !website.isEmpty, status: idiom == .phone ? "Fills through AutoFill" : "Fills in Safari and apps through AutoFill", onSave: save)
   }
 
   private func strengthHue(_ strength: PasswordStrength) -> Hue {
@@ -237,24 +244,34 @@ private struct LoginForm: View {
 private struct LinkPicker: View {
   @Binding var selection: Set<String>
   @Environment(AppModel.self) private var app
+  @Environment(\.kitIdiom) private var idiom
 
   var body: some View {
     let options: [(String, String, String)] =
       app.vault.hosts.prefix(1).map { ($0.id, $0.displayName, "server.rack") }
       + app.vault.databases.prefix(1).map { ($0.id, $0.name, "cylinder") }
       + app.folders.folders.prefix(1).map { ($0.id, $0.name, "lock.rectangle.stack") }
-    HStack(spacing: 2) {
-      ForEach(options, id: \.0) { id, title, image in
-        Toggle(isOn: Binding(get: { selection.contains(id) }, set: { on in if on { selection.insert(id) } else { selection.remove(id) } })) {
-          Label(title, systemImage: image)
+    // On iPhone two suggestions, with Other… on a line of its own.
+    let shown = idiom == .phone ? Array(options.prefix(2)) : options
+    VStack(alignment: .leading, spacing: 2) {
+      HStack(spacing: 2) {
+        ForEach(shown, id: \.0) { id, title, image in
+          Toggle(isOn: Binding(get: { selection.contains(id) }, set: { on in if on { selection.insert(id) } else { selection.remove(id) } })) {
+            Label(title, systemImage: image).lineLimit(1)
+          }
+          .toggleStyle(.kitChip)
         }
-        .toggleStyle(.kitChip)
+        if idiom != .phone { other }
+        Spacer(minLength: 0)
       }
-      Button("Other…", systemImage: "plus") {}.buttonStyle(.kitPlain).controlSize(.small)
-      Spacer(minLength: 0)
+      if idiom == .phone { other }
     }
     .padding(3)
     .kitSurface(.field)
+  }
+
+  private var other: some View {
+    Button("Other…", systemImage: "plus") {}.buttonStyle(.kitPlain).controlSize(.small)
   }
 }
 
@@ -288,12 +305,12 @@ private struct CardForm: View {
   @State private var code = ""
 
   var body: some View {
-    Grid(horizontalSpacing: 12, verticalSpacing: 12) {
-      GridRow {
+    VStack(spacing: 12) {
+      FieldRow {
         LabeledField("Title") { TextField("Company card", text: $title).kitField() }
         LabeledField("Holder") { TextField("Name on the card", text: $holder).kitField() }
       }
-      GridRow {
+      FieldRow {
         LabeledField("Number") { SecureField("1234 5678 9012 3456", text: $number).kitField(mono: true) }
         HStack(spacing: 12) {
           LabeledField("Expires") { TextField("MM/YY", text: $expiry).kitField(mono: true) }
@@ -343,12 +360,12 @@ private struct HostForm: View {
   @State private var useDeviceKey = true
 
   var body: some View {
-    Grid(horizontalSpacing: 12, verticalSpacing: 12) {
-      GridRow {
+    VStack(spacing: 12) {
+      FieldRow {
         LabeledField("Name") { TextField("atlas-web-1", text: $name).kitField() }
         LabeledField("Address") { TextField("host.example.com", text: $hostname).kitField(mono: true) }
       }
-      GridRow {
+      FieldRow {
         LabeledField("User") { TextField("deploy", text: $user).kitField() }
         LabeledField("Port") { TextField("22", text: $port).kitField(mono: true) }
       }
@@ -377,12 +394,12 @@ private struct DatabaseForm: View {
     LabeledField("Engine") {
       KitSegmented(selection: $engine, options: [("PostgreSQL", VaultDatabase.Engine.postgres), ("MySQL", VaultDatabase.Engine.mysql), ("MongoDB", VaultDatabase.Engine.mongodb), ("Redis", VaultDatabase.Engine.redis)])
     }
-    Grid(horizontalSpacing: 12, verticalSpacing: 12) {
-      GridRow {
+    VStack(spacing: 12) {
+      FieldRow {
         LabeledField("Name") { TextField("Atlas production", text: $name).kitField() }
         LabeledField("User") { TextField("atlas", text: $user).kitField() }
       }
-      GridRow {
+      FieldRow {
         LabeledField("Host") { TextField("127.0.0.1", text: $host).kitField(mono: true) }
         LabeledField("Port") { TextField("5432", text: $port).kitField(mono: true) }
       }
@@ -438,6 +455,20 @@ struct NewFolderSheet: View {
       dismiss()
     } catch {
       self.error = error.localizedDescription
+    }
+  }
+}
+
+/// Two fields side by side, one over the other on iPhone.
+struct FieldRow<Content: View>: View {
+  @ViewBuilder var content: Content
+  @Environment(\.kitIdiom) private var idiom
+
+  var body: some View {
+    if idiom == .phone {
+      VStack(spacing: 12) { content }
+    } else {
+      HStack(alignment: .top, spacing: 12) { content }
     }
   }
 }

@@ -24,6 +24,9 @@ struct LoginsView: View {
   @State private var search = ""
   /// The list's own selection: a login in Favorites is "fav:<id>", so its two rows are two values.
   @State private var listSelection: String?
+  /// The login pushed on iPhone.
+  @State private var pushed: String?
+  @Environment(\.kitIdiom) private var idiom
 
   private var logins: [VaultLogin] {
     let query = search.trimmingCharacters(in: .whitespaces).lowercased()
@@ -50,9 +53,14 @@ struct LoginsView: View {
     ListAndInspector(name: "logins") {
       VStack(spacing: 0) {
         HStack {
-          KitSegmented(selection: $filter)
-          Spacer()
-          Text("Sorted by name").kitFont(.caption)
+          if idiom == .phone {
+            KitSegmented(selection: $filter, options: [LoginFilter.all, .favorites, .withCodes].map { ($0.title, $0) })
+              .kitSegmentedStyle(.wide)
+          } else {
+            KitSegmented(selection: $filter)
+            Spacer()
+            Text("Sorted by name").kitFont(.caption)
+          }
         }
         .padding(.horizontal, KitMetrics.gutter + 4)
         .padding(.vertical, 6)
@@ -61,6 +69,7 @@ struct LoginsView: View {
           set: { value in
             listSelection = value
             app.selectedLogin = value.map { $0.hasPrefix("fav:") ? String($0.dropFirst(4)) : $0 }
+            if idiom == .phone { pushed = app.selectedLogin }
           }
         )) {
           let favorites = logins.filter(\.favorite)
@@ -71,8 +80,8 @@ struct LoginsView: View {
           }
           KitSection(
             filter == .all ? "All Logins" : filter.title,
-            meta: ["\(logins.count) logins", "\(logins.filter(\.hasOneTimeCode).count) with one-time codes",
-                   sharedCount(logins) > 0 ? "\(sharedCount(logins)) shared" : ""],
+            meta: ["\(logins.count) logins", "\(logins.filter(\.hasOneTimeCode).count) with \(idiom == .phone ? "codes" : "one-time codes")",
+                   sharedCount(logins) > 0 && idiom != .phone ? "\(sharedCount(logins)) shared" : ""],
             systemImage: "key.horizontal"
           ) {
             ForEach(logins) { LoginRow(login: $0) }
@@ -82,7 +91,7 @@ struct LoginsView: View {
           }
         }
       }
-      .kitStatusBar(systemImage: "icloud", status: app.isDemo || app.vault.sync?.isRunning == true ? .done : .idle) {
+      .paneStatusBar(systemImage: "icloud", status: app.isDemo || app.vault.sync?.isRunning == true ? .done : .idle) {
         Text(app.isDemo || app.vault.sync?.isRunning == true ? "Synced through iCloud \(RelativeTime.short(app.lastSync ?? .now.addingTimeInterval(-60)))" : "On this device")
         Text("\(all.count) logins").foregroundStyle(.kitSecondary)
       }
@@ -93,12 +102,25 @@ struct LoginsView: View {
         EmptyState(systemImage: "key.horizontal", title: "No Login Selected", message: "Pick a login to see its sign-in.")
       }
     }
-    .kitToolbar("Logins", meta: ["\(all.count) logins", "\(withCodes) with one-time codes"], systemImage: "key.horizontal") {
-      ToolGroup {
-        Button("New Login", systemImage: "plus") { app.sheet = .newItem(.login) }
-        Button("Generate", systemImage: "wand.and.stars") { app.sheet = .newItem(.login) }
+    .kitToolbar("Logins", meta: ["\(all.count) logins", "\(withCodes) with \(idiom == .phone ? "codes" : "one-time codes")"], systemImage: "key.horizontal") {
+      if idiom == .phone {
+        Button("New Login", systemImage: "plus") { app.sheet = .newItem(.login) }.buttonStyle(.kitRound)
+      } else {
+        ToolGroup {
+          Button("New Login", systemImage: "plus") { app.sheet = .newItem(.login) }
+          Button("Generate", systemImage: "wand.and.stars") { app.sheet = .newItem(.login) }
+        }
+        ToolbarSearch(text: $search, prompt: "Name, website, username")
       }
-      ToolbarSearch(text: $search, prompt: "Name, website, username")
+    }
+    .phoneBottomBar(prompt: "Name, website, username", search: $search) {
+      Button("Generate", systemImage: "wand.and.stars") { app.sheet = .newItem(.login) }
+    }
+    .onAppear { if idiom == .phone, LaunchOptions.pushes { pushed = app.selectedLogin } }
+    .navigationDestination(item: $pushed) { id in
+      if let login = app.vault.logins.first(where: { $0.id == id }) {
+        LoginPage(login: login)
+      }
     }
   }
 
@@ -142,9 +164,27 @@ private struct LoginRow: View {
 struct LoginInspector: View {
   let login: VaultLogin
   @Environment(AppModel.self) private var app
+  @Environment(\.pushedDetail) private var pushed
   @State private var copies = 0
 
   var body: some View {
+    if !pushed { header }
+    sections
+    if !pushed {
+      ActionBar {
+        Button("Edit") { app.sheet = .newItem(.login) }
+        Button("Copy Password") {
+          if let password = login.password { KitPasteboard.copySecret(password) }
+          copies += 1
+        }
+        .effect(.success, on: copies)
+        Button("Share…") { app.selection = .devices }
+        Button("More", systemImage: "ellipsis") {}.labelStyle(.iconOnly)
+      }
+    }
+  }
+
+  private var header: some View {
     RichHeader(Text(login.displayName), size: .title) {
       LetterTile(name: login.displayName, size: 30)
     } meta: {
@@ -156,11 +196,15 @@ struct LoginInspector: View {
       EmptyView()
     }
     .padding(.horizontal, 6)
+  }
+
+  @ViewBuilder
+  private var sections: some View {
     KitSection("Sign-in", meta: ["iCloud Keychain", "v57 apps only"], systemImage: "key.horizontal") {
       InspectorRow("Username", value: login.username)
       InspectorRow("Password") { KitSecretValue { login.password } }
       if let code = login.oneTimeCode {
-        InspectorRow("One-time code") {
+        InspectorRow(pushed ? "Code" : "One-time code") {
           KitOneTimeCode(period: TimeInterval(code.period)) { code.code(at: $0) }
         }
       }
@@ -174,22 +218,52 @@ struct LoginInspector: View {
     if !links.isEmpty {
       KitSection("Linked", meta: ["\(links.count) items", "every v57 app sees the link"], systemImage: "link", hue: .teal) {
         ForEach(links) { link in
-          LinkRow(title: link.title, subtitle: link.subtitle, systemImage: link.systemImage) { app.selection = link.destination }
+          if pushed, link.destination == .hosts, let host = app.vault.host(id: link.id) {
+            NavigationLink { HostPage(host: host) } label: {
+              LinkRow(title: link.title, subtitle: link.subtitle, systemImage: link.systemImage) {}.allowsHitTesting(false)
+            }
+            .buttonStyle(.plain)
+          } else {
+            LinkRow(title: link.title, subtitle: link.subtitle, systemImage: link.systemImage) { app.selection = link.destination }
+          }
         }
       }
     }
     ChangesSection(id: login.id, fields: [
       ("Password", "passwordChanged"), ("One-time code", "otpChanged"), ("Username", "username"), ("Website", "website"),
     ], dates: ["passwordChanged": login.passwordChanged, "otpChanged": login.otpChanged].compactMapValues { $0 })
-    ActionBar {
-      Button("Edit") { app.sheet = .newItem(.login) }
-      Button("Copy Password") {
+  }
+}
+
+/// A login pushed on iPhone: the inspector's cards, Edit on top, Copy Password and Share at the bottom.
+struct LoginPage: View {
+  let login: VaultLogin
+  @Environment(AppModel.self) private var app
+  @State private var copies = 0
+
+  var body: some View {
+    PushedDetail(title: login.displayName, meta: ["Login", login.domain ?? ""]) {
+      LetterTile(name: login.displayName, size: 30)
+    } content: {
+      LoginInspector(login: login)
+    } trailing: {
+      Button("Edit") { app.sheet = .newItem(.login) }.buttonStyle(.kit)
+    } actions: {
+      Button("Copy Password", systemImage: "doc.on.doc") {
         if let password = login.password { KitPasteboard.copySecret(password) }
         copies += 1
       }
       .effect(.success, on: copies)
-      Button("Share…") { app.selection = .devices }
-      Button("More", systemImage: "ellipsis") {}.labelStyle(.iconOnly)
+      Button("Share", systemImage: "square.and.arrow.up") { app.selection = .devices }.labelStyle(.iconOnly)
+      BarMenu {
+        Button("Copy Username", systemImage: "person") { KitPasteboard.copy(login.username) }
+        if login.hasOneTimeCode {
+          Button("Copy Code", systemImage: "clock") {
+            if let code = login.oneTimeCode?.code() { KitPasteboard.copySecret(code) }
+          }
+        }
+        Button("Copy Website", systemImage: "link") { KitPasteboard.copy(login.website) }.disabled(login.website.isEmpty)
+      }
     }
   }
 }

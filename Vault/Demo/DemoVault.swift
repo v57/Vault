@@ -7,7 +7,9 @@ import VaultKit
 /// the design's data. Folders are real encrypted folders on disk, decrypted for real; only what VaultKit doesn't do
 /// yet (folder sync, remote backends, the recovery key) comes from sample data. Never the user's vault.
 enum DemoVault {
-  static let thisDevice = "studio-mac"
+  /// The device the demo runs on: the Studio Mac, or an iPhone (with the Studio Mac as one of the others).
+  @MainActor static var thisDevice: String { KitDevice.name == "iPhone" ? "iphone" : studioDevice }
+  static let studioDevice = "studio-mac"
   static let airDevice = "macbook-air"
   static let padDevice = "ipad-pro"
 
@@ -56,7 +58,10 @@ enum DemoVault {
 
   private static func seed(store: VaultStore, air: VaultStore, pad: VaultStore, keys: VaultKeyProvider, root: URL) throws {
     // Devices: each with its own Secure Enclave key, published so the others can add it to servers.
-    try store.save(VaultDeviceKey(id: thisDevice, deviceName: "Studio Mac", publicKey: keyLine("studio", "Studio Mac"), platform: "macOS", updated: day(9, 30)))
+    if thisDevice != studioDevice {
+      try store.save(VaultDeviceKey(id: thisDevice, deviceName: "iPhone", publicKey: keyLine("iphone", "iPhone"), platform: "iOS", updated: day(10, 20)))
+    }
+    try store.save(VaultDeviceKey(id: studioDevice, deviceName: "Studio Mac", publicKey: keyLine("studio", "Studio Mac"), platform: "macOS", updated: day(9, 30)))
     try store.save(VaultDeviceKey(id: airDevice, deviceName: "MacBook Air", publicKey: keyLine("air", "MacBook Air"), platform: "macOS", updated: day(9, 30)))
     try store.save(VaultDeviceKey(id: padDevice, deviceName: "iPad Pro", publicKey: keyLine("ipad", "iPad Pro"), platform: "iOS", updated: day(10, 2)))
 
@@ -204,6 +209,7 @@ enum DemoVault {
     record.setPath(url.path, for: thisDevice)
     record.setStorage(plain ? .plain : .encrypted, for: thisDevice)
     if readOnly { record.setMode(.readOnly, for: thisDevice) }
+    if thisDevice != studioDevice { record.setStorage(plain ? .plain : .encrypted, for: studioDevice) }
     record.setStorage(plain ? .plain : .encrypted, for: padDevice)
     try store.save(record)
     return record

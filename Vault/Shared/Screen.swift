@@ -11,13 +11,18 @@ struct ListAndInspector<Main: View, Inspector: View>: View {
   @Environment(\.kitIdiom) private var idiom
 
   var body: some View {
-    ResizableSplit(
-      "vault.\(name).inspector", pane: .trailing, width: idiom.isTouch ? 380 : 400, range: 300...520,
-      mainMinWidth: 420
-    ) {
+    if idiom == .phone {
+      // No room beside the list: the screen pushes the inspector's cards instead (`PushedDetail`).
       main.kitPane(.content)
-    } pane: {
-      KitInspector(width: nil) { inspector }
+    } else {
+      ResizableSplit(
+        "vault.\(name).inspector", pane: .trailing, width: idiom.isTouch ? 380 : 400, range: 300...520,
+        mainMinWidth: 420
+      ) {
+        main.kitPane(.content)
+      } pane: {
+        KitInspector(width: nil) { inspector }
+      }
     }
   }
 }
@@ -107,4 +112,19 @@ struct LinkRow: View {
     }
     .buttonStyle(.plain)
   }
+}
+
+/// This device as the screens name it: "This Mac", "this iPad", "This iPhone".
+enum ThisDevice {
+  @MainActor static var word: String { KitDevice.name }
+
+  @MainActor static var system: String {
+    switch KitDevice.name {
+    case "iPhone": "iOS"
+    case "iPad": "iPadOS"
+    default: "macOS"
+    }
+  }
+
+  @MainActor static var isTouch: Bool { KitDevice.name == "iPhone" || KitDevice.name == "iPad" }
 }

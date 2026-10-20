@@ -10,6 +10,8 @@ nonisolated enum SidebarItem: Hashable, Sendable {
   case folder(String)
   case location(String)
   case devices, recoveryKey
+  /// Settings, pushed from the root list's bar on iPhone and iPad (the Mac has its Settings window).
+  case settings
 
   /// The item a `--select` launch argument names: `logins`, `hosts`, `folder:<name>`, `location:<name>`…
   init?(argument: String) {
@@ -22,6 +24,7 @@ nonisolated enum SidebarItem: Hashable, Sendable {
     case "projects": self = .projects
     case "devices": self = .devices
     case "recovery-key": self = .recoveryKey
+    case "settings": self = .settings
     default:
       if argument.hasPrefix("folder:") {
         self = .folder(String(argument.dropFirst(7)))
@@ -43,8 +46,17 @@ enum AppSheet: Identifiable, Hashable {
   case invite
   case addDevice
   case scanInvite
+  /// The AutoFill extension's sheet over the demo logins (`--sheet autofill`, demo runs only): the extension itself
+  /// opens from Safari's suggestion and reads the shared store.
+  case autoFillPreview
 
   var id: Self { self }
+
+  /// A sheet the iPhone shows from the bottom, half height first (the Decrypt sheet); the rest open full height.
+  var isBottomSheet: Bool {
+    if case .decrypt = self { return true }
+    return false
+  }
 }
 
 /// What the New sheet makes.
@@ -90,6 +102,7 @@ final class AppModel {
 
   /// The model for this launch: the demo vault with `--demo`, the shared store otherwise.
   static func launch() -> AppModel {
+    FilePreviewPage.removeLeftoverCopies()
     let model: AppModel
     if LaunchOptions.flag("--demo") {
       model = DemoVault.make()
@@ -106,7 +119,7 @@ final class AppModel {
     return model
   }
 
-  /// `--select <item>`, `--login <title>`, `--host <name>`, `--person <name>`, `--sheet <name>` (DEBUG and screenshots).
+  /// `--select <item>`, `--login <title>`, `--host <name>`, `--person <name>`, `--sheet <name>` (new-login, add-remote, decrypt, share, scan, autofill; DEBUG and screenshots).
   func applyLaunchOptions() {
     if let item = LaunchOptions.value("--select").flatMap(SidebarItem.init(argument:)) {
       selection = resolve(item)
@@ -125,6 +138,8 @@ final class AppModel {
     case "add-remote": sheet = .addRemote
     case "decrypt": if case .folder(let id) = selection { sheet = .decrypt(id) }
     case "share": if case .folder(let id) = selection { sheet = .share(id) }
+    case "scan": sheet = .scanInvite
+    case "autofill": if isDemo { sheet = .autoFillPreview }
     default: break
     }
     if selectedLogin == nil { selectedLogin = vault.logins.first { $0.favorite }?.id ?? vault.logins.first?.id }
@@ -141,21 +156,6 @@ final class AppModel {
     default: item
     }
   }
-
-  func syncNow() {
-    vault.sync?.syncNow()
-    folders.checkRemotes()
-    lastSync = .now
-  }
-
-  // MARK: Counts
-
-  var itemCount: Int {
-    vault.logins.count + vault.cards.count + notes.count + vault.hosts.count + vault.databases.count
-      + vault.projects.count
-  }
-
-  var notes: [VaultNote] { (try? vault.store?.records(VaultNote.self)) ?? [] }
 
   /// The system’s background turn (iPhone and iPad): sync iCloud and check the remotes folders use, then ask for
   /// the next turn while remote checks are on.
@@ -174,6 +174,21 @@ final class AppModel {
       VaultBackgroundRefresh.cancel()
     }
   }
+
+  func syncNow() {
+    vault.sync?.syncNow()
+    folders.checkRemotes()
+    lastSync = .now
+  }
+
+  // MARK: Counts
+
+  var itemCount: Int {
+    vault.logins.count + vault.cards.count + notes.count + vault.hosts.count + vault.databases.count
+      + vault.projects.count
+  }
+
+  var notes: [VaultNote] { (try? vault.store?.records(VaultNote.self)) ?? [] }
 
   /// Devices that published a key: this one and the others.
   var devices: [VaultDeviceKey] { vault.deviceKeys.filter { $0.id == vault.deviceID } + otherDevices }
@@ -221,6 +236,9 @@ enum RelativeTime {
 
 /// Launch arguments (`--demo`, `--select logins`…), read once.
 enum LaunchOptions {
+  /// `--push` (iPhone): the screen also pushes its selected item (a login's, host's or person's page).
+  static var pushes: Bool { flag("--push") }
+
   nonisolated(unsafe) static var arguments = ProcessInfo.processInfo.arguments
 
   static func flag(_ name: String) -> Bool { arguments.contains(name) }

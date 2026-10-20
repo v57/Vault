@@ -8,6 +8,7 @@ import VaultKit
 struct FolderScreen: View {
   let folderID: String
   @Environment(AppModel.self) private var app
+  @Environment(\.kitIdiom) private var idiom
 
   var body: some View {
     if let folder = app.folders.folder(folderID) {
@@ -15,6 +16,8 @@ struct FolderScreen: View {
         !activity.conflicts.isEmpty || !activity.changedHere.isEmpty || activity.isReceiving
       {
         SyncFolderView(folder: folder, activity: activity)
+      } else if idiom == .phone {
+        PhoneFolderView(folder: folder)
       } else {
         FolderBrowser(folder: folder)
       }
@@ -50,7 +53,7 @@ private struct FolderBrowser: View {
         pathBar
         if let session {
           Banner(
-            "\(idiom.isTouch ? "In Files: On My iPad › Vault › \(folder.name)" : "Decrypted for other apps until \(session.lockDate.formatted(date: .omitted, time: .shortened))")",
+            "\(idiom.isTouch ? "In Files: On My \(ThisDevice.word) › Vault › \(folder.name)" : "Decrypted for other apps until \(session.lockDate.formatted(date: .omitted, time: .shortened))")",
             message: idiom.isTouch
               ? "Other apps open it in place until \(session.lockDate.formatted(date: .omitted, time: .shortened)). Locking seals your edits and moves it out of Files."
               : "\(KitDesktop.fileManagerName), Terminal and other apps see a plain copy. Saved edits are sealed back into the encrypted folder.",
@@ -61,7 +64,7 @@ private struct FolderBrowser: View {
         KitGrid(entries, columns: columns(session: session), selection: $selection, primaryAction: open)
           .padding(.horizontal, KitMetrics.gutter)
       }
-      .kitStatusBar(systemImage: session == nil ? "arrow.triangle.2.circlepath" : "lock.open", hue: session == nil ? .green : .teal, status: statusBarStatus) {
+      .paneStatusBar(systemImage: session == nil ? "arrow.triangle.2.circlepath" : "lock.open", hue: session == nil ? .green : .teal, status: statusBarStatus) {
         Text(statusLine)
         Text("\(totals.items) items · \(Bytes.text(totals.bytes))").foregroundStyle(.kitSecondary)
       }
@@ -253,7 +256,7 @@ private struct FolderInspector: View {
     } else if folder.isEncrypted {
       KitSection("Encrypted", meta: ["names too", "64 KB sealed chunks"], systemImage: "lock", hue: .teal) {
         ForEach(app.devices) { device in
-          InspectorRow(device.id == vault.deviceID ? (device.platform == "macOS" ? "This Mac" : "This iPad") : device.deviceName) {
+          InspectorRow(device.id == vault.deviceID ? "This \(ThisDevice.word)" : device.deviceName) {
             switch folder.record.storage(for: device.id) {
             case .encrypted where folder.record.storages[device.id] != nil || device.id == vault.deviceID:
               Chip("Encrypted", hue: .teal).controlSize(.small)

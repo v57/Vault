@@ -22,6 +22,10 @@ struct SidebarView: View {
       LocationsSection()
       keysSection
     } bottomBar: {
+      if idiom.isTouch {
+        // No Settings window on iPhone and iPad: Settings is pushed from the bar.
+        Button("Settings", systemImage: "gearshape") { app.selection = .settings }
+      }
       Button("New", systemImage: "plus") { showsNew = true }
         .kitMenu(isPresented: $showsNew) { NewMenu() }
     }
@@ -32,6 +36,9 @@ struct SidebarView: View {
       }
     }
     .navigationTitle("Vault")
+    // About twenty rows: build them all. On iPhone the kit's lazy stack leaves the later cards' rows unbuilt in the
+    // compact sidebar (reported to ComponentKit).
+    .kitLazyLoading(false)
   }
 
   private var itemsSection: some View {
@@ -130,7 +137,7 @@ private struct LocationsSection: View {
   var body: some View {
     let locations = app.remotes.locations
     KitSection(
-      "Locations", meta: [KitDevice.name.contains("iPad") ? "This iPad" : "This Mac", "\(locations.count - 1) remotes"],
+      "Locations", meta: ["This \(ThisDevice.word)", "\(locations.count - 1) remotes"],
       systemImage: "globe", hue: .indigo
     ) {
       ForEach(locations) { location in

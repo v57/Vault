@@ -28,7 +28,7 @@ struct DatabasesView: View {
         KitGridColumn("User", width: 90) { $0.user },
       ], selection: $selection)
       .padding(KitMetrics.gutter)
-      .kitStatusBar(systemImage: "icloud", status: .done) {
+      .paneStatusBar(systemImage: "icloud", status: .done) {
         Text("\(vault.databases.count) connections")
         Text("shared with Database and Shell").foregroundStyle(.kitSecondary)
       }

@@ -182,7 +182,7 @@ final class RemoteLibrary: RemoteService {
   }
 
   var locations: [LocationItem] {
-    [LocationItem(id: "this-device", name: KitDevice.name.contains("iPad") ? "This iPad" : "This Mac", kind: .thisDevice, detail: "local folders")]
+    [LocationItem(id: "this-device", name: "This \(ThisDevice.word)", kind: .thisDevice, detail: "local folders")]
       + vault.remotes.map { remote in
         LocationItem(
           id: remote.id, name: remote.name, kind: LocationKind(remote.kind), detail: remote.displayName,

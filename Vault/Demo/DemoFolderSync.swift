@@ -38,7 +38,7 @@ final class DemoFolderSync: FolderSyncEngine {
         activity.conflicts = [
           .init(
             name: "Selects.txt", meta: ["changed here and on MacBook Air", "your edit is kept until you choose"],
-            mine: "IMG_2201 cover\nIMG_2214 tram, cropped\nIMG_2230 night", mineRef: "Studio Mac · 10:12 AM",
+            mine: "IMG_2201 cover\nIMG_2214 tram, cropped\nIMG_2230 night", mineRef: "\(DemoVault.thisDevice == "iphone" ? "This iPhone" : "Studio Mac") · 10:12 AM",
             theirs: "IMG_2201 cover\nIMG_2214 tram\nIMG_2251 river", theirsRef: "Jonas · MacBook Air · 10:40 AM")
         ]
       }

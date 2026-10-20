@@ -22,6 +22,8 @@ struct HostsView: View {
   @State private var filter = HostFilter.all
   @State private var search = ""
   @State private var selection: Set<String> = []
+  @State private var pushed: String?
+  @Environment(\.kitIdiom) private var idiom
 
   private var hosts: [VaultHost] {
     let query = search.lowercased()
@@ -39,14 +41,26 @@ struct HostsView: View {
         HStack {
           KitSegmented(selection: $filter)
           Spacer()
-          Text("Shared with Shell and Database").kitFont(.caption)
+          if idiom != .phone { Text("Shared with Shell and Database").kitFont(.caption) }
         }
         .padding(.horizontal, KitMetrics.gutter + 4)
         .padding(.vertical, 6)
-        KitGrid(hosts, columns: columns, selection: $selection)
-          .padding(.horizontal, KitMetrics.gutter)
+        if idiom == .phone {
+          KitList(selection: Binding(get: { pushed }, set: { pushed = $0 })) {
+            KitSection("Hosts", meta: ["\(hosts.count) hosts", "shared with Shell and Database"], systemImage: "server.rack") {
+              ForEach(hosts) { host in
+                SidebarRow(value: host.id, host.displayName, subtitle: "\(host.user)@\(host.hostname)", systemImage: "server.rack") {
+                  HostAuthChip(auth: host.auth)
+                }
+              }
+            }
+          }
+        } else {
+          KitGrid(hosts, columns: columns, selection: $selection)
+            .padding(.horizontal, KitMetrics.gutter)
+        }
       }
-      .kitStatusBar(systemImage: "icloud", status: .done) {
+      .paneStatusBar(systemImage: "icloud", status: .done) {
         Text("\(all.count) hosts")
         Text("\(all.filter { $0.auth == .deviceKey }.count) sign in with this device’s key").foregroundStyle(.kitSecondary)
       }
@@ -58,8 +72,17 @@ struct HostsView: View {
       }
     }
     .kitToolbar("SSH Hosts", meta: ["\(all.count) hosts", "shared with Shell and Database"], systemImage: "server.rack") {
-      ToolGroup { Button("New Host", systemImage: "plus") { app.sheet = .newItem(.host) } }
-      ToolbarSearch(text: $search, prompt: "Name, address, user")
+      if idiom == .phone {
+        Button("New Host", systemImage: "plus") { app.sheet = .newItem(.host) }.buttonStyle(.kitRound)
+      } else {
+        ToolGroup { Button("New Host", systemImage: "plus") { app.sheet = .newItem(.host) } }
+        ToolbarSearch(text: $search, prompt: "Name, address, user")
+      }
+    }
+    .phoneBottomBar(prompt: "Name, address, user", search: $search) { EmptyView() }
+    .onAppear { if idiom == .phone, LaunchOptions.pushes { pushed = app.selectedHost } }
+    .navigationDestination(item: $pushed) { id in
+      if let host = all.first(where: { $0.id == id }) { HostPage(host: host) }
     }
     .onAppear { selection = app.selectedHost.map { [$0] } ?? [] }
     .onChange(of: selection) { _, ids in if let id = ids.first { app.selectedHost = id } }
@@ -112,13 +135,16 @@ enum HostUse {
 }
 
 /// The selected host: the connection, the device keys, the known host key and what links to it.
-private struct HostInspector: View {
+struct HostInspector: View {
   let host: VaultHost
   @Environment(AppModel.self) private var app
+  @Environment(\.pushedDetail) private var pushed
 
   var body: some View {
     let vault = app.vault
-    InspectorHeader(host.displayName, meta: ["SSH host", "\(host.user)@\(host.name.isEmpty ? host.hostname : host.name)"], systemImage: "server.rack") {}
+    if !pushed {
+      InspectorHeader(host.displayName, meta: ["SSH host", "\(host.user)@\(host.name.isEmpty ? host.hostname : host.name)"], systemImage: "server.rack") {}
+    }
     KitSection("Connection", meta: ["port \(host.port)", host.jumpHostID == nil ? "no jump host" : "through \(vault.host(id: host.jumpHostID)?.displayName ?? "a jump host")"], systemImage: "server.rack") {
       InspectorRow("Host") { Text(host.hostname).kitFont(.mono).lineLimit(1).truncationMode(.middle) }
       InspectorRow("User", value: host.user)
@@ -160,9 +186,11 @@ private struct HostInspector: View {
         }
       }
     }
-    ActionBar {
-      Button("Copy SSH Command") { KitPasteboard.copy("ssh \(host.port == 22 ? "" : "-p \(host.port) ")\(host.user.isEmpty ? "" : "\(host.user)@")\(host.hostname)") }
-      Button("Edit") { app.sheet = .newItem(.host) }
+    if !pushed {
+      ActionBar {
+        Button("Copy SSH Command") { KitPasteboard.copy(HostPage.command(host)) }
+        Button("Edit") { app.sheet = .newItem(.host) }
+      }
     }
   }
 }
@@ -179,7 +207,7 @@ struct DeviceKeyRow: View {
       VStack(alignment: .leading, spacing: 1) {
         HStack(spacing: 5) {
           Text(device.deviceName).lineLimit(1)
-          if isThisDevice { Text(device.platform == "macOS" ? "This Mac" : "This iPad").kitFont(.caption) }
+          if isThisDevice { Text("This \(ThisDevice.word)").kitFont(.caption) }
         }
         (Text(ShortKey.fingerprint(device.fingerprint)).font(.system(size: 11, design: .monospaced))
           + Text(device.updated.map { " · added \(RelativeTime.day($0))" } ?? ""))
@@ -207,5 +235,34 @@ enum DeviceGlyph {
     if name.contains("macbook") { return "laptopcomputer" }
     if device.platform == "windows" || device.platform == "linux" { return "pc" }
     return "desktopcomputer"
+  }
+}
+
+/// A host pushed on iPhone (from the hosts list or a login's Linked card).
+struct HostPage: View {
+  let host: VaultHost
+  @Environment(AppModel.self) private var app
+  @State private var copies = 0
+
+  static func command(_ host: VaultHost) -> String {
+    "ssh \(host.port == 22 ? "" : "-p \(host.port) ")\(host.user.isEmpty ? "" : "\(host.user)@")\(host.hostname)"
+  }
+
+  var body: some View {
+    PushedDetail(title: host.displayName, meta: ["SSH host", host.user], systemImage: "server.rack") {
+      HostInspector(host: host)
+    } trailing: {
+      Button("Edit") { app.sheet = .newItem(.host) }.buttonStyle(.kit)
+    } actions: {
+      Button("Copy SSH Command", systemImage: "terminal") {
+        KitPasteboard.copy(Self.command(host))
+        copies += 1
+      }
+      .effect(.success, on: copies)
+      BarMenu {
+        Button("Copy Host", systemImage: "server.rack") { KitPasteboard.copy(host.hostname) }
+        Button("Copy User", systemImage: "person") { KitPasteboard.copy(host.user) }
+      }
+    }
   }
 }

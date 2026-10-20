@@ -23,6 +23,8 @@ struct ContentView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
   #endif
   @State private var compactColumn = NavigationSplitViewColumn.sidebar
+  @State private var showsWelcome = ThisDevice.isTouch
+    && (LaunchOptions.flag("--welcome") || (!LaunchOptions.flag("--demo") && UserDefaults.standard.object(forKey: "showWelcome") as? Bool ?? true))
 
   var body: some View {
     @Bindable var app = app
@@ -34,22 +36,40 @@ struct ContentView: View {
       DetailView()
         .kitSidebarToggle(columnVisibility: $columnVisibility)
     }
-    .sheet(item: $app.sheet) { sheet in
+    .sheet(item: Binding(get: { app.sheet == .scanInvite && idiom == .phone ? nil : app.sheet }, set: { app.sheet = $0 })) { sheet in
       SheetContent(sheet: sheet)
         .environment(app)
         .componentKit(accent: .vaultAccent)
+        .presentationDetents(idiom == .phone && sheet.isBottomSheet ? [.medium, .large] : [.large])
     }
+    #if os(iOS)
+      // iPhone and iPad: the welcome is the first screen, full height, until "Open Vault".
+      .fullScreenCover(isPresented: $showsWelcome) {
+        WelcomeWindow(onClose: { showsWelcome = false })
+          .environment(app)
+          .componentKit(accent: .vaultAccent)
+          .preferredColorScheme(LaunchOptions.colorScheme)
+      }
+      // iPhone: the scanner fills the screen.
+      .fullScreenCover(isPresented: Binding(get: { app.sheet == .scanInvite && idiom == .phone }, set: { if !$0 { app.sheet = nil } })) {
+        ScanInviteSheet()
+          .environment(app)
+          .componentKit(accent: .vaultAccent)
+      }
+    #endif
     .onChange(of: app.selection) { _, _ in compactColumn = .detail }
     .onOpenURL { url in app.sharing.open(url) }
-    .task(id: app.vault.logins) {
-      // What the system offers in password fields (only once Vault is turned on in AutoFill settings).
-      if !app.isDemo { await VaultAutoFill.publish(app.vault.logins) }
-    }
     .onChange(of: scenePhase) { _, phase in
       // Leaving the screen: ask for a background turn to check remotes (iPhone and iPad; nothing on the Mac).
       if phase == .background, !app.isDemo { app.scheduleBackgroundRefresh() }
     }
+    .task(id: app.vault.logins) {
+      // What the system offers in password fields (only once Vault is turned on in AutoFill settings).
+      if !app.isDemo { await VaultAutoFill.publish(app.vault.logins) }
+    }
     .onAppear {
+      // `--select` on iPhone opens that screen over the root list.
+      if LaunchOptions.value("--select") != nil { compactColumn = .detail }
       #if os(macOS)
         if LaunchOptions.flag("--welcome") || (showWelcome && !app.isDemo) { openWindow(id: "welcome") }
         if LaunchOptions.flag("--settings") { openSettings() }
@@ -70,8 +90,19 @@ struct ContentView: View {
 /// The main pane: whatever the sidebar selection opens.
 struct DetailView: View {
   @Environment(AppModel.self) private var app
+  @Environment(\.kitIdiom) private var idiom
 
   var body: some View {
+    if idiom == .phone {
+      // Screens push their items (a login's page, a file's preview) on a stack of their own.
+      NavigationStack { screen }
+    } else {
+      screen
+    }
+  }
+
+  @ViewBuilder
+  private var screen: some View {
     switch app.selection ?? .logins {
     case .logins: LoginsView()
     case .cards: CardsView()
@@ -83,6 +114,7 @@ struct DetailView: View {
     case .location(let id): LocationView(locationID: id).id(id)
     case .devices: DevicesView()
     case .recoveryKey: RecoveryKeyScreen()
+    case .settings: TouchSettingsScreen()
     }
   }
 }
@@ -100,6 +132,25 @@ struct SheetContent: View {
     case .invite: InviteSheet()
     case .addDevice: InviteSheet(forDevice: true)
     case .scanInvite: ScanInviteSheet()
+    case .autoFillPreview: AutoFillPreview()
     }
+  }
+}
+
+/// The AutoFill sheet as the extension shows it for atlas.example.com, over the demo logins.
+private struct AutoFillPreview: View {
+  @Environment(AppModel.self) private var app
+  @Environment(\.dismiss) private var dismiss
+  @State private var model = AutoFillModel()
+
+  var body: some View {
+    AutoFillPicker(model: model)
+      .onAppear {
+        model.all = app.vault.logins.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        model.suggested = VaultAutoFill.logins(for: ["https://atlas.example.com/login"], in: model.all)
+        model.host = "atlas.example.com"
+        model.complete = { _ in dismiss() }
+        model.cancel = { dismiss() }
+      }
   }
 }

@@ -137,6 +137,16 @@ final class FolderLibrary {
     }
   }
 
+  /// A file's contents, read from the sealed chunks (or the plain copy while decrypted, or the plain folder), for a
+  /// preview: nothing is written.
+  func read(_ id: String, path: String) throws -> Data {
+    if let live = sessions[id] { return try Data(contentsOf: live.copyURL.appendingPathComponent(path)) }
+    if let item = folder(id), !item.isEncrypted, let url = item.localURL {
+      return try Data(contentsOf: url.appendingPathComponent(path))
+    }
+    return try encrypted(id).read(path)
+  }
+
   /// How many items a subfolder holds, for the Size column.
   func itemCount(_ id: String, path: String) -> Int { entries(id, path: path).count }
 

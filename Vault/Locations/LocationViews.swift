@@ -5,6 +5,7 @@ import VaultKit
 /// Board 10: a remote is plain storage folders sync through. The sheet takes its kind and credentials (the secret
 /// goes to iCloud Keychain), tests it only when asked, and says the remote only ever holds ciphertext.
 struct AddRemoteSheet: View {
+  @Environment(\.kitIdiom) private var idiom
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   @State private var draft = RemoteDraft()
@@ -19,16 +20,16 @@ struct AddRemoteSheet: View {
     ) {
       VStack(alignment: .leading, spacing: 6) {
         Text("Kind").kitFont(.headline).padding(.leading, 4)
-        HStack(spacing: KitMetrics.gutter) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: KitMetrics.gutter), count: idiom == .phone ? 2 : 5), spacing: KitMetrics.gutter) {
           kindCard(.s3, "S3", "R2, B2, MinIO", "archivebox")
           kindCard(.sftp, "SFTP", "SSH hosts", "server.rack")
           kindCard(.smb, "SMB", "File shares", "externaldrive.connected.to.line.below")
           kindCard(.icloud, "iCloud", "CloudKit", "icloud")
-          kindCard(.ftp, "FTP", "Later", "network").disabled(true)
+          if idiom != .phone { kindCard(.ftp, "FTP", "Later", "network").disabled(true) }
         }
       }
-      Grid(horizontalSpacing: 12, verticalSpacing: 12) {
-        GridRow {
+      VStack(spacing: 12) {
+        FieldRow {
           LabeledField("Name") { TextField("backups", text: $draft.name).kitField() }
           switch draft.kind {
           case .s3: LabeledField("Bucket") { TextField("atlas-backups", text: $draft.bucket).kitField(mono: true) }
@@ -40,13 +41,13 @@ struct AddRemoteSheet: View {
           }
         }
         if draft.kind == .s3 || draft.kind == .smb {
-          GridRow {
+          FieldRow {
             LabeledField(draft.kind == .s3 ? "Endpoint" : "Address") {
               TextField(draft.kind == .s3 ? "https://…r2.cloudflarestorage.com" : "smb://nas.local/vault", text: $draft.endpoint).kitField(mono: true)
             }
-            .gridCellColumns(2)
+
           }
-          GridRow {
+          FieldRow {
             LabeledField(draft.kind == .s3 ? "Access key ID" : "User") { TextField("", text: $draft.accessKeyID).kitField(mono: true) }
             LabeledField(draft.kind == .s3 ? "Secret access key" : "Password") {
               SecureField("", text: $draft.secret).kitField(mono: true) {
@@ -58,7 +59,9 @@ struct AddRemoteSheet: View {
       }
       Banner(
         "The remote only ever holds ciphertext.",
-        message: "It sees chunk sizes and timing, nothing more. Vault reaches it only while a v57 app is open, and only for folders you sync through it.",
+        message: ThisDevice.isTouch
+          ? "Reached only while Vault is open, or when \(ThisDevice.system) runs its background refresh."
+          : "It sees chunk sizes and timing, nothing more. Vault reaches it only while a v57 app is open, and only for folders you sync through it.",
         systemImage: "shield", hue: .blue)
       if let error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text) }
     } footer: {
@@ -70,7 +73,7 @@ struct AddRemoteSheet: View {
     .onAppear {
       if app.isDemo, draft.name.isEmpty {
         draft = RemoteDraft(kind: .s3, name: "backups", endpoint: "https://4f1c09e2b7.r2.cloudflarestorage.com", bucket: "atlas-backups", accessKeyID: "8d2e61b0c4f9a7e3", secret: "r2-secret-demo")
-        testLine = "Reached atlas-backups · 2.1 GB used"
+        testLine = idiom == .phone ? "Reached · 2.1 GB" : "Reached atlas-backups · 2.1 GB used"
         test = .done
       }
     }
@@ -146,7 +149,7 @@ struct LocationView: View {
           .padding(.horizontal, KitMetrics.gutter)
         }
       }
-      .kitStatusBar(systemImage: location?.kind.systemImage ?? "globe", status: status) {
+      .paneStatusBar(systemImage: location?.kind.systemImage ?? "globe", status: status) {
         Text(location?.kind == .thisDevice ? "Your home folder" : "Only ciphertext: chunks, change logs, member lists")
         Text("\(entries.count) items").foregroundStyle(.kitSecondary)
       }

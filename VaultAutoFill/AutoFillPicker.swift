@@ -41,7 +41,8 @@ final class AutoFillModel {
   }
 }
 
-/// The AutoFill sheet: the logins for this site, then the rest, each with its letter tile; a tap fills it in.
+/// The AutoFill sheet (iPhone board 05): the site's logins first, with the one-time code where there is one, then
+/// every other login (searchable). A tap fills it in; the system asks for Face ID before the sheet opens.
 struct AutoFillPicker: View {
   @Bindable var model: AutoFillModel
   @State private var search = ""
@@ -54,30 +55,50 @@ struct AutoFillPicker: View {
         && (query.isEmpty || login.displayName.lowercased().contains(query) || login.username.lowercased().contains(query))
     }
     VStack(spacing: 0) {
-      HStack(spacing: 10) {
-        Tile(systemImage: model.wantsCode ? "clock" : "key.horizontal", size: 28)
+      HStack(spacing: 12) {
+        Tile(systemImage: "key.horizontal", size: 34)
         VStack(alignment: .leading, spacing: 1) {
-          Text(model.wantsCode ? "Fill a One-Time Code" : "Fill a Login").kitFont(.title3)
-          Text(model.host.map { "for \($0)" } ?? "from Vault").kitFont(.caption)
+          Text("Vault").kitFont(.title3)
+          Text(model.host.map { model.wantsCode ? "One-time code for \($0)" : "AutoFill for \($0)" } ?? "AutoFill").kitFont(.caption)
         }
         Spacer()
-        Button("Cancel") { model.cancel?() }.buttonStyle(.kit)
       }
-      .padding(12)
+      .padding(.horizontal, 16)
+      .padding(.top, 14)
+      .padding(.bottom, 8)
       KitSearchField(text: $search, prompt: "Search logins").padding(.horizontal, 12)
       KitList(selection: $selection) {
-        if !model.suggested.isEmpty {
-          KitSection("For This Site", meta: "\(model.suggested.count) logins", systemImage: "star", hue: .yellow) {
-            ForEach(model.suggested) { row($0) }
+        if let host = model.host, !model.suggested.isEmpty {
+          KitSection(
+            host, meta: ["\(model.suggested.count) login\(model.suggested.count == 1 ? "" : "s")", model.suggested.contains(where: \.hasOneTimeCode) ? "with a code" : ""],
+            systemImage: "globe"
+          ) {
+            ForEach(model.suggested) { login in
+              row(login)
+              if login.hasOneTimeCode, let code = login.oneTimeCode {
+                InspectorRow("Code") {
+                  KitOneTimeCode(period: TimeInterval(code.period), showsSeconds: false) { code.code(at: $0) }
+                }
+              }
+            }
           }
         }
-        KitSection(model.suggested.isEmpty ? "Logins" : "Other Logins", meta: "\(rest.count) logins", systemImage: "key.horizontal") {
+        KitSection(model.suggested.isEmpty ? "Logins" : "Other logins", meta: "\(rest.count) logins", systemImage: "key.horizontal") {
           ForEach(rest) { row($0) }
         }
       }
       .onChange(of: selection) { _, id in
         if let id, let login = model.all.first(where: { $0.id == id }) { model.pick(login) }
       }
+      HStack(spacing: 10) {
+        Tile(systemImage: "faceid", hue: .gray, size: 26)
+        Text("Face ID first, by the system").kitFont(.caption)
+        Spacer()
+        Button("Cancel") { model.cancel?() }.buttonStyle(.kit)
+      }
+      .padding(8)
+      .kitSurface(.card)
+      .padding(KitMetrics.gutter)
     }
     .frame(minWidth: 380, minHeight: 420)
     .background(.kitPanel)
@@ -87,7 +108,7 @@ struct AutoFillPicker: View {
     SidebarRow(value: login.id, login.displayName, subtitle: [login.username, login.domain ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")) {
       Tile(letters: String(login.displayName.prefix(2)), hue: StableHue.pick(login.displayName), size: 24)
     } trailing: {
-      if login.hasOneTimeCode { Image(systemName: "clock").font(.system(size: 10)).foregroundStyle(.kitTertiary) }
+      Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.kitTertiary)
     }
   }
 }

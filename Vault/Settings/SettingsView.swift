@@ -19,22 +19,53 @@ struct SettingsView: View {
   #if os(macOS)
     let updater: AppUpdater
   #endif
+  @Environment(\.kitIdiom) private var idiom
+  @Environment(AppModel.self) private var app
   @AppStorage("settings.pane") private var pane = LaunchOptions.value("--settings-pane") ?? "Sync"
+  @AppStorage("iCloudSync") private var iCloud = true
 
   var body: some View {
+    // The values show on iPhone, where the panes are rows.
     KitSettings(selection: $pane, window: .titled) {
       SettingsPane("General", systemImage: "gearshape", hue: .gray) { GeneralPane() }
-      SettingsPane("Sync", systemImage: "arrow.triangle.2.circlepath", hue: .blue) { SyncPane() }
-      SettingsPane("Recovery Key", systemImage: "key", hue: .orange) { RecoveryKeyPane() }
-      SettingsPane("AutoFill", systemImage: "rectangle.and.pencil.and.ellipsis", hue: .gray) { AutoFillPane() }
-      SettingsPane("Hub", systemImage: "point.3.connected.trianglepath.dotted", hue: .purple) { HubPane() }
+      SettingsPane("Sync", systemImage: "arrow.triangle.2.circlepath", hue: .blue, value: iCloud ? "iCloud" : "Off") { SyncPane() }
+      SettingsPane("Recovery Key", systemImage: "key", hue: .orange, value: app.recovery.isOn ? "On" : "Off") { RecoveryKeyPane() }
+      SettingsPane("AutoFill", systemImage: "rectangle.and.pencil.and.ellipsis", hue: .gray, value: "Off") { AutoFillPane() }
+      SettingsPane("Hub", systemImage: "point.3.connected.trianglepath.dotted", hue: .purple, value: "Off") { HubPane() }
       #if os(macOS)
         SettingsPane("Updates", systemImage: "arrow.down.circle", hue: .gray) { UpdatesPane(updater: updater) }
+      #else
+        SettingsPane("About", systemImage: "info.circle", hue: .gray) { AboutPane() }
       #endif
     }
-    .frame(minWidth: 760, minHeight: 600)
+    .frame(minWidth: idiom == .mac ? 760 : nil, minHeight: idiom == .mac ? 600 : nil)
   }
 }
+
+#if !os(macOS)
+  /// Settings pushed from the root list's bar (iPhone and iPad).
+  struct TouchSettingsScreen: View {
+    var body: some View {
+      SettingsView()
+        .kitPane(.content)
+        .kitToolbar("Settings", meta: ["Vault"], systemImage: "gearshape", hue: .gray) {}
+        .navigationBarBackButtonHidden(true)
+    }
+  }
+
+  /// The App Store updates the app; no Updates pane.
+  private struct AboutPane: View {
+    var body: some View {
+      FormCard {
+        FormRow("Vault \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")", help: "Updates through the App Store", systemImage: "info.circle", hue: .gray)
+      }
+    }
+  }
+#else
+  struct TouchSettingsScreen: View {
+    var body: some View { EmptyView() }
+  }
+#endif
 
 private struct GeneralPane: View {
   @AppStorage("showWelcome") private var showWelcome = true
@@ -62,7 +93,7 @@ private struct SyncPane: View {
   var body: some View {
     FormCard {
       FormRow(
-        "iCloud", help: "Records sync through your iCloud (\(VaultConfiguration.cloudContainer)). On while iCloud is on for this \(KitDevice.name.contains("iPad") ? "iPad" : "Mac").",
+        "iCloud", help: "Records sync through your iCloud (\(VaultConfiguration.cloudContainer)). On while iCloud is on for this \(ThisDevice.word).",
         systemImage: "icloud", hue: .blue
       ) {
         Toggle("iCloud", isOn: $iCloud).toggleStyle(.kitSwitch).kitLabelsHidden()
@@ -74,10 +105,10 @@ private struct SyncPane: View {
       }
       FormRow(
         "In the background",
-        help: KitDevice.name.contains("iPad")
-          ? "When iPadOS allows: no helper; the system schedules a short check."
+        help: ThisDevice.isTouch
+          ? "When \(ThisDevice.system) runs Vault’s background refresh. No helper."
           : "No helper or login item: the v57 app that makes a change sends it, or the next one that opens.",
-        systemImage: "desktopcomputer", hue: .gray)
+        systemImage: ThisDevice.word == "iPhone" ? "iphone" : ThisDevice.word == "iPad" ? "ipad" : "desktopcomputer", hue: .gray)
     }
     FormCard("Hub") {
       FormRow("Live changes from your Hub", help: "Off. Your own Hub can tell your devices at once when a folder changes. The files still go through the remote.", systemImage: "point.3.connected.trianglepath.dotted", hue: .purple) {
