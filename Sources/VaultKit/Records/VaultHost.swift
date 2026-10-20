@@ -60,6 +60,14 @@ public struct VaultHost: VaultRecord, Hashable {
 
     /// "SHA256:…" of `hostKey`.
     public var hostKeyFingerprint: String? { hostKey.flatMap { VaultIdentity.fingerprint(keyLine: $0) } }
+
+    /// Whether every v57 app negotiates this key's type, so trusting it ahead of time matches what they see.
+    /// Their libssh2 is built on mbedTLS, without Ed25519: a pinned Ed25519 key would look like a changed key
+    /// next to the ECDSA one the server offers them.
+    public var hostKeyIsPinnable: Bool {
+      guard let type = hostKey?.split(separator: " ").first else { return false }
+      return type.hasPrefix("ecdsa-sha2-") || type == "ssh-rsa"
+    }
   }
 
   public init(

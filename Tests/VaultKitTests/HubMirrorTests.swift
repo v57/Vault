@@ -5,8 +5,11 @@ import Testing
 
 struct HubMirrorTests {
   let keys = MemoryKeyProvider()
-  static let hostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO1JKMYo0cLG6ukDOJBZlWEpWSc6XGP5NjbBRhSshzfR"
-  static let otherKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIqI4910CfGV/VLbLTy6XXLKZwm/HZQSG/N0iAG0D29c"
+  static let hostKey =
+    "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBLCMdXLYdMyZCS2rOzcgJMOt87l22HK0AUGoqzCFfczoDEf1JCKCAs+9ydUUXYTUWpuXqD95SbzTwGRoNxHGcMU="
+  static let otherKey =
+    "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBDQtoM8yj77ua8p9tI4mH0LcOFWOzT0wUwLLtL5dDUOB0+4GIz2Aq6siPRVnYbdpE/zKA0Gu2wgcMQhNDHMKj8M="
+  static let ed25519Key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO1JKMYo0cLG6ukDOJBZlWEpWSc6XGP5NjbBRhSshzfR"
 
   init() { VaultSecrets.useInMemoryStore() }
 
@@ -96,6 +99,14 @@ struct HubMirrorTests {
     try store.mirrorHubDevices([studio()], hubID: "hub2")
     try store.mirrorHubDevices([], hubID: "hub1")
     #expect(try store.records(VaultHost.self).count == 2)
+  }
+
+  /// The apps' libssh2 has no Ed25519: pinning one would look like a changed key next to the ECDSA key they get.
+  @Test func ed25519KeysAreShownButNotPinned() throws {
+    let store = try store()
+    try store.mirrorHubDevices([studio(key: Self.ed25519Key)], hubID: "hub1")
+    #expect(try store.records(VaultHost.self).first?.hub?.hostKey == Self.ed25519Key)
+    #expect(try store.knownFingerprint(host: "100.96.0.4", port: 22) == nil)
   }
 
   @Test func hubRecordConnectsPerDevice() throws {
