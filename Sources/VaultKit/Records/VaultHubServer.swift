@@ -234,3 +234,46 @@ extension VaultStore {
     line.split(separator: " ").first.map(String.init)
   }
 }
+
+/// A project's folder on another device, and the way there when that device is on one of the user's Hubs.
+public struct VaultProjectPlace: Sendable, Hashable, Identifiable {
+  /// The vault device.
+  public var device: String
+  public var deviceName: String
+  public var path: String
+  /// The device as a host via Hub, when it's on one of the user's Hubs (and runs a v57 app connected to it).
+  public var host: VaultHost?
+
+  public var id: String { device }
+
+  /// `ssh -t -p 22 user@address 'cd <path> && exec $SHELL -l'`: a terminal in the project's folder there.
+  public var sshCommand: String? {
+    guard let host else { return nil }
+    let target = host.user.isEmpty ? host.hostname : "\(host.user)@\(host.hostname)"
+    let script = "cd \(Self.quoted(path)) && exec \"$SHELL\" -l"
+    return "ssh -t -p \(host.port) \(target) \(Self.quoted(script))"
+  }
+
+  static func quoted(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+}
+
+extension Vault {
+  /// The project with a folder at `path` on this device.
+  public func project(atPath path: String) -> VaultProject? {
+    let path = URL(fileURLWithPath: path).standardizedFileURL.path
+    return projects.first { $0.paths[deviceID].map { URL(fileURLWithPath: $0).standardizedFileURL.path } == path }
+  }
+
+  /// Where else a project is: every other device with a folder for it, by name, with the host via Hub that
+  /// reaches the device when there is one.
+  public func otherPlaces(of project: VaultProject) -> [VaultProjectPlace] {
+    let hubHosts = hubHosts
+    return project.paths.compactMap { device, path -> VaultProjectPlace? in
+      guard device != deviceID else { return nil }
+      let host = hubHosts.first { vaultDevice(of: $0) == device }
+      let name = deviceKeys.first { $0.id == device }?.deviceName ?? host?.hub?.deviceName ?? "Another device"
+      return VaultProjectPlace(device: device, deviceName: name, path: path, host: host)
+    }
+    .sorted { $0.deviceName.localizedStandardCompare($1.deviceName) == .orderedAscending }
+  }
+}

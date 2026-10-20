@@ -101,6 +101,25 @@ struct HubMirrorTests {
     #expect(try store.records(VaultHost.self).count == 2)
   }
 
+  @MainActor
+  @Test func projectsOnHubDevices() throws {
+    let store = try store()
+    var hub = VaultHubServer(id: "hub1", url: "wss://hub.example.com")
+    hub.members = ["studio": "8cef065b7af83669150b7d32704d3d3e"]
+    try store.save(hub)
+    try store.mirrorHubDevices([studio()], hubID: "hub1")
+    try store.save(VaultProject(id: "atlas", name: "Atlas", paths: ["mac": "/Users/a/Atlas", "studio": "/Users/b/Code/Atlas", "pad": "Atlas"]))
+    let vault = Vault(store: store)
+    let project = try #require(vault.project(atPath: "/Users/a/Atlas/"))
+    let places = vault.otherPlaces(of: project)
+    #expect(places.count == 2)
+    let there = try #require(places.first { $0.device == "studio" })
+    #expect(there.deviceName == "Mac Studio")
+    #expect(there.host?.hostname == "100.96.0.4")
+    #expect(there.sshCommand == #"ssh -t -p 22 100.96.0.4 'cd '\''/Users/b/Code/Atlas'\'' && exec "$SHELL" -l'"#)
+    #expect(places.first { $0.device == "pad" }?.sshCommand == nil)
+  }
+
   /// The apps' libssh2 has no Ed25519: pinning one would look like a changed key next to the ECDSA key they get.
   @Test func ed25519KeysAreShownButNotPinned() throws {
     let store = try store()
