@@ -113,6 +113,7 @@ struct DetailView: View {
     case .folder(let id): FolderScreen(folderID: id).id(id)
     case .location(let id): LocationView(locationID: id).id(id)
     case .devices: DevicesView()
+    case .hub: HubView()
     case .recoveryKey: RecoveryKeyScreen()
     case .settings: TouchSettingsScreen()
     }
@@ -131,6 +132,7 @@ struct SheetContent: View {
     case .share(let id): ShareSheet(folderID: id)
     case .invite: InviteSheet()
     case .addDevice: InviteSheet(forDevice: true)
+    case .addHub: AddHubSheet()
     case .scanInvite: ScanInviteSheet()
     case .autoFillPreview: AutoFillPreview()
     }

@@ -13,4 +13,10 @@
    <FileRef
       location = "group:../Dev">
    </FileRef>
+   <FileRef
+      location = "group:../../Hub/HubService/HubService">
+   </FileRef>
+   <FileRef
+      location = "group:../../Hub/Channel/ChannelSwift">
+   </FileRef>
 </Workspace>

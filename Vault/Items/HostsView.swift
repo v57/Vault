@@ -50,7 +50,7 @@ struct HostsView: View {
             KitSection("Hosts", meta: ["\(hosts.count) hosts", "shared with Shell and Database"], systemImage: "server.rack") {
               ForEach(hosts) { host in
                 SidebarRow(value: host.id, host.displayName, subtitle: "\(host.user)@\(host.hostname)", systemImage: "server.rack") {
-                  HostAuthChip(auth: host.auth)
+                  if host.isViaHub { Chip("Via Hub", hue: .purple).controlSize(.small) } else { HostAuthChip(auth: host.auth) }
                 }
               }
             }
@@ -93,7 +93,8 @@ struct HostsView: View {
     return [
       KitGridColumn("Name", width: 150) { host in
         HStack(spacing: 8) {
-          Image(systemName: "server.rack").font(.system(size: 12)).foregroundStyle(Hue.accent.fill)
+          Image(systemName: host.isViaHub ? "point.3.connected.trianglepath.dotted" : "server.rack").font(.system(size: 12))
+            .foregroundStyle(host.isViaHub ? Hue.purple.fill : Hue.accent.fill)
           Text(host.displayName).lineLimit(1)
         }
       },
@@ -150,6 +151,18 @@ struct HostInspector: View {
       InspectorRow("User", value: host.user)
       InspectorRow("Port", value: "\(host.port)")
       InspectorRow("Jump host", value: vault.host(id: host.jumpHostID)?.displayName ?? "None", copyable: false)
+    }
+    if let route = host.hub {
+      KitSection("Via Hub", meta: [vault.hub(id: route.hubID)?.displayName ?? "a Hub", HubPlatform.name(route.platform)], systemImage: "point.3.connected.trianglepath.dotted", hue: .purple) {
+        InspectorRow("Device", value: route.deviceName, copyable: false)
+        InspectorRow("Reached at", value: "its Hub Network address", copyable: false)
+        InspectorRow("Host key", value: route.hostKey == nil ? "asked the first time" : "signed by the device", copyable: false)
+        if let seen = route.lastSeen { InspectorRow("Last seen", value: RelativeTime.day(seen), copyable: false) }
+        LinkRow(title: "Hub", subtitle: "The device, its presence and what it offers", systemImage: "point.3.connected.trianglepath.dotted") {
+          app.selectedHubDevice = route.deviceID
+          app.selection = .hub
+        }
+      }
     }
     if host.auth == .deviceKey {
       KitSection("Device keys", meta: ["each device signs with its own", "Secure Enclave"], systemImage: "checkmark.shield", hue: .green) {

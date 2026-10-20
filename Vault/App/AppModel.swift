@@ -2,6 +2,7 @@ import ComponentKit
 import Foundation
 import Observation
 import SwiftUI
+import VaultHub
 import VaultKit
 
 /// What the sidebar opens.
@@ -9,7 +10,7 @@ nonisolated enum SidebarItem: Hashable, Sendable {
   case logins, cards, notes, hosts, databases, projects
   case folder(String)
   case location(String)
-  case devices, recoveryKey
+  case devices, hub, recoveryKey
   /// Settings, pushed from the root list's bar on iPhone and iPad (the Mac has its Settings window).
   case settings
 
@@ -23,6 +24,7 @@ nonisolated enum SidebarItem: Hashable, Sendable {
     case "databases": self = .databases
     case "projects": self = .projects
     case "devices": self = .devices
+    case "hub": self = .hub
     case "recovery-key": self = .recoveryKey
     case "settings": self = .settings
     default:
@@ -45,6 +47,7 @@ enum AppSheet: Identifiable, Hashable {
   case share(String)
   case invite
   case addDevice
+  case addHub
   case scanInvite
   /// The AutoFill extension's sheet over the demo logins (`--sheet autofill`, demo runs only): the extension itself
   /// opens from Safari's suggestion and reads the shared store.
@@ -78,6 +81,8 @@ final class AppModel {
   let remotes: any RemoteService
   let sharing: any SharingService
   let recovery: any RecoveryService
+  /// The user's own Hubs (none until they add one).
+  let hubs: any HubEngine
 
   var selection: SidebarItem? = .logins
   var sheet: AppSheet?
@@ -87,17 +92,19 @@ final class AppModel {
   var selectedDatabase: String?
   var selectedProject: String?
   var selectedPerson: String?
+  var selectedHubDevice: String?
   /// When iCloud last synced, as this app saw it.
   var lastSync: Date?
 
   init(vault: Vault, isDemo: Bool, folders: FolderLibrary, remotes: any RemoteService, sharing: any SharingService,
-       recovery: any RecoveryService) {
+       recovery: any RecoveryService, hubs: any HubEngine) {
     self.vault = vault
     self.isDemo = isDemo
     self.folders = folders
     self.remotes = remotes
     self.sharing = sharing
     self.recovery = recovery
+    self.hubs = hubs
   }
 
   /// The model for this launch: the demo vault with `--demo`, the shared store otherwise.
@@ -108,11 +115,15 @@ final class AppModel {
       model = DemoVault.make()
     } else {
       let vault = Vault.shared
-      // iCloud sync is on: turning iCloud on for the Mac was the consent. Remotes and Hub start off.
+      // iCloud sync is on: turning iCloud on for the Mac was the consent. Remotes and Hub start off: a Hub connects
+      // only once the user adds it and turns it on for this device.
       if UserDefaults.standard.object(forKey: "iCloudSync") as? Bool ?? true { vault.startSync() }
+      let hubs = HubDirectory(vault: vault)
+      hubs.start()
       model = AppModel(
         vault: vault, isDemo: false, folders: FolderLibrary(vault: vault, sync: NoFolderSync()),
-        remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault), recovery: UnavailableRecovery())
+        remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault), recovery: UnavailableRecovery(),
+        hubs: LiveHubs(directory: hubs))
       model.lastSync = vault.sync?.isRunning == true ? .now : nil
     }
     model.applyLaunchOptions()
@@ -139,6 +150,7 @@ final class AppModel {
     case "decrypt": if case .folder(let id) = selection { sheet = .decrypt(id) }
     case "share": if case .folder(let id) = selection { sheet = .share(id) }
     case "scan": sheet = .scanInvite
+    case "add-hub": sheet = .addHub
     case "autofill": if isDemo { sheet = .autoFillPreview }
     default: break
     }
@@ -146,6 +158,12 @@ final class AppModel {
     if selectedHost == nil { selectedHost = vault.hosts.first?.id }
     if selectedDatabase == nil { selectedDatabase = vault.databases.first?.id }
     if selectedPerson == nil { selectedPerson = sharing.people.first?.id }
+    if let name = LaunchOptions.value("--hub-device") {
+      selectedHubDevice = hubs.hubs.flatMap(\.devices).first { $0.name == name }?.id
+    }
+    if selectedHubDevice == nil {
+      selectedHubDevice = hubs.hubs.flatMap(\.devices).first { $0.id != hubs.identity?.id && !$0.isRevoked }?.id
+    }
   }
 
   /// Folder and location arguments name them; the selection holds their ids.

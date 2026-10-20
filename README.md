@@ -164,12 +164,13 @@ approve with the safety code, which Vault computes from the key rather than trus
 the checkouts next to this one with `Vault-Local.xcworkspace`). It imports only SwiftUI, ComponentKit, VaultKit and
 VaultFiles, plus UpdateKit on the Mac. It shows the records every v57 app already shares (logins, cards, notes, SSH
 hosts, databases, projects, devices) and the newer pieces: encrypted folders with timed decryption for other apps,
-people and safety codes, remotes. What VaultKit doesn't do yet is drawn against protocols in `Vault/Engine/`
-(`FolderSyncEngine`, `RemoteService` backends, `RecoveryService`), each saying plainly what isn't there yet.
+people and safety codes, remotes, and the user's own Hubs (`VaultHub`: connect per device, the devices with presence
+and SSH, approvals with the safety code, revoke). What VaultKit doesn't do yet is drawn against protocols in `Vault/Engine/`
+(`FolderSyncEngine`, `RemoteService` backends, `RecoveryService`; `HubEngine` is live, with a demo), each saying plainly what isn't there yet.
 
 `--demo` opens a demo vault in a temporary folder: in-memory keys, secrets and identity, real encrypted folders, and
 sample data only for folder sync and remote listings. It never touches the user's vault. Other launch arguments
-(`--select logins|hosts|folder:<name>|…`, `--login`, `--host`, `--person`, `--sheet decrypt|share|new-login|add-remote`,
+(`--select logins|hosts|hub|folder:<name>|…`, `--login`, `--host`, `--person`, `--hub-device`, `--sheet decrypt|share|new-login|add-remote|add-hub`,
 `--welcome`, `--waiting-for-keys`, `--settings`, `--settings-pane`, `--dark`, `--light`) open any screen;
 `.dev/screenshots.json` lists the screenshot scenes.
 

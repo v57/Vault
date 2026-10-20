@@ -66,6 +66,14 @@ struct SidebarView: View {
       SidebarRow(value: SidebarItem.devices, "Devices & People", systemImage: "person.2") {
         Count(app.devices.count + app.sharing.people.count)
       }
+      SidebarRow(value: SidebarItem.hub, "Hub", systemImage: "point.3.connected.trianglepath.dotted") {
+        let hubs = app.hubs.hubs
+        if hubs.contains(where: { !$0.pending.isEmpty }) {
+          Count(hubs.reduce(0) { $0 + $1.pending.count }, .attention)
+        } else {
+          Text(hubs.isEmpty ? "Off" : "\(hubs.flatMap(\.devices).filter { !$0.isRevoked }.count)").kitFont(.caption)
+        }
+      }
       SidebarRow(value: SidebarItem.recoveryKey, "Recovery Key", systemImage: "key") {
         Text(app.recovery.isOn ? "On" : "Off").kitFont(.caption)
       }

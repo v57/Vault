@@ -31,7 +31,9 @@ enum DemoVault {
       let sharing = PeopleLibrary(
         vault: vault, deliversFolderKeys: true,
         sharedItems: Dictionary(uniqueKeysWithValues: vault.logins.filter { $0.title == "Figma" }.map { ($0.id, "Maya") }))
-      let model = AppModel(vault: vault, isDemo: true, folders: folders, remotes: remotes, sharing: sharing, recovery: DemoRecovery())
+      let model = AppModel(
+        vault: vault, isDemo: true, folders: folders, remotes: remotes, sharing: sharing, recovery: DemoRecovery(),
+        hubs: DemoHubs(vault: vault))
       model.lastSync = .now.addingTimeInterval(-70)
       // atlas-design is decrypted for other apps, with 24 minutes left.
       if let design = vault.folders.first(where: { $0.name == "atlas-design" }) {
