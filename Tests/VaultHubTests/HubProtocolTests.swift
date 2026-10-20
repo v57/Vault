@@ -147,6 +147,29 @@ struct HubProtocolTests {
     #expect(entry.isSSHTarget)
   }
 
+  /// `hostKeys`: the first ECDSA or RSA key the device signed, over an Ed25519 `hostKey`.
+  @Test func signedECDSAKeysWinOverEd25519() throws {
+    let device = HubKey()
+    let ed25519 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO1JKMYo0cLG6ukDOJBZlWEpWSc6XGP5NjbBRhSshzfR"
+    let forgedECDSA = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBDQtoM8yj77ua8p9tI4mH0LcOFWOzT0wUwLLtL5dDUOB0+4GIz2Aq6siPRVnYbdpE/zKA0Gu2wgcMQhNDHMKj8M="
+    func sign(_ key: String) -> String { device.sign(HubWire.hostKeySigned(key)) }
+    let json = """
+      [{"id":"\(HubKey.deviceID(spki: device.spki)!)","key":"\(device.spki)","name":"Mac Studio","approved":true,
+        "revoked":false,"online":true,"overlay":{"address":"100.96.0.4"},
+        "capabilities":{"ssh":{"port":22,"hostKey":"\(ed25519)","hostKeySignature":"\(sign(ed25519))","hostKeys":[
+          {"hostKey":"\(ed25519)","hostKeySignature":"\(sign(ed25519))"},
+          {"hostKey":"\(forgedECDSA)","hostKeySignature":"\(HubKey().sign(HubWire.hostKeySigned(forgedECDSA)))"},
+          {"hostKey":"\(Self.hostKey)","hostKeySignature":"\(sign(Self.hostKey))"}]}}}]
+      """
+    let wire = try JSONDecoder().decode([HubWire.Device].self, from: Data(json.utf8))
+    #expect(VaultHubDevice(try #require(wire.first)).ssh?.hostKey == Self.hostKey)
+
+    // Without hostKeys (older reporters): the signed hostKey, whatever its type.
+    let old = json.replacingOccurrences(of: #","hostKeys":["#, with: #","ignored":["#)
+    let oldWire = try JSONDecoder().decode([HubWire.Device].self, from: Data(old.utf8))
+    #expect(VaultHubDevice(try #require(oldWire.first)).ssh?.hostKey == ed25519)
+  }
+
   @Test func pendingCodesComeFromTheKey() throws {
     let key = Self.vectors.keys["device"]!
     let json = """

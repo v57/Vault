@@ -82,6 +82,39 @@ enum HubWire {
       var user: String?
       var hostKey: String?
       var hostKeySignature: String?
+      /// Every host key the server offers, each signed like `hostKey`.
+      var hostKeys: [SignedKey]?
+
+      struct SignedKey: Decodable, Sendable {
+        var hostKey: String
+        var hostKeySignature: String
+      }
+
+      init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        port = try? c.decode(Int.self, forKey: .port)
+        user = try? c.decode(String.self, forKey: .user)
+        hostKey = try? c.decode(String.self, forKey: .hostKey)
+        hostKeySignature = try? c.decode(String.self, forKey: .hostKeySignature)
+        hostKeys = try? c.decode([SignedKey].self, forKey: .hostKeys)
+      }
+
+      enum CodingKeys: String, CodingKey { case port, user, hostKey, hostKeySignature, hostKeys }
+
+      /// The host key to keep: the first ECDSA or RSA key of `hostKeys` whose signature by the device checks out
+      /// (the v57 apps' libssh2 negotiates only those), else `hostKey` when its signature does.
+      func verifiedHostKey(deviceKey: String) -> String? {
+        func verified(_ key: String, _ signature: String) -> Bool {
+          HubKey.verify(signature, of: HubWire.hostKeySigned(key), spki: deviceKey)
+        }
+        let pinnable = (hostKeys ?? []).first { entry in
+          VaultHost.HubRoute(hubID: "", deviceID: "", deviceName: "", hostKey: entry.hostKey).hostKeyIsPinnable
+            && verified(entry.hostKey, entry.hostKeySignature)
+        }
+        if let pinnable { return pinnable.hostKey }
+        if let key = hostKey, let signature = hostKeySignature, verified(key, signature) { return key }
+        return nil
+      }
     }
 
     init(from decoder: any Decoder) throws {
@@ -187,13 +220,7 @@ extension VaultHubDevice {
   init(_ wire: HubWire.Device) {
     var ssh: SSH?
     if let offer = wire.capabilities?.ssh {
-      var hostKey: String?
-      if let key = offer.hostKey, let signature = offer.hostKeySignature,
-        HubKey.verify(signature, of: HubWire.hostKeySigned(key), spki: wire.key)
-      {
-        hostKey = key
-      }
-      ssh = SSH(port: offer.port ?? 22, hostKey: hostKey, user: offer.user)
+      ssh = SSH(port: offer.port ?? 22, hostKey: offer.verifiedHostKey(deviceKey: wire.key), user: offer.user)
     }
     // The Hub's id is checked against the key it lists, so a mismatched entry can't stand in for another device.
     let id = HubKey.deviceID(spki: wire.key) == wire.id ? wire.id : "unverified-\(wire.id)"
