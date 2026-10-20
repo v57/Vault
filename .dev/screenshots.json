@@ -3,10 +3,11 @@
   "appearances": ["light", "dark"],
   "watch": ["Vault", "Sources"],
   "mac": { "window": [1440, 900] },
-  "ios": { "devices": ["iPad Pro 13-inch (M5)"] },
+  "ios": { "devices": ["iPhone 18 Pro Max", "iPad Pro 13-inch (M5)"] },
   "scenes": [
     {
       "id": "01-logins",
+      "platforms": ["mac", "ipad"],
       "arguments": ["--demo", "--select", "logins", "--login", "Atlas admin"],
       "caption": "Passwords and one-time codes, linked to everything else"
     },
@@ -30,6 +31,7 @@
     },
     {
       "id": "05-decrypted",
+      "platforms": ["mac", "ipad"],
       "arguments": ["--demo", "--select", "folder:atlas-design"],
       "caption": "Edits are sealed back as you save"
     },
@@ -50,6 +52,66 @@
       "platforms": ["mac"],
       "arguments": ["--demo", "--select", "folder:atlas-design", "--sheet", "share"],
       "caption": "Compare a safety code, then share"
+    },
+    {
+      "id": "21-iphone-vault",
+      "platforms": ["iphone"],
+      "arguments": ["--demo"],
+      "caption": "Everything in one list, at touch size"
+    },
+    {
+      "id": "22-iphone-login",
+      "platforms": ["iphone"],
+      "arguments": ["--demo", "--select", "logins", "--login", "Atlas admin", "--push"],
+      "caption": "Passwords and one-time codes, linked to everything else"
+    },
+    {
+      "id": "23-iphone-encrypted-folder",
+      "platforms": ["iphone"],
+      "arguments": ["--demo", "--select", "folder:Taxes 2026"],
+      "caption": "Encrypted folders only v57 apps can open"
+    },
+    {
+      "id": "24-iphone-decrypt",
+      "platforms": ["iphone"],
+      "arguments": ["--demo", "--select", "folder:Taxes 2026", "--sheet", "decrypt"],
+      "caption": "Decrypt into Files for as long as you need"
+    },
+    {
+      "id": "25-iphone-decrypted",
+      "platforms": ["iphone"],
+      "arguments": ["--demo", "--select", "folder:atlas-design"],
+      "caption": "Edits are sealed back as you save"
+    },
+    {
+      "id": "26-iphone-sync",
+      "platforms": ["iphone"],
+      "arguments": ["--demo", "--select", "folder:Photos 2026"],
+      "caption": "Sync folders through any storage, with no server"
+    },
+    {
+      "id": "27-iphone-people",
+      "platforms": ["iphone"],
+      "arguments": ["--demo", "--select", "devices"],
+      "caption": "Your devices and the people you share with"
+    },
+    {
+      "id": "28-iphone-share",
+      "platforms": ["iphone"],
+      "arguments": ["--demo", "--select", "folder:atlas-design", "--sheet", "share"],
+      "caption": "Compare a safety code, then share"
+    },
+    {
+      "id": "29-iphone-autofill",
+      "platforms": ["iphone"],
+      "arguments": ["--demo", "--sheet", "autofill"],
+      "caption": "Fills in Safari and apps through AutoFill"
+    },
+    {
+      "id": "30-iphone-welcome",
+      "platforms": ["iphone"],
+      "arguments": ["--demo", "--welcome"],
+      "caption": "What your other v57 apps saved, ready on a new iPhone"
     }
   ]
 }
