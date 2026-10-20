@@ -270,6 +270,24 @@ struct EncryptedFolderTests {
     #expect(try folder.list("s").map(\.name) == ["stream.bin"])
   }
 
+  @Test func pendingWritesAppearOnlyOnCommit() throws {
+    let directory = try TemporaryDirectory()
+    let folder = try EncryptedFolder(url: directory.file("F"), key: key)
+    try folder.write(Data("old".utf8), to: "p/file")
+    let pending = try folder.beginWrite(to: "p/file")
+    try pending.append(Data("new ".utf8))
+    try pending.append(pseudoRandomData(100_000))
+    #expect(try folder.read("p/file") == Data("old".utf8))
+    try pending.commit()
+    #expect(try folder.read("p/file") == Data("new ".utf8) + pseudoRandomData(100_000))
+    do {
+      let cancelled = try folder.beginWrite(to: "p/other")
+      try cancelled.append(Data("x".utf8))
+    }  // dropped without commit
+    #expect(try folder.list("p").map(\.name) == ["file"])
+    #expect(try FileManager.default.contentsOfDirectory(atPath: disk(folder, "p").path).count == 2)  // dir.v57 + file
+  }
+
   @Test func refusesFormatOne() throws {
     let directory = try TemporaryDirectory()
     let url = directory.file("F")

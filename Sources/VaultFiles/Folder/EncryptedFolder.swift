@@ -417,12 +417,78 @@ public final class EncryptedFolder: Sendable {
     let temporary = parent.appendingPathComponent(Self.temporaryPrefix + UUID().uuidString)
     defer { try? fileManager.removeItem(at: temporary) }
     try write(temporary, target)
+    try place(temporary, at: target)
+  }
+
+  private func place(_ temporary: URL, at target: Location) throws {
     try target.writeSidecar()
     if target.exists {
-      _ = try fileManager.replaceItemAt(target.url, withItemAt: temporary)
+      _ = try FileManager.default.replaceItemAt(target.url, withItemAt: temporary)
     } else {
-      try fileManager.moveItem(at: temporary, to: target.url)
+      try FileManager.default.moveItem(at: temporary, to: target.url)
     }
+  }
+
+  /// A file being written piece by piece, for writers that get the pieces asynchronously (folder sync downloading
+  /// them). Nothing changes at the path until `commit`; `cancel` (or dropping it) discards it.
+  public final class PendingWrite {
+    private let folder: EncryptedFolder
+    private let target: Location
+    private let temporary: URL
+    private let handle: FileHandle
+    private let writer: EncryptedFileWriter
+    private var done = false
+
+    fileprivate init(folder: EncryptedFolder, target: Location, temporary: URL) throws {
+      self.folder = folder
+      self.target = target
+      self.temporary = temporary
+      handle = try EncryptedFile.createForWriting(temporary)
+      do {
+        let handle = handle
+        writer = try EncryptedFileWriter(
+          key: folder.subkeys.content, keyID: folder.key.id, context: target.fileContext
+        ) { try handle.write(contentsOf: $0) }
+      } catch {
+        try? handle.close()
+        try? FileManager.default.removeItem(at: temporary)
+        throw error
+      }
+    }
+
+    deinit { cancel() }
+
+    public func append(_ data: Data) throws { try writer.append(data) }
+
+    /// Seals the end and puts the file in place, replacing what was there. Returns the plaintext's SHA-256.
+    @discardableResult
+    public func commit() throws -> SHA256.Digest {
+      precondition(!done, "PendingWrite used after commit or cancel")
+      defer { cancel() }
+      let digest = try writer.finish()
+      try handle.close()
+      try folder.place(temporary, at: target)
+      return digest
+    }
+
+    /// Discards what was written.
+    public func cancel() {
+      guard !done else { return }
+      done = true
+      try? handle.close()
+      try? FileManager.default.removeItem(at: temporary)
+    }
+  }
+
+  /// Starts writing the file at `path` piece by piece (see `PendingWrite`), making the folders above it.
+  public func beginWrite(to path: String) throws -> PendingWrite {
+    let components = try Self.components(path)
+    guard !components.isEmpty else { throw VaultFilesError.isADirectory(path) }
+    let parent = try resolveDirectory(Array(components.dropLast()), create: true)
+    let target = try location(of: components.last!, in: parent)
+    if target.isDirectory { throw VaultFilesError.isADirectory(path) }
+    return try PendingWrite(
+      folder: self, target: target, temporary: parent.url.appendingPathComponent(Self.temporaryPrefix + UUID().uuidString))
   }
 
   /// Seals what `produce` appends into `temporary`, for the file at `target`.
