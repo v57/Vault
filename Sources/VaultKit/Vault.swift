@@ -29,6 +29,8 @@ public final class Vault {
   public private(set) var remotes: [VaultRemote] = []
   /// People the user shares with, by name.
   public private(set) var people: [VaultPerson] = []
+  /// The Hubs the user connected to (`VaultHub` connects; the other apps see their devices as hosts).
+  public private(set) var hubs: [VaultHubServer] = []
   /// Why the store couldn't open or save, for the UI.
   public var error: String?
 
@@ -126,6 +128,9 @@ public final class Vault {
       people = try store.records(VaultPerson.self).sorted {
         $0.name.localizedStandardCompare($1.name) == .orderedAscending
       }
+      hubs = try store.records(VaultHubServer.self).sorted {
+        ($0.order, $0.displayName.localizedLowercase) < ($1.order, $1.displayName.localizedLowercase)
+      }
       cards = try store.records(VaultCard.self).sorted {
         ($0.order, $0.title.localizedLowercase) < ($1.order, $1.title.localizedLowercase)
       }
@@ -185,4 +190,11 @@ public final class Vault {
   public func host(id: String?) -> VaultHost? {
     id.flatMap { id in hosts.first { $0.id == id } }
   }
+
+  public func hub(id: String?) -> VaultHubServer? {
+    id.flatMap { id in hubs.first { $0.id == id } }
+  }
+
+  /// The hosts that are devices on the user's Hubs, reached through Hub Network.
+  public var hubHosts: [VaultHost] { hosts.filter(\.isViaHub) }
 }

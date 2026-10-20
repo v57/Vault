@@ -25,13 +25,47 @@ public struct VaultHost: VaultRecord, Hashable {
   public var jumpHostID: String?
   /// Sidebar order.
   public var order: Int
-  /// Where it came from: "shell", "ssh-config" (imported from ~/.ssh/config), "dev-vm".
+  /// Where it came from: "shell", "ssh-config" (imported from ~/.ssh/config), "dev-vm", "hub".
   public var source: String?
+  /// A device on one of the user's Hubs (`VaultHub`), reached at its Hub Network address: `hostname` is the
+  /// overlay address, `hostKey` the SSH host key the device signed. Nil for a host the user added.
+  public var hub: HubRoute?
+
+  /// How a host on a Hub is reached and trusted, kept current from the Hub's device directory.
+  public struct HubRoute: Sendable, Hashable {
+    /// The `VaultHub` record.
+    public var hubID: String
+    /// The Hub's device id.
+    public var deviceID: String
+    /// The name the Hub gives the device; `name` follows it until the user renames the host.
+    public var deviceName: String
+    /// "macos", "linux", "ios"…
+    public var platform: String
+    /// The OpenSSH host key line ("ssh-ed25519 AAAA…"), when the device signed one.
+    public var hostKey: String?
+    /// When the Hub last saw the device, to the hour (finer would make every app's records churn).
+    public var lastSeen: Date?
+
+    public init(
+      hubID: String, deviceID: String, deviceName: String, platform: String = "", hostKey: String? = nil,
+      lastSeen: Date? = nil
+    ) {
+      self.hubID = hubID
+      self.deviceID = deviceID
+      self.deviceName = deviceName
+      self.platform = platform
+      self.hostKey = hostKey
+      self.lastSeen = lastSeen
+    }
+
+    /// "SHA256:…" of `hostKey`.
+    public var hostKeyFingerprint: String? { hostKey.flatMap { VaultIdentity.fingerprint(keyLine: $0) } }
+  }
 
   public init(
     id: String = UUID().uuidString, name: String = "", hostname: String, port: Int = 22, user: String = "",
     auth: Auth = .deviceKey, keyID: String? = nil, savePassword: Bool = true, jumpHostID: String? = nil,
-    order: Int = 0, source: String? = nil
+    order: Int = 0, source: String? = nil, hub: HubRoute? = nil
   ) {
     self.id = id
     self.name = name
@@ -44,6 +78,7 @@ public struct VaultHost: VaultRecord, Hashable {
     self.jumpHostID = jumpHostID
     self.order = order
     self.source = source
+    self.hub = hub
   }
 
   public init(id: String, values: [String: JSONValue]) {
@@ -59,6 +94,12 @@ public struct VaultHost: VaultRecord, Hashable {
     jumpHostID = read.string("jumpHostID")
     order = read.int("order", default: 0)
     source = read.string("source")
+    if let hubID = read.string("hub.id"), let deviceID = read.string("hub.device") {
+      hub = HubRoute(
+        hubID: hubID, deviceID: deviceID, deviceName: read.string("hub.deviceName", default: ""),
+        platform: read.string("hub.platform", default: ""), hostKey: read.string("hub.hostKey"),
+        lastSeen: read.date("hub.lastSeen"))
+    }
   }
 
   public var values: [String: JSONValue] {
@@ -66,8 +107,14 @@ public struct VaultHost: VaultRecord, Hashable {
       "name": .string(name), "hostname": .string(hostname), "port": .init(port), "user": .string(user),
       "auth": .string(auth.rawValue), "keyID": .init(keyID), "savePassword": .bool(savePassword),
       "jumpHostID": .init(jumpHostID), "order": .init(order), "source": .init(source),
+      "hub.id": .init(hub?.hubID), "hub.device": .init(hub?.deviceID), "hub.deviceName": .init(hub?.deviceName),
+      "hub.platform": .init(hub?.platform), "hub.hostKey": .init(hub?.hostKey), // Whole hours, written as an integer: that's how the store reads it back, so an unchanged value isn't a change.
+      "hub.lastSeen": hub?.lastSeen.map { .int(Int64($0.timeIntervalSince1970)) } ?? .null,
     ]
   }
+
+  /// Whether the host is a device on one of the user's Hubs, reached through Hub Network.
+  public var isViaHub: Bool { hub != nil }
 
   /// Name if given, otherwise user@host.
   public var displayName: String {
@@ -137,7 +184,7 @@ extension VaultStore {
         keyType: keyType))
   }
 
-  private func knownHostID(host: String, port: Int) throws -> String {
+  func knownHostID(host: String, port: Int) throws -> String {
     try derivedID("knownHost|\(host.lowercased()):\(port)")
   }
 }

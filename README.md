@@ -144,6 +144,20 @@ keys can still read them. A synced folder's remote keeps its folder keys' blobs 
 scanned kit and `RecoveredKeys.restore` writes the vault keys and identity back to iCloud Keychain; `replace` makes
 a new kit and deletes the old blobs, `turnOff` deletes them everywhere.
 
+**Hub.** `VaultHub` (a library of its own, so VaultKit doesn't depend on Hub) connects this device to the user's own
+Hub (`~/Developer/Hub`, wire contract `Docs/Devices/protocol.md`). Nothing connects until the user adds one: a
+`VaultHubServer` record (address, pinned Hub key) that each device turns on for itself (`connects.<device>`); the apps
+never pick a Hub, the v57.dev playground included, and the UI calls that one a playground. The device key never leaves
+the device: `~/.hub/device.key` on the Mac (shared with Hub's launcher and services, so the Mac is one device), a
+this-device-only item in the v57 keychain group on iPhone and iPad. Each connection signs a 7-day certificate for the
+key the apps connect with, pins the Hub's key from `hub/info` and uses v1 auth from then on. `HubDirectory` follows
+`hub/devices` and mirrors every approved device that offers SSH and has a Hub Network address into a `VaultHost` with
+a `hub` route (`HubRoute`: device id, name, platform, the host key the device signed, last seen to the hour). The
+host key is trusted for every app (`VaultKnownHost`) only when the device's own key signed it (`ssh1:<hostKey>`).
+A revoked or removed device's host and its trust go on the next update. Other apps read these hosts through VaultKit
+alone (`Vault.hubHosts`, `VaultHost.isViaHub`), so they never link Hub. Owners also see `hub/devices/pending` and
+approve with the safety code, which Vault computes from the key rather than trusting the Hub's.
+
 ## The Vault app
 
 `Vault/` is a Mac and iPad app on VaultKit and VaultFiles (`Vault.xcodeproj`, bundle `dev.v57.vault`; build it against
@@ -166,7 +180,7 @@ sample data only for folder sync and remote listings. It never touches the user'
 | `Core/` | `JSONValue`, `HybridClock`, `ItemFields` (the merge), `VaultConfiguration` (identifiers) |
 | `Keys/` | `VaultKeychain` (shared group), `VaultKeys` (AES keys, sealing), `VaultIdentity` (SSH key), `VaultSecrets`, `VaultDevice`, the recovery key (`VaultRecovery`, `RecoverySecret` and `RecoveryWordList`, `RecoveryKit`, the `VaultRecoveryKey` and `VaultRecoveryBlob` records) |
 | `Store/` | `VaultStore` (SQLite, outbox, merging records in), change notifications, `VaultFieldChange` (each field's last write: when, which device) |
-| `Records/` | Typed records: `VaultProject`, `VaultProjectGroup` (with `VaultProjectTree`), `VaultHost`, `VaultKnownHost`, `VaultDeviceKey`, `VaultDatabase`, `VaultNote`, `VaultNoteFile`, `VaultLogin`, `VaultCard`, `VaultFolder`, `VaultRemote` |
+| `Records/` | Typed records: `VaultProject`, `VaultProjectGroup` (with `VaultProjectTree`), `VaultHost` (with its `HubRoute`), `VaultKnownHost`, `VaultDeviceKey`, `VaultHubServer` (with `VaultHubDevice` and the mirror), `VaultDatabase`, `VaultNote`, `VaultNoteFile`, `VaultLogin`, `VaultCard`, `VaultFolder`, `VaultRemote` |
 | `Remote/` | `RemoteFileSystem` (list, stat, read range, write, rename, delete), `MemoryRemoteFileSystem`, `LocalRemoteFileSystem`, `S3FileSystem` (AWS S3, R2, B2, MinIO; `AWSSignatureV4`, an injectable `S3Transport`), `RemoteConnections` (the file system for a `VaultRemote`) |
 | `Sharing/` | `PersonalIdentity` (X25519 + Ed25519, one per person, `VaultPersonalIdentity`), `PublicIdentity` (`v57id:`), `SafetyCode`, `KeyWrap` (a key sealed to a person), `VaultPerson`, `VaultInvite` (`v57vault://invite`) |
 | `Sync/` | `SyncCoordinator` (the sync rules, testable), `CloudSync` (the `CKSyncEngine` adapter) |
@@ -176,6 +190,7 @@ sample data only for folder sync and remote listings. It never touches the user'
 | `VaultFiles/Folder/` | `FolderKey` (wrapped by the vault key), `EncryptedFolder` |
 | `Vault/` | The app: `App/` (model, window), `Sidebar/`, `Items/` (logins, hosts, databases, projects, cards, notes, New), `Folders/`, `Locations/`, `Keys/` (devices, people), `Settings/`, `Welcome/`, `Engine/` (folders on VaultFiles, people, the protocols), `Demo/` |
 | `VaultFiles/Session/` | `DecryptSession` (temporary decryption, crash recovery), `FolderActivity` (progress for the UI), `FolderWatcher` (macOS) |
+| `VaultHub/` | Hub as a backend: `HubKeys` (Ed25519 in Hub's encodings, `HubKeyStore`), `HubWire` (the protocol's types, auth and certificate headers), `HubConnection` (one Hub: status, devices, pending, approve and revoke), `HubDirectory` (the Hubs this device connects to) |
 | `VaultSync/` | Folder sync over plain storage: `FolderSync` (the engine, an actor the app drives), `FolderSyncStatus` (for the UI), `FolderMembers` (signed member list, key epochs), `ChangeLog` (changes, log files, snapshots, the remote layout), `SyncLocalFolder` (plain or encrypted local copy), `SyncState` (each device's index) |
 
 `swift test` runs the merge, store and sync tests. The sync tests use a fake CloudKit (`Tests/.../FakeCloud.swift`)
