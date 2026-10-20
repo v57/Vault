@@ -117,6 +117,22 @@ Xcode, other apps), `DecryptSession` decrypts a working copy, hidden from Spotli
 when the app asks (or as they happen, with `FolderWatcher` on macOS), and deletes the copy when it locks; copies a
 crash left behind are sealed and deleted at the next launch.
 
+**Folder sync.** `VaultSync` keeps a folder in sync across devices and people through a remote that is only plain
+storage (S3, SFTP, a disk: any `RemoteFileSystem`), with no server, locks or change notifications. The remote copy is
+always encrypted, whether a device keeps its copy as plain files (`PlainSyncFolder`) or encrypted
+(`EncryptedSyncFolder`). At the folder's place on the remote: `members`, the owner-signed member list (each member's
+keys and role, and the folder key wrapped to each, in epochs that rotate when someone is removed: `FolderMembers`);
+`chunks/<id>`, content-addressed encrypted chunks written once (the id is a keyed hash, so they dedupe and say
+nothing); `log/<device>/<n>`, each device's own change log, which only it appends to; and `snapshots/`, compacted
+state for new devices. Each change names the file, its chunks, a hybrid clock and the versions it replaces, and is
+signed by its author: changes from people without write access are ignored. Every device resolves a file's
+concurrent edits the same way: an edit beats a delete, text merges line by line against the common ancestor when
+it merges cleanly, and otherwise the later write wins and the other becomes a conflict copy; a read-write device
+then writes the resolution back, so the file has one version again. A read-only device receives only: its edits
+stay "changed here", and when the remote changes one of them the user picks Keep Mine or Revert to Remote. The app
+drives `FolderSync.sync()` (on open and on a timer); local changes are found by scanning against the last index.
+Chunks nothing references are deleted after a grace period, and log files once a snapshot covers them.
+
 **Recovery key.** Optional and off until the user makes one (`VaultRecovery.create`); nothing in VaultKit
 prompts or reminds, `isOn` is the only state. The user keeps a random 256-bit secret, shown once as 24 BIP-39 words
 or 14 groups of base32, both with a checksum, and as a QR code on a printable kit (`RecoveryKit`, `V57R1:…`).
@@ -160,6 +176,7 @@ sample data only for folder sync and remote listings. It never touches the user'
 | `VaultFiles/Folder/` | `FolderKey` (wrapped by the vault key), `EncryptedFolder` |
 | `Vault/` | The app: `App/` (model, window), `Sidebar/`, `Items/` (logins, hosts, databases, projects, cards, notes, New), `Folders/`, `Locations/`, `Keys/` (devices, people), `Settings/`, `Welcome/`, `Engine/` (folders on VaultFiles, people, the protocols), `Demo/` |
 | `VaultFiles/Session/` | `DecryptSession` (temporary decryption, crash recovery), `FolderActivity` (progress for the UI), `FolderWatcher` (macOS) |
+| `VaultSync/` | Folder sync over plain storage: `FolderSync` (the engine, an actor the app drives), `FolderSyncStatus` (for the UI), `FolderMembers` (signed member list, key epochs), `ChangeLog` (changes, log files, snapshots, the remote layout), `SyncLocalFolder` (plain or encrypted local copy), `SyncState` (each device's index) |
 
 `swift test` runs the merge, store and sync tests. The sync tests use a fake CloudKit (`Tests/.../FakeCloud.swift`)
 with several devices and several apps per device.

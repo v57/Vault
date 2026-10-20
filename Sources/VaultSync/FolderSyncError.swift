@@ -24,6 +24,8 @@ public enum FolderSyncError: LocalizedError, Equatable {
   case missingKey(String)
   /// The device id can't be used as a folder name on the remote.
   case invalidDevice(String)
+  /// There is already a shared folder at this path on the remote.
+  case folderExists
 
   public var errorDescription: String? {
     switch self {
@@ -39,6 +41,7 @@ public enum FolderSyncError: LocalizedError, Equatable {
     case .damaged(let what): "Damaged data on the remote: \(what)."
     case .missingKey(let id): "This device doesn't have the folder key \(id)."
     case .invalidDevice(let id): "“\(id)” can't be used as a device name."
+    case .folderExists: "There's already a synced folder at this place on the remote."
     }
   }
 }
