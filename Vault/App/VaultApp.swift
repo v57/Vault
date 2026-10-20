@@ -1,5 +1,6 @@
 import ComponentKit
 import SwiftUI
+import VaultKit
 
 #if os(macOS)
   import UpdateKit
@@ -31,6 +32,9 @@ struct VaultApp: App {
         .preferredColorScheme(LaunchOptions.colorScheme)
     }
     .defaultSize(width: 1440, height: 900)
+    #if os(iOS)
+      .backgroundTask(.appRefresh(VaultBackgroundRefresh.identifier)) { await app.refreshInBackground() }
+    #endif
     .commands {
       VaultCommands(app: app)
       #if os(macOS)

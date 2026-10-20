@@ -269,6 +269,11 @@ final class FolderLibrary {
     }
   }
 
+  /// Syncs every folder that has a remote. Until the folder sync engine is wired in, it only refreshes what's shown.
+  func syncAll() async {
+    invalidate()
+  }
+
   func checkRemotes() {
     invalidate()
   }

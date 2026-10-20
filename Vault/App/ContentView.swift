@@ -14,6 +14,7 @@ struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
   #endif
   @AppStorage("showWelcome") private var showWelcome = true
+  @Environment(\.scenePhase) private var scenePhase
   #if DEBUG
     // `--hide-sidebar`: iPad portrait screenshots.
     @State private var columnVisibility: NavigationSplitViewVisibility =
@@ -43,6 +44,10 @@ struct ContentView: View {
     .task(id: app.vault.logins) {
       // What the system offers in password fields (only once Vault is turned on in AutoFill settings).
       if !app.isDemo { await VaultAutoFill.publish(app.vault.logins) }
+    }
+    .onChange(of: scenePhase) { _, phase in
+      // Leaving the screen: ask for a background turn to check remotes (iPhone and iPad; nothing on the Mac).
+      if phase == .background, !app.isDemo { app.scheduleBackgroundRefresh() }
     }
     .onAppear {
       #if os(macOS)

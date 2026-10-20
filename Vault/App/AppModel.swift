@@ -157,6 +157,24 @@ final class AppModel {
 
   var notes: [VaultNote] { (try? vault.store?.records(VaultNote.self)) ?? [] }
 
+  /// The system’s background turn (iPhone and iPad): sync iCloud and check the remotes folders use, then ask for
+  /// the next turn while remote checks are on.
+  func refreshInBackground() async {
+    syncNow()
+    await folders.syncAll()
+    scheduleBackgroundRefresh()
+  }
+
+  /// Asks the system for the next background turn, as often as Settings' "Check remotes" says.
+  func scheduleBackgroundRefresh() {
+    let minutes = UserDefaults.standard.object(forKey: "remoteCheckMinutes") as? Int ?? 5
+    if folders.folders.contains(where: { $0.record.remoteID != nil }) {
+      VaultBackgroundRefresh.schedule(after: TimeInterval(max(15, minutes) * 60))
+    } else {
+      VaultBackgroundRefresh.cancel()
+    }
+  }
+
   /// Devices that published a key: this one and the others.
   var devices: [VaultDeviceKey] { vault.deviceKeys.filter { $0.id == vault.deviceID } + otherDevices }
 

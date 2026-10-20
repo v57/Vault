@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- iPhone and iPad: a background turn now and then to check remotes (the system decides when; no helper). -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>dev.v57.vault.refresh</string>
+	</array>
 	<!-- Invites from other people and devices: v57vault://invite?… (a link, or the QR code's text). -->
 	<key>CFBundleURLTypes</key>
 	<array>
