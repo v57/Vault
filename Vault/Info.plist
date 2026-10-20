@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Invites from other people and devices: v57vault://invite?… (a link, or the QR code's text). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dev.v57.vault.invite</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>v57vault</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

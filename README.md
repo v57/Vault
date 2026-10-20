@@ -114,6 +114,21 @@ Xcode, other apps), `DecryptSession` decrypts a working copy, hidden from Spotli
 when the app asks (or as they happen, with `FolderWatcher` on macOS), and deletes the copy when it locks; copies a
 crash left behind are sealed and deleted at the next launch.
 
+## The Vault app
+
+`Vault/` is a Mac and iPad app on VaultKit and VaultFiles (`Vault.xcodeproj`, bundle `dev.v57.vault`; build it against
+the checkouts next to this one with `Vault-Local.xcworkspace`). It imports only SwiftUI, ComponentKit, VaultKit and
+VaultFiles, plus UpdateKit on the Mac. It shows the records every v57 app already shares (logins, cards, notes, SSH
+hosts, databases, projects, devices) and the newer pieces: encrypted folders with timed decryption for other apps,
+people and safety codes, remotes. What VaultKit doesn't do yet is drawn against protocols in `Vault/Engine/`
+(`FolderSyncEngine`, `RemoteService` backends, `RecoveryService`), each saying plainly what isn't there yet.
+
+`--demo` opens a demo vault in a temporary folder: in-memory keys, secrets and identity, real encrypted folders, and
+sample data only for folder sync and remote listings. It never touches the user's vault. Other launch arguments
+(`--select logins|hosts|folder:<name>|…`, `--login`, `--host`, `--person`, `--sheet decrypt|share|new-login|add-remote`,
+`--welcome`, `--waiting-for-keys`, `--settings`, `--settings-pane`, `--dark`, `--light`) open any screen;
+`.dev/screenshots.json` lists the screenshot scenes.
+
 ## Layout
 
 | Folder | What |
@@ -129,6 +144,7 @@ crash left behind are sealed and deleted at the next launch.
 | `Notes/` | `NotesMirror`, `EncryptedNote`, `NoteConflicts`, `NoteBaseCache`, `TextMerge` |
 | `VaultFiles/Format/` | `EncryptedFile` (chunked file format, `EncryptedFileReader` for ranges), `NameCipher` and `DiskName` (encrypted names, long-name sidecars), `FolderSubkeys` |
 | `VaultFiles/Folder/` | `FolderKey` (wrapped by the vault key), `EncryptedFolder` |
+| `Vault/` | The app: `App/` (model, window), `Sidebar/`, `Items/` (logins, hosts, databases, projects, cards, notes, New), `Folders/`, `Locations/`, `Keys/` (devices, people), `Settings/`, `Welcome/`, `Engine/` (folders on VaultFiles, people, the protocols), `Demo/` |
 | `VaultFiles/Session/` | `DecryptSession` (temporary decryption, crash recovery), `FolderActivity` (progress for the UI), `FolderWatcher` (macOS) |
 
 `swift test` runs the merge, store and sync tests. The sync tests use a fake CloudKit (`Tests/.../FakeCloud.swift`)

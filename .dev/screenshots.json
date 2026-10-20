@@ -1,0 +1,55 @@
+{
+  "build": { "scheme": "Vault", "project": "Vault.xcodeproj" },
+  "appearances": ["light", "dark"],
+  "watch": ["Vault", "Sources"],
+  "mac": { "window": [1440, 900] },
+  "ios": { "devices": ["iPad Pro 13-inch (M5)"] },
+  "scenes": [
+    {
+      "id": "01-logins",
+      "arguments": ["--demo", "--select", "logins", "--login", "Atlas admin"],
+      "caption": "Passwords and one-time codes, linked to everything else"
+    },
+    {
+      "id": "02-hosts",
+      "platforms": ["mac"],
+      "arguments": ["--demo", "--select", "hosts", "--host", "atlas-web-1"],
+      "caption": "The SSH hosts Shell and Database share, with every device's key"
+    },
+    {
+      "id": "03-encrypted-folder",
+      "platforms": ["mac"],
+      "arguments": ["--demo", "--select", "folder:Taxes 2026"],
+      "caption": "Encrypted folders only v57 apps can open"
+    },
+    {
+      "id": "04-decrypt",
+      "platforms": ["mac"],
+      "arguments": ["--demo", "--select", "folder:Taxes 2026", "--sheet", "decrypt"],
+      "caption": "Decrypt for other apps, for as long as you need"
+    },
+    {
+      "id": "05-decrypted",
+      "arguments": ["--demo", "--select", "folder:atlas-design"],
+      "caption": "Edits are sealed back as you save"
+    },
+    {
+      "id": "06-sync",
+      "platforms": ["mac"],
+      "arguments": ["--demo", "--select", "folder:Photos 2026"],
+      "caption": "Sync folders through any storage, with no server"
+    },
+    {
+      "id": "07-people",
+      "platforms": ["mac"],
+      "arguments": ["--demo", "--select", "devices", "--person", "Maya Okafor"],
+      "caption": "Share with people you've verified"
+    },
+    {
+      "id": "08-share",
+      "platforms": ["mac"],
+      "arguments": ["--demo", "--select", "folder:atlas-design", "--sheet", "share"],
+      "caption": "Compare a safety code, then share"
+    }
+  ]
+}
