@@ -90,6 +90,7 @@ struct SheetContent: View {
     case .share(let id): ShareSheet(folderID: id)
     case .invite: InviteSheet()
     case .addDevice: InviteSheet(forDevice: true)
+    case .scanInvite: ScanInviteSheet()
     }
   }
 }

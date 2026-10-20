@@ -234,3 +234,42 @@ struct InviteSheet: View {
     .onAppear { link = (try? app.sharing.inviteLink(folderID: nil, folderName: nil, role: nil)) ?? "" }
   }
 }
+
+/// Scanning someone's invite (their QR code, or the link they sent): their key arrives and they show up in People,
+/// waiting for the safety code to be compared.
+struct ScanInviteSheet: View {
+  @Environment(AppModel.self) private var app
+  @Environment(\.dismiss) private var dismiss
+  @State private var message: String?
+  @State private var added: String?
+
+  var body: some View {
+    KitSheet(
+      title: "Scan an Invite", meta: "Point the camera at their QR code, or paste the link they sent.",
+      systemImage: "qrcode.viewfinder", hue: .purple, width: 520
+    ) {
+      KitQRScanner { text in accept(text) }
+        .frame(height: 300)
+      if let message { Text(message).kitFont(.caption).foregroundStyle(added == nil ? AnyShapeStyle(Hue.red.text) : AnyShapeStyle(.kitSecondary)) }
+    } footer: {
+      if let added { SheetStatus("\(added)’s key arrived", systemImage: "person", status: .done) }
+      Button("Paste Link") { if let text = KitPasteboard.string() { accept(text) } }
+      Button(added == nil ? "Cancel" : "Done") {
+        if added != nil { app.selection = .devices }
+        dismiss()
+      }
+      .buttonStyle(added == nil ? .kit : .kitPrimary)
+      .keyboardShortcut(.defaultAction)
+    }
+  }
+
+  private func accept(_ text: String) {
+    guard let invite = VaultInvite(url: text), invite.isSignatureValid else {
+      message = "That isn’t a Vault invite, or it was changed after it was made."
+      return
+    }
+    app.sharing.accept(invite)
+    added = invite.name
+    message = "Compare the safety code with \(invite.name) in Devices & People before sharing anything."
+  }
+}

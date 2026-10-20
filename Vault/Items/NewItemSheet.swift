@@ -110,6 +110,7 @@ private struct LoginForm: View {
   @State private var password = PasswordGenerator().generate()
   @State private var code: OneTimeCode?
   @State private var codeError: String?
+  @State private var scansCamera = false
   @State private var links: Set<String> = []
   @State private var error: String?
 
@@ -150,7 +151,11 @@ private struct LoginForm: View {
         } else {
           FormRow("Add a code", help: codeError ?? "Paste the setup key, or scan the QR code the site shows on screen.", systemImage: "clock", error: codeError) {
             HStack(spacing: 6) {
-              Button("Scan Screen") {}.disabled(true).help("Scanning the screen comes in a later version")
+              if KitQRReader.canScanScreen {
+                Button("Scan Screen") { scanScreen() }
+              } else {
+                Button("Scan Code") { withKitAnimation { scansCamera.toggle() } }
+              }
               Button("Paste Key") { pasteKey() }
             }
             .buttonStyle(.kit)
@@ -158,6 +163,16 @@ private struct LoginForm: View {
           }
         }
       }
+    }
+    if scansCamera, code == nil {
+      KitQRScanner { text in
+        if let parsed = OneTimeCode(text) {
+          code = parsed
+          codeError = nil
+          scansCamera = false
+        }
+      }
+      .frame(height: 220)
     }
     LabeledField("Link to") {
       LinkPicker(selection: $links)
@@ -172,6 +187,23 @@ private struct LoginForm: View {
     case .fair: .orange
     case .good: .yellow
     case .strong: .green
+    }
+  }
+
+  /// Finds the setup QR code the site shows on screen (the system asks for screen recording the first time).
+  private func scanScreen() {
+    Task {
+      do {
+        let codes = try await KitQRReader.codesOnScreen()
+        if let parsed = codes.lazy.compactMap(OneTimeCode.init).first {
+          code = parsed
+          codeError = nil
+        } else {
+          codeError = "No setup code on screen. Show the site’s QR code, then scan again."
+        }
+      } catch {
+        codeError = "Allow Vault to record the screen in System Settings to scan the code."
+      }
     }
   }
 

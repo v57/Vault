@@ -69,6 +69,7 @@ struct DevicesView: View {
     .kitToolbar("Devices & People", meta: ["\(app.devices.count) devices", "\(people.count) people", "keys in iCloud Keychain"], systemImage: "checkmark.shield", hue: .green) {
       ToolGroup {
         Button("Add Device", systemImage: "qrcode") { app.sheet = .addDevice }
+        Button("Scan Invite", systemImage: "qrcode.viewfinder") { app.sheet = .scanInvite }
         Button("Invite", systemImage: "person.badge.plus") { app.sheet = .invite }
       }
       ToolbarSearch(text: $search, prompt: "Search")

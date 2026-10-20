@@ -42,6 +42,7 @@ enum AppSheet: Identifiable, Hashable {
   case share(String)
   case invite
   case addDevice
+  case scanInvite
 
   var id: Self { self }
 }

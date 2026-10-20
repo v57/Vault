@@ -29,6 +29,8 @@ protocol SharingService: AnyObject {
   func sharedWith(_ itemID: String) -> String?
   /// Opens an invite link (`v57vault://invite?…`).
   func open(_ url: URL)
+  /// Adds the person an invite came from (keys arrived; the safety code still to compare).
+  func accept(_ invite: VaultInvite)
 }
 
 /// People from the vault's records, the identity from iCloud Keychain (memory in demo runs), safety codes and
@@ -79,6 +81,10 @@ final class PeopleLibrary: SharingService {
 
   func open(_ url: URL) {
     guard let invite = VaultInvite(url: url.absoluteString), invite.isSignatureValid else { return }
+    accept(invite)
+  }
+
+  func accept(_ invite: VaultInvite) {
     vault.perform { try $0.addPerson(invite.identity, name: invite.name) }
   }
 }

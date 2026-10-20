@@ -27,7 +27,7 @@ struct WelcomeWindow: View {
         }
         .disabled(!app.recovery.isAvailable)
         WelcomeAction("Join from Another Device…", detail: "Scan an invite on a device that has your keys", systemImage: "qrcode") {
-          app.sheet = .addDevice
+          app.sheet = .scanInvite
         }
       } else {
         WelcomeAction("New Encrypted Folder…", detail: firstEncryptLine, systemImage: "lock.rectangle.stack") {
