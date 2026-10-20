@@ -43,7 +43,7 @@ public struct VaultLogin: VaultRecord, Hashable {
     self.notes = notes
     self.favorite = favorite
     self.order = order
-    self.created = created
+    self.created = created?.wholeSeconds
     self.links = links
     hasOneTimeCode = false
     passwordChanged = nil
@@ -134,7 +134,7 @@ public struct VaultCard: VaultRecord, Hashable {
     self.brand = brand
     self.notes = notes
     self.order = order
-    self.created = created
+    self.created = created?.wholeSeconds
   }
 
   public init(id: String, values: [String: JSONValue]) {

@@ -86,3 +86,9 @@ extension Dictionary where Key == String, Value == JSONValue {
     for (key, value) in map { self["\(prefix).\(key)"] = .string(value) }
   }
 }
+
+extension Date {
+  /// The date without its fraction of a second, which survives a field's round trip exactly (a date read back
+  /// from `timeIntervalSince1970` can differ from the original in the last bit).
+  var wholeSeconds: Date { Date(timeIntervalSince1970: timeIntervalSince1970.rounded(.down)) }
+}

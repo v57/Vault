@@ -103,6 +103,17 @@ last pass tells which side changed; edits on both sides merge against the last s
 note links to, sync as `VaultNoteFile`. Shell edits the records directly. `NoteConflicts` still merges iCloud Drive
 conflict versions of notes in folders the user adds to Markdown.
 
+**Encrypted folders.** The `VaultFiles` library keeps whole folders encrypted, names included, so a folder can
+sit on any disk or remote and show only ciphertext there. Each folder has its own key (`FolderKey`), which the vault
+keeps wrapped by the vault key in the folder's record. A file is sealed in 64 KB chunks (`EncryptedFile`, like age
+or Tink's streaming AEAD): it streams in and out, any range reads without decrypting the rest, and changed,
+reordered or truncated chunks fail to open. Names are encrypted deterministically under their parent folder's
+random id, so paths resolve without an index and renaming a folder rewrites one name (`NameCipher`).
+`EncryptedFolder` lists, reads, writes, moves and removes by plaintext path. For tools that can't read it (git,
+Xcode, other apps), `DecryptSession` decrypts a working copy, hidden from Spotlight and backups, seals changes back
+when the app asks (or as they happen, with `FolderWatcher` on macOS), and deletes the copy when it locks; copies a
+crash left behind are sealed and deleted at the next launch.
+
 ## Layout
 
 | Folder | What |
@@ -114,6 +125,9 @@ conflict versions of notes in folders the user adds to Markdown.
 | `Sync/` | `SyncCoordinator` (the sync rules, testable), `CloudSync` (the `CKSyncEngine` adapter) |
 | `Passwords/` | `OneTimeCode` (TOTP/HOTP, `otpauth://` URLs), `Base32`, `PasswordGenerator`, `PasswordStrength` |
 | `Notes/` | `NotesMirror`, `EncryptedNote`, `NoteConflicts`, `NoteBaseCache`, `TextMerge` |
+| `VaultFiles/Format/` | `EncryptedFile` (chunked file format, `EncryptedFileReader` for ranges), `NameCipher` and `DiskName` (encrypted names, long-name sidecars), `FolderSubkeys` |
+| `VaultFiles/Folder/` | `FolderKey` (wrapped by the vault key), `EncryptedFolder` |
+| `VaultFiles/Session/` | `DecryptSession` (temporary decryption, crash recovery), `FolderActivity` (progress for the UI), `FolderWatcher` (macOS) |
 
 `swift test` runs the merge, store and sync tests. The sync tests use a fake CloudKit (`Tests/.../FakeCloud.swift`)
 with several devices and several apps per device.
