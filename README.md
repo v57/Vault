@@ -112,7 +112,7 @@ conflict versions of notes in folders the user adds to Markdown.
 | `Store/` | `VaultStore` (SQLite, outbox, merging records in), change notifications |
 | `Records/` | Typed records: `VaultProject`, `VaultProjectGroup` (with `VaultProjectTree`), `VaultHost`, `VaultKnownHost`, `VaultDeviceKey`, `VaultDatabase`, `VaultNote`, `VaultNoteFile` |
 | `Sync/` | `SyncCoordinator` (the sync rules, testable), `CloudSync` (the `CKSyncEngine` adapter) |
-| `Passwords/` | `OneTimeCode` (TOTP/HOTP, `otpauth://` URLs), `Base32` |
+| `Passwords/` | `OneTimeCode` (TOTP/HOTP, `otpauth://` URLs), `Base32`, `PasswordGenerator`, `PasswordStrength` |
 | `Notes/` | `NotesMirror`, `EncryptedNote`, `NoteConflicts`, `NoteBaseCache`, `TextMerge` |
 
 `swift test` runs the merge, store and sync tests. The sync tests use a fake CloudKit (`Tests/.../FakeCloud.swift`)
