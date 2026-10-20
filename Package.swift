@@ -8,6 +8,7 @@ let package = Package(
   products: [
     .library(name: "VaultKit", targets: ["VaultKit"]),
     .library(name: "VaultFiles", targets: ["VaultFiles"]),
+    .library(name: "VaultSync", targets: ["VaultSync"]),
   ],
   targets: [
     // The shared, encrypted store every v57 app reads and writes: items, keys, sync, notes.
@@ -16,6 +17,9 @@ let package = Package(
     // Encrypted folders: chunked file contents, encrypted names, folder keys, temporary decryption.
     .target(name: "VaultFiles", dependencies: ["VaultKit"]),
     .testTarget(name: "VaultFilesTests", dependencies: ["VaultFiles"]),
+    // Folder sync over plain storage: signed member lists, content-addressed chunks, per-device change logs.
+    .target(name: "VaultSync", dependencies: ["VaultFiles", "VaultKit"]),
+    .testTarget(name: "VaultSyncTests", dependencies: ["VaultSync"]),
   ]
 )
 
@@ -30,7 +34,7 @@ for target in package.targets where target.name == "VaultKit" {
     .product(name: "CryptoKit", package: "SwiftUI"), .product(name: "SQLite3", package: "SwiftUI"),
   ]
 }
-for target in package.targets where target.name == "VaultFiles" {
+for target in package.targets where target.name == "VaultFiles" || target.name == "VaultSync" {
   target.dependencies.append(.product(name: "CryptoKit", package: "SwiftUI"))
 }
 #endif
