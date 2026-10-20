@@ -67,19 +67,33 @@ public final class DecryptSession: @unchecked Sendable {
   /// The folder holding the copy (and the session records).
   public let parentURL: URL
 
-  private let mutex = NSLock()
+  /// Serializes the work (decrypting, sealing, locking); held for a whole pass.
+  private let work = NSLock()
+  /// Guards the small state the UI reads, never held during work.
+  private let state = NSLock()
   private var record: Record
   private var snapshot: Snapshot
   private var lockHandle: SessionLock?
   private var ended = false
+  private var currentActivity = FolderActivity.idle
+  private var activityHandler: (@Sendable (FolderActivity) -> Void)?
 
   public var id: String { record.id }
   public var started: Date { record.started }
   /// When the app should lock the session.
-  public var lockDate: Date { locked { record.lockDate } }
+  public var lockDate: Date { withState { record.lockDate } }
   public var isExpired: Bool { lockDate <= Date() }
   /// Whether `lock()` has run (the copy is gone).
-  public var isLocked: Bool { locked { ended } }
+  public var isLocked: Bool { withState { ended } }
+  /// What the session is doing now.
+  public var activity: FolderActivity { withState { currentActivity } }
+
+  /// Called on the working thread as files are decrypted and sealed (often: once per 64 KB chunk), and with
+  /// `.idle` when a pass ends. Hop to the main actor for UI; don't call `sealChanges` or `lock` from it.
+  public var onActivity: (@Sendable (FolderActivity) -> Void)? {
+    get { withState { activityHandler } }
+    set { withState { activityHandler = newValue } }
+  }
 
   private init(folder: EncryptedFolder, parent: URL, record: Record, snapshot: Snapshot, lockHandle: SessionLock?) {
     self.folder = folder
@@ -93,9 +107,23 @@ public final class DecryptSession: @unchecked Sendable {
   deinit { lockHandle?.release() }
 
   private func locked<T>(_ body: () throws -> T) rethrows -> T {
-    mutex.lock()
-    defer { mutex.unlock() }
+    work.lock()
+    defer { work.unlock() }
     return try body()
+  }
+
+  private func withState<T>(_ body: () throws -> T) rethrows -> T {
+    state.lock()
+    defer { state.unlock() }
+    return try body()
+  }
+
+  private func report(_ activity: FolderActivity) {
+    let handler = withState {
+      currentActivity = activity
+      return activityHandler
+    }
+    handler?(activity)
   }
 
   // MARK: Starting
@@ -103,7 +131,8 @@ public final class DecryptSession: @unchecked Sendable {
   /// Decrypts `folder` into a new working copy in `parent`, named `name` (the encrypted folder's name by default; a
   /// number is added when taken), locking after `duration`.
   public static func start(
-    _ folder: EncryptedFolder, in parent: URL, name: String? = nil, duration: TimeInterval = 30 * 60
+    _ folder: EncryptedFolder, in parent: URL, name: String? = nil, duration: TimeInterval = 30 * 60,
+    onActivity: (@Sendable (FolderActivity) -> Void)? = nil
   ) throws -> DecryptSession {
     let fileManager = FileManager.default
     let sessions = parent.appendingPathComponent(sessionsDirectoryName, isDirectory: true)
@@ -117,6 +146,7 @@ public final class DecryptSession: @unchecked Sendable {
     let lockHandle = try SessionLock(url: sessions.appendingPathComponent(record.id + ".lock"))
     let session = DecryptSession(
       folder: folder, parent: parent, record: record, snapshot: Snapshot(), lockHandle: lockHandle)
+    session.activityHandler = onActivity
     // The record goes first, so a crash while decrypting leaves something to clean up.
     try session.saveRecord()
     do {
@@ -134,16 +164,33 @@ public final class DecryptSession: @unchecked Sendable {
 
   private func decryptAll() throws {
     let fileManager = FileManager.default
-    for entry in try folder.walk() {
+    let entries = try folder.walk()
+    let files = entries.filter { !$0.isDirectory }
+    var activity = FolderActivity(
+      phase: .decrypting, total: files.count, bytesTotal: files.reduce(0) { $0 + $1.size })
+    defer { report(.idle) }
+    for entry in entries {
       let target = copyURL.appendingPathComponent(entry.path, isDirectory: entry.isDirectory)
       if entry.isDirectory {
         try fileManager.createDirectory(at: target, withIntermediateDirectories: true)
         snapshot.directories.insert(entry.path)
       } else {
-        let digest = try folder.readFile(entry.path, to: target, progress: nil)
+        activity.file = entry.path
+        activity.fileSize = entry.size
+        activity.fileBytes = 0
+        report(activity)
+        let base = activity.bytesDone
+        let digest = try folder.readFile(entry.path, to: target) { [activity] done in
+          var activity = activity
+          activity.fileBytes = done
+          activity.bytesDone = base + done
+          self.report(activity)
+        }
         let attributes = try Self.fileAttributes(target)
         snapshot.files[entry.path] = FileState(
           size: attributes.size, modified: attributes.modified, hash: Data(digest).hexString)
+        activity.completed += 1
+        activity.bytesDone = base + entry.size
       }
     }
   }
@@ -156,7 +203,7 @@ public final class DecryptSession: @unchecked Sendable {
   @discardableResult
   public func sealChanges() throws -> Report {
     try locked {
-      guard !ended else { return Report() }
+      guard !isLocked else { return Report() }
       return try sealLocked()
     }
   }
@@ -183,6 +230,7 @@ public final class DecryptSession: @unchecked Sendable {
       snapshot.directories.insert(path)
       report.added += 1
     }
+    var changed: [(path: String, file: ScannedFile)] = []
     for path in scan.files.keys.sorted() {
       let file = scan.files[path]!
       let old = snapshot.files[path]
@@ -192,15 +240,35 @@ public final class DecryptSession: @unchecked Sendable {
         snapshot.files[path] = FileState(size: file.size, modified: file.modified, hash: hash)
         continue
       }
+      changed.append((path, file))
+    }
+
+    var activity = FolderActivity(
+      phase: .sealing, total: changed.count, bytesTotal: changed.reduce(0) { $0 + $1.file.size })
+    defer { if !changed.isEmpty { self.report(.idle) } }
+    for (path, file) in changed {
+      activity.file = path
+      activity.fileSize = file.size
+      activity.fileBytes = 0
+      self.report(activity)
+      let base = activity.bytesDone
       let digest: SHA256.Digest
       do {
-        digest = try folder.writeFile(from: file.url, to: path, progress: nil)
+        digest = try folder.writeFile(from: file.url, to: path) { [activity] done in
+          var activity = activity
+          activity.fileBytes = done
+          activity.bytesDone = base + done
+          self.report(activity)
+        }
       } catch where !fileManager.fileExists(atPath: file.url.path) {
         continue  // Deleted since the scan; the next pass removes it.
       }
       // The size and date from before reading: if the file changed while it was sealed, the next pass sees it.
+      let old = snapshot.files[path]
       snapshot.files[path] = FileState(size: file.size, modified: file.modified, hash: Data(digest).hexString)
       if old == nil { report.added += 1 } else { report.edited += 1 }
+      activity.completed += 1
+      activity.bytesDone = base + file.size
     }
     return report
   }
@@ -217,7 +285,8 @@ public final class DecryptSession: @unchecked Sendable {
 
   /// Moves the lock time `interval` later (from now, if it has passed).
   public func extend(by interval: TimeInterval) throws {
-    try locked {
+    try withState {
+      guard !ended else { return }
       record.lockDate = max(record.lockDate, Date()).addingTimeInterval(interval)
       try saveRecord()
     }
@@ -228,10 +297,10 @@ public final class DecryptSession: @unchecked Sendable {
   @discardableResult
   public func lock() throws -> Report {
     try locked {
-      guard !ended else { return Report() }
+      guard !isLocked else { return Report() }
       let report = try sealLocked()
+      withState { ended = true }
       removeCopyAndRecord()
-      ended = true
       return report
     }
   }

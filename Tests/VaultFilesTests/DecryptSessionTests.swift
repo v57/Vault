@@ -184,3 +184,95 @@ struct DecryptSessionTests {
     #expect(!FileManager.default.fileExists(atPath: export.appendingPathComponent(".metadata_never_index").path))
   }
 }
+
+/// Collects values from other threads.
+final class Collector<Value: Sendable>: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storage: [Value] = []
+
+  func append(_ value: Value) {
+    lock.lock()
+    storage.append(value)
+    lock.unlock()
+  }
+
+  var values: [Value] {
+    lock.lock()
+    defer { lock.unlock() }
+    return storage
+  }
+
+  /// Waits up to `timeout` seconds for `condition`.
+  func wait(timeout: TimeInterval, until condition: ([Value]) -> Bool) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+      if condition(values) { return true }
+      Thread.sleep(forTimeInterval: 0.05)
+    }
+    return condition(values)
+  }
+}
+
+struct FolderActivityTests {
+  let key = FolderKey()
+
+  @Test func summaries() {
+    #expect(FolderActivity.idle.summary == "Idle")
+    let sealing = FolderActivity(
+      phase: .sealing, file: "Sources/main.swift", fileBytes: 10, fileSize: 20, completed: 1, total: 5, bytesDone: 50,
+      bytesTotal: 200)
+    #expect(sealing.summary == "Sealing main.swift · 2 of 5")
+    #expect(sealing.fraction == 0.25)
+    #expect(FolderActivity(phase: .decrypting, completed: 1, total: 4).fraction == 0.25)
+  }
+
+  @Test func decryptingAndSealingReportActivity() throws {
+    let directory = try TemporaryDirectory()
+    let folder = try EncryptedFolder(url: directory.file("F"), key: key)
+    try folder.write(pseudoRandomData(200_000), to: "big.bin")
+    try folder.write(Data("small".utf8), to: "small.txt")
+    let decrypting = Collector<FolderActivity>()
+    let session = try DecryptSession.start(folder, in: directory.file("D")) { decrypting.append($0) }
+    let decryptValues = decrypting.values
+    #expect(decryptValues.first?.phase == .decrypting)
+    #expect(decryptValues.first?.total == 2)
+    #expect(decryptValues.first?.bytesTotal == 200_005)
+    #expect(decryptValues.contains { $0.file == "big.bin" && $0.fileBytes == 200_000 && $0.bytesDone == 200_000 })
+    #expect(decryptValues.contains { $0.file == "small.txt" && $0.completed == 1 })
+    #expect(decryptValues.last == .idle)
+    #expect(session.activity == .idle)
+
+    let sealing = Collector<FolderActivity>()
+    session.onActivity = { sealing.append($0) }
+    try pseudoRandomData(100_000, seed: 9).write(to: session.copyURL.appendingPathComponent("new.bin"))
+    try session.sealChanges()
+    #expect(sealing.values.first?.phase == .sealing)
+    #expect(sealing.values.first?.total == 1)
+    #expect(sealing.values.contains { $0.fileBytes == 100_000 && $0.fraction == 1 })
+    #expect(sealing.values.last == .idle)
+    // A pass with nothing to seal reports nothing.
+    let count = sealing.values.count
+    try session.sealChanges()
+    #expect(sealing.values.count == count)
+    try session.lock()
+  }
+
+  #if os(macOS)
+    @Test func watcherSealsChangesAsTheyHappen() throws {
+      let directory = try TemporaryDirectory()
+      let folder = try EncryptedFolder(url: directory.file("F"), key: key)
+      try folder.write(Data("one".utf8), to: "one.txt")
+      let session = try DecryptSession.start(folder, in: directory.file("D"))
+      let reports = Collector<DecryptSession.Report>()
+      let watcher = session.watch(latency: 0.1) { result in
+        if case .success(let report) = result { reports.append(report) }
+      }
+      Thread.sleep(forTimeInterval: 0.3)  // FSEvents starts listening asynchronously.
+      try Data("two".utf8).write(to: session.copyURL.appendingPathComponent("two.txt"))
+      #expect(reports.wait(timeout: 10) { $0.reduce(0) { $0 + $1.added } >= 1 })
+      #expect(try folder.read("two.txt") == Data("two".utf8))
+      watcher.stop()
+      try session.lock()
+    }
+  #endif
+}
