@@ -18,6 +18,11 @@ public final class Vault {
   public private(set) var hosts: [VaultHost] = []
   public private(set) var databases: [VaultDatabase] = []
   public private(set) var deviceKeys: [VaultDeviceKey] = []
+  /// Accepted SSH host keys, by host.
+  public private(set) var knownHosts: [VaultKnownHost] = []
+  /// Logins, by title.
+  public private(set) var logins: [VaultLogin] = []
+  public private(set) var cards: [VaultCard] = []
   /// Why the store couldn't open or save, for the UI.
   public var error: String?
 
@@ -102,6 +107,13 @@ public final class Vault {
       hosts = try store.records(VaultHost.self).sorted { ($0.order, $0.displayName) < ($1.order, $1.displayName) }
       databases = try store.records(VaultDatabase.self).sorted { ($0.order, $0.name) < ($1.order, $1.name) }
       deviceKeys = try store.records(VaultDeviceKey.self).sorted { $0.deviceName < $1.deviceName }
+      knownHosts = try store.records(VaultKnownHost.self).sorted { ($0.host, $0.port) < ($1.host, $1.port) }
+      logins = try store.records(VaultLogin.self).sorted {
+        $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+      }
+      cards = try store.records(VaultCard.self).sorted {
+        ($0.order, $0.title.localizedLowercase) < ($1.order, $1.title.localizedLowercase)
+      }
     } catch {
       self.error = error.localizedDescription
     }
