@@ -159,3 +159,261 @@ struct RecoveryKitTests {
     #expect(RecoverySecret.random().publicKey != secret.publicKey)
   }
 }
+
+struct RecoveryKeyTests {
+  let keys = MemoryKeyProvider(keys: ["0000000000000001": SymmetricKey(size: .bits256), "0000000000000002": SymmetricKey(size: .bits256)])
+  let identityBacking = MemorySecretBacking()
+  let identity = PersonalIdentity()
+  let folderKeys = [
+    RecoveryFolderKey(folderID: "folder-a", keyID: "aaaa", keyData: Data(repeating: 1, count: 32)),
+    RecoveryFolderKey(folderID: "folder-b", keyID: "bbbb", keyData: Data(repeating: 2, count: 32)),
+  ]
+
+  init() throws {
+    _ = try identityBacking.addNew(identity.rawRepresentation, named: VaultPersonalIdentity.account, label: "")
+  }
+
+  func makeStore(_ device: String = "mac", keys: MemoryKeyProvider? = nil) throws -> VaultStore {
+    try VaultStore(
+      directory: temporaryDirectory(), keys: keys ?? self.keys, deviceID: device, notifier: nil, owner: device)
+  }
+
+  func recovery(_ store: VaultStore) -> VaultRecovery {
+    VaultRecovery(store: store, identity: identityBacking)
+  }
+
+  /// Sends every pending record of `from` to `to`, as CloudKit would.
+  func sync(_ from: VaultStore, to: VaultStore) throws {
+    for id in try from.claimOutbox(limit: 10_000) {
+      guard let record = try from.outgoing(id: id) else { continue }
+      let tag = UUID().uuidString
+      try from.markSent(
+        id: id, version: record.version, changeTag: tag, systemFields: nil, sent: (record.keyID, record.payload))
+      try to.apply(RemoteRecord(id: id, keyID: record.keyID, payload: record.payload, changeTag: tag, systemFields: nil))
+    }
+  }
+
+  func expectAllKeys(_ recovered: RecoveredKeys) {
+    #expect(recovered.vaultKeys.keys.sorted() == keys.allKeys.keys.sorted())
+    for (id, key) in keys.allKeys { #expect(recovered.vaultKeys[id] == key) }
+    #expect(recovered.identity?.rawRepresentation == identity.rawRepresentation)
+    #expect(recovered.folderKeys == folderKeys)
+    #expect(recovered.damaged == 0)
+  }
+
+  @Test func createAndRecover() async throws {
+    let store = try makeStore()
+    let recovery = recovery(store)
+    #expect(!recovery.isOn)
+    #expect(try recovery.wrapMissing() == 0)  // off: nothing is wrapped
+
+    let kit = try recovery.create(folderKeys: folderKeys)
+    #expect(recovery.isOn)
+    #expect(recovery.key?.check == kit.check)
+    #expect(kit.words.count == 24)
+    // Two vault keys, the identity, two folder keys.
+    #expect(try recovery.blobs().count == 5)
+    #expect(throws: RecoveryKeyError.alreadyOn) { try recovery.create() }
+
+    expectAllKeys(try await recovery.recover(kit.words.joined(separator: " ")))
+    expectAllKeys(try await recovery.recover(kit.qrText))
+    expectAllKeys(try await recovery.recover(kit.groupedText))
+    // A well-formed key that isn't this one.
+    await #expect(throws: RecoveryKeyError.doesNotMatch) {
+      try await recovery.recover(RecoveryKit(secret: .random()).qrText)
+    }
+  }
+
+  @Test func storesOnlyThePublicKey() throws {
+    let store = try makeStore()
+    let kit = try recovery(store).create()
+    let secret = try RecoverySecret(parsing: kit.qrText)
+    let record = try #require(try store.record(VaultRecoveryKey.self, id: VaultRecoveryKey.recordID))
+    #expect(record.publicKey == secret.publicKey)
+    let everything = try store.items(kind: VaultRecoveryKey.kind) + store.items(kind: VaultRecoveryBlob.kind)
+    let text = everything.map { "\($0.values)" }.joined()
+    #expect(!text.contains(secret.data.base64EncodedString()))
+    #expect(!text.contains(secret.groups.joined()))
+  }
+
+  @Test func check() throws {
+    let store = try makeStore()
+    let recovery = recovery(store)
+    #expect(throws: RecoveryKeyError.off) { try recovery.check(RecoveryKit(secret: .random()).qrText) }
+    let kit = try recovery.create()
+    #expect(try recovery.check(kit.words.joined(separator: " ")))
+    #expect(try recovery.check(kit.qrText))
+    #expect(try !recovery.check(RecoveryKit(secret: .random()).qrText))
+    var typo = kit.words
+    typo[3] = "zzzz"
+    #expect(throws: RecoveryKeyError.self) { try recovery.check(typo.joined(separator: " ")) }
+  }
+
+  @Test func replaceRemovesOldBlobs() async throws {
+    let store = try makeStore()
+    let recovery = recovery(store)
+    let remote = MemoryRemoteFileSystem()
+    let folder = RecoveryRemoteFolder(remote: remote, path: "Sync/Photos", folderID: "folder-a")
+    await #expect(throws: RecoveryKeyError.off) { try await recovery.replace() }
+
+    let old = try recovery.create(folderKeys: folderKeys)
+    try await recovery.writeBlobs(to: folder)
+    let oldFiles = try await remote.list(folder.directory).map(\.name)
+    #expect(oldFiles.count == 1)
+
+    let new = try await recovery.replace(folderKeys: folderKeys, remotes: [folder])
+    #expect(new.check != old.check)
+    #expect(recovery.key?.check == new.check)
+    let blobs = try recovery.blobs()
+    #expect(blobs.count == 5)
+    #expect(blobs.allSatisfy { $0.recoveryKey == new.check })
+    let newFiles = try await remote.list(folder.directory).map(\.name)
+    #expect(newFiles.count == 1)
+    #expect(Set(newFiles).isDisjoint(with: oldFiles))
+
+    await #expect(throws: RecoveryKeyError.doesNotMatch) { try await recovery.recover(old.qrText, remotes: [folder]) }
+    #expect(try !recovery.check(old.qrText))
+    expectAllKeys(try await recovery.recover(new.qrText))
+  }
+
+  @Test func turnOffRemovesEverything() async throws {
+    let store = try makeStore()
+    let recovery = recovery(store)
+    let remote = MemoryRemoteFileSystem()
+    let folders = [
+      RecoveryRemoteFolder(remote: remote, path: "A", folderID: "folder-a"),
+      RecoveryRemoteFolder(remote: remote, path: "B", folderID: "folder-b"),
+    ]
+    let kit = try recovery.create(folderKeys: folderKeys)
+    for folder in folders { try await recovery.writeBlobs(to: folder) }
+    try await remote.write(Data("members".utf8), to: "A/members")
+    let ids = try recovery.blobs().map(\.id)
+
+    try await recovery.turnOff(remotes: folders)
+    #expect(!recovery.isOn)
+    #expect(recovery.key == nil)
+    #expect(try recovery.blobs().isEmpty)
+    for id in ids { #expect(try store.item(id: id)?.isDeleted == true) }  // deletions sync like writes
+    #expect(try await !remote.exists("A/recovery"))
+    #expect(try await !remote.exists("B/recovery"))
+    #expect(try await remote.exists("A/members"))
+    await #expect(throws: RecoveryKeyError.self) { try await recovery.recover(kit.qrText, remotes: folders) }
+
+    // Off: the hooks and the remote writes do nothing.
+    #expect(try !recovery.wrap(vaultKey: SymmetricKey(size: .bits256), id: "0000000000000009"))
+    #expect(try !recovery.wrap(folderKey: folderKeys[0]))
+    try await recovery.writeBlobs(to: folders[0])
+    #expect(try await !remote.exists("A/recovery"))
+    try await recovery.turnOff()  // twice is fine
+
+    // On again: a new key, and the blobs come back.
+    let again = try recovery.create(folderKeys: folderKeys)
+    #expect(again.check != kit.check)
+    #expect(try recovery.blobs().count == 5)
+  }
+
+  @Test func hooksWrapNewKeys() async throws {
+    let store = try makeStore()
+    let recovery = recovery(store)
+    let kit = try recovery.create(folderKeys: [folderKeys[0]])
+    #expect(try recovery.blobs().count == 4)
+
+    // A rotated vault key and a new folder.
+    let newKey = SymmetricKey(size: .bits256)
+    keys.add(newKey, id: "0000000000000003")
+    #expect(try recovery.wrap(vaultKey: newKey, id: "0000000000000003"))
+    #expect(try !recovery.wrap(vaultKey: newKey, id: "0000000000000003"))  // once
+    #expect(try recovery.wrap(folderKey: folderKeys[1]))
+    // A new identity (made again).
+    let newIdentity = PersonalIdentity()
+    #expect(try recovery.wrap(identity: newIdentity))
+    #expect(try recovery.wrapMissing(folderKeys: folderKeys) == 0)
+
+    let recovered = try await recovery.recover(kit.qrText)
+    #expect(recovered.vaultKeys["0000000000000003"] == newKey)
+    #expect(recovered.vaultKeys.count == 3)
+    #expect(recovered.folderKeys == folderKeys)
+    #expect(recovered.identity != nil)
+
+    // A key that arrived through iCloud Keychain without a hook: wrapMissing finds it.
+    keys.add(SymmetricKey(size: .bits256), id: "0000000000000004")
+    #expect(try recovery.wrapMissing() == 1)
+  }
+
+  @Test func recoverOnNewDevice() async throws {
+    // The Mac has the vault and a recovery key; everything syncs through CloudKit.
+    let mac = try makeStore("mac")
+    try mac.save(VaultHost(name: "prod", hostname: "prod.example.com", user: "deploy"))
+    let kit = try recovery(mac).create(folderKeys: folderKeys)
+
+    // A new device whose iCloud Keychain lost everything: other vault keys, no identity.
+    let newKeys = MemoryKeyProvider(keys: ["00000000000000ff": SymmetricKey(size: .bits256)])
+    let phone = try makeStore("phone", keys: newKeys)
+    try sync(mac, to: phone)
+    let newIdentity = MemorySecretBacking()
+    let phoneRecovery = VaultRecovery(store: phone, identity: newIdentity)
+    #expect(try phone.records(VaultHost.self).isEmpty)
+    #expect(!phoneRecovery.isOn)  // the public key record is sealed by the lost vault key
+    #expect(try phoneRecovery.blobs().isEmpty)
+
+    let recovered = try await phoneRecovery.recover(kit.words.joined(separator: " "))
+    expectAllKeys(recovered)
+
+    // Written back: the vault keys as the keychain names them, the identity where VaultPersonalIdentity reads it.
+    let vaultKeyBacking = MemorySecretBacking()
+    try recovered.restore(vaultKeys: vaultKeyBacking, identity: newIdentity)
+    #expect(vaultKeyBacking.names.sorted() == keys.allKeys.keys.sorted().map { "key.\($0)" })
+    for name in vaultKeyBacking.names {
+      newKeys.add(SymmetricKey(data: try #require(try vaultKeyBacking.read(name))), id: String(name.dropFirst(4)))
+    }
+    #expect(try newIdentity.read(VaultPersonalIdentity.account) == identity.rawRepresentation)
+
+    // The synced items open now, the recovery key included.
+    #expect(try phone.records(VaultHost.self).map(\.name) == ["prod"])
+    #expect(phoneRecovery.isOn)
+    #expect(try phoneRecovery.check(kit.qrText))
+  }
+
+  @Test func blobsSyncWithoutTheVaultKey() throws {
+    let mac = try makeStore("mac")
+    _ = try recovery(mac).create(folderKeys: folderKeys)
+    let (vaultKeyID, _) = try keys.primary()
+    var sealedWith: [String: String] = [:]
+    for id in try mac.claimOutbox(limit: 100) {
+      let record = try #require(try mac.outgoing(id: id))
+      sealedWith[id] = record.keyID
+    }
+    #expect(sealedWith[VaultRecoveryKey.recordID] == vaultKeyID)
+    let blobKeys = Set(sealedWith.filter { $0.key != VaultRecoveryKey.recordID }.values)
+    #expect(blobKeys.count == 1)
+    #expect(blobKeys.first?.hasPrefix("recovery-") == true)
+  }
+
+  @Test func recoverFromRemoteOnly() async throws {
+    // The Apple ID is gone: only the remote and the kit are left.
+    let remote = MemoryRemoteFileSystem()
+    let folder = RecoveryRemoteFolder(remote: remote, path: "Shared/Work", folderID: "folder-b")
+    let mac = try makeStore("mac")
+    let recovery = recovery(mac)
+    let kit = try recovery.create(folderKeys: folderKeys)
+    try await recovery.writeBlobs(to: folder)
+    let files = try await remote.list(folder.directory)
+    #expect(files.count == 1)
+    let file = try await remote.read(files[0].path)
+    #expect(String(decoding: file, as: UTF8.self).contains("folderKey"))
+
+    let fresh = try makeStore("new", keys: MemoryKeyProvider(keys: ["00000000000000ff": SymmetricKey(size: .bits256)]))
+    let recovered = try await VaultRecovery(store: fresh, identity: MemorySecretBacking())
+      .recover(kit.qrText, remotes: [folder])
+    #expect(recovered.folderKeys == [folderKeys[1]])
+    #expect(recovered.vaultKeys.isEmpty)
+
+    // A blob file moved to stand for another key doesn't open.
+    var tampered = try JSONSerialization.jsonObject(with: file) as! [String: Any]
+    tampered["keyID"] = "other"
+    try await remote.write(try JSONSerialization.data(withJSONObject: tampered), to: files[0].path)
+    await #expect(throws: RecoveryKeyError.damaged) {
+      try await VaultRecovery(store: fresh, identity: MemorySecretBacking()).recover(kit.qrText, remotes: [folder])
+    }
+  }
+}

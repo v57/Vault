@@ -117,6 +117,17 @@ Xcode, other apps), `DecryptSession` decrypts a working copy, hidden from Spotli
 when the app asks (or as they happen, with `FolderWatcher` on macOS), and deletes the copy when it locks; copies a
 crash left behind are sealed and deleted at the next launch.
 
+**Recovery key.** Optional and off until the user makes one (`VaultRecovery.create`); nothing in VaultKit
+prompts or reminds, `isOn` is the only state. The user keeps a random 256-bit secret, shown once as 24 BIP-39 words
+or 14 groups of base32, both with a checksum, and as a QR code on a printable kit (`RecoveryKit`, `V57R1:…`).
+Devices keep only the X25519 public key derived from it (HKDF), so any device seals a new vault key, identity or
+folder key to it (HPKE) without the secret: one `VaultRecoveryBlob` record per key, synced like everything else but
+sealed with a key derived from the recovery public key instead of the vault key, so a device that lost the vault
+keys can still read them. A synced folder's remote keeps its folder keys' blobs too, in `<folder>/recovery/` next to
+`members`, so the folder comes back with only the remote and the kit. `recover` opens every blob with the typed or
+scanned kit and `RecoveredKeys.restore` writes the vault keys and identity back to iCloud Keychain; `replace` makes
+a new kit and deletes the old blobs, `turnOff` deletes them everywhere.
+
 ## The Vault app
 
 `Vault/` is a Mac and iPad app on VaultKit and VaultFiles (`Vault.xcodeproj`, bundle `dev.v57.vault`; build it against
@@ -137,7 +148,7 @@ sample data only for folder sync and remote listings. It never touches the user'
 | Folder | What |
 |---|---|
 | `Core/` | `JSONValue`, `HybridClock`, `ItemFields` (the merge), `VaultConfiguration` (identifiers) |
-| `Keys/` | `VaultKeychain` (shared group), `VaultKeys` (AES keys, sealing), `VaultIdentity` (SSH key), `VaultSecrets`, `VaultDevice` |
+| `Keys/` | `VaultKeychain` (shared group), `VaultKeys` (AES keys, sealing), `VaultIdentity` (SSH key), `VaultSecrets`, `VaultDevice`, the recovery key (`VaultRecovery`, `RecoverySecret` and `RecoveryWordList`, `RecoveryKit`, the `VaultRecoveryKey` and `VaultRecoveryBlob` records) |
 | `Store/` | `VaultStore` (SQLite, outbox, merging records in), change notifications, `VaultFieldChange` (each field's last write: when, which device) |
 | `Records/` | Typed records: `VaultProject`, `VaultProjectGroup` (with `VaultProjectTree`), `VaultHost`, `VaultKnownHost`, `VaultDeviceKey`, `VaultDatabase`, `VaultNote`, `VaultNoteFile`, `VaultLogin`, `VaultCard`, `VaultFolder`, `VaultRemote` |
 | `Remote/` | `RemoteFileSystem` (list, stat, read range, write, rename, delete), `MemoryRemoteFileSystem`, `LocalRemoteFileSystem`, `S3FileSystem` (AWS S3, R2, B2, MinIO; `AWSSignatureV4`, an injectable `S3Transport`), `RemoteConnections` (the file system for a `VaultRemote`) |

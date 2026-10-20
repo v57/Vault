@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// An item as the apps see it: decrypted fields of one kind.
@@ -64,6 +65,11 @@ public final class VaultStore: @unchecked Sendable {
   private let database: SQLiteConnection
   private let lock = NSRecursiveLock()
   private let notifier: VaultChangeNotifier?
+  /// Keys that seal one kind of item instead of the vault key, and open items that name them: the recovery
+  /// blobs, which a device that lost the vault keys reads with a key derived from the recovery key
+  /// (`VaultRecovery`). Kept in memory only; the rows look like any other.
+  private var kindKeys: [String: (id: String, key: SymmetricKey)] = [:]
+  private var extraKeys: [String: SymmetricKey] = [:]
 
   /// Set when this process runs a sync engine: its own writes are then leased to it right away, so other
   /// apps leave them alone.
@@ -504,15 +510,33 @@ public final class VaultStore: @unchecked Sendable {
     }
   }
 
+  /// Items naming `id` open with `key`, and from now on items of `sealing` (if given) are sealed with it.
+  func useKey(_ key: SymmetricKey, id: String, sealing kind: String?) {
+    withLock {
+      extraKeys[id] = key
+      if let kind { kindKeys[kind] = (id, key) }
+    }
+  }
+
   private func decode(id: String, keyID: String, payload: Data) throws -> VaultItem {
-    let plaintext = try VaultCrypto.open(payload, keyID: keyID, keys: keys)
+    let plaintext =
+      if let key = extraKeys[keyID] {
+        try VaultCrypto.open(payload, key: key)
+      } else {
+        try VaultCrypto.open(payload, keyID: keyID, keys: keys)
+      }
     let decoded = try JSONDecoder().decode(Payload.self, from: plaintext)
     return VaultItem(id: id, kind: decoded.kind, fields: decoded.fields)
   }
 
   private func writeRow(id: String, kind: String, fields: ItemFields, queue: Bool) throws {
     let plaintext = try JSONEncoder().encode(Payload(kind: kind, fields: fields))
-    let sealed = try VaultCrypto.seal(plaintext, keys: keys)
+    let sealed =
+      if let kindKey = kindKeys[kind] {
+        (keyID: kindKey.id, ciphertext: try VaultCrypto.seal(plaintext, key: kindKey.key))
+      } else {
+        try VaultCrypto.seal(plaintext, keys: keys)
+      }
     try database.query(
       """
       INSERT INTO items(id, kind, key_id, payload, version, deleted, modified) VALUES(?, ?, ?, ?, 1, ?, ?)

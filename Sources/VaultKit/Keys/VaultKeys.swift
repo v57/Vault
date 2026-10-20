@@ -12,6 +12,17 @@ public protocol VaultKeyProvider: Sendable {
   func primary() throws -> (id: String, key: SymmetricKey)
   /// A key by id; nil when this device doesn't have it (yet).
   func key(id: String) throws -> SymmetricKey?
+  /// Every key this device has, by id (the recovery key wraps them all).
+  var allKeys: [String: SymmetricKey] { get throws }
+}
+
+extension VaultKeyProvider {
+  public var allKeys: [String: SymmetricKey] {
+    get throws {
+      let primary = try primary()
+      return [primary.id: primary.key]
+    }
+  }
 }
 
 /// The keys in the shared keychain group, synced by iCloud Keychain.
@@ -24,7 +35,8 @@ public final class KeychainKeyProvider: VaultKeyProvider, @unchecked Sendable {
     self.keychain = keychain
   }
 
-  private static let prefix = "key."
+  /// Keychain items are named `key.<id>`.
+  static let prefix = "key."
 
   public func primary() throws -> (id: String, key: SymmetricKey) {
     lock.lock()
@@ -49,6 +61,15 @@ public final class KeychainKeyProvider: VaultKeyProvider, @unchecked Sendable {
     // It may have arrived through iCloud Keychain since the last look.
     try reload()
     return cache[id]
+  }
+
+  public var allKeys: [String: SymmetricKey] {
+    get throws {
+      lock.lock()
+      defer { lock.unlock() }
+      try reload()
+      return cache
+    }
   }
 
   private func reload() throws {
@@ -120,6 +141,15 @@ public enum VaultCrypto {
 
   public static func open(_ ciphertext: Data, keyID: String, keys: VaultKeyProvider) throws -> Data {
     guard let key = try keys.key(id: keyID) else { throw CryptoError.missingKey(keyID) }
+    return try open(ciphertext, key: key)
+  }
+
+  static func seal(_ plaintext: Data, key: SymmetricKey) throws -> Data {
+    guard let combined = try AES.GCM.seal(plaintext, using: key).combined else { throw CryptoError.damaged }
+    return combined
+  }
+
+  static func open(_ ciphertext: Data, key: SymmetricKey) throws -> Data {
     do {
       return try AES.GCM.open(AES.GCM.SealedBox(combined: ciphertext), using: key)
     } catch {
