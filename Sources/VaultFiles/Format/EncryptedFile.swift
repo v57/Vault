@@ -5,7 +5,7 @@ import Foundation
 /// streaming AEAD do it, so files stream in and out and can be read at any offset.
 ///
 /// ```
-/// header   "V57FILE1" · version (1) · chunk size (UInt32 BE) · file id (16) · nonce prefix (7) · key id length (1) · key id
+/// header   "V57FILE1" · version (2) · chunk size (UInt32 BE) · file id (16) · nonce prefix (7) · key id length (1) · key id
 /// chunks   AES-256-GCM(chunk of `chunkSize` plaintext bytes) + 16-byte tag, the last one shorter (possibly empty)
 /// ```
 ///
@@ -14,9 +14,13 @@ import Foundation
 /// last-chunk flag byte; every chunk authenticates the header. Reordered chunks fail (wrong index), a file cut at a
 /// chunk boundary fails (its new last chunk wasn't sealed as last), and a changed header fails every chunk. Every
 /// file has at least one chunk, so an empty file is a header and a 16-byte tag.
+///
+/// Every chunk also authenticates a `context` the caller passes, which isn't stored: where the file belongs.
+/// `EncryptedFolder` passes the file's directory id and name, so a ciphertext moved or copied to another name or
+/// folder doesn't open there. Version 1 had no context; its files are refused (it never shipped).
 public enum EncryptedFile {
   public static let magic = Data("V57FILE1".utf8)
-  public static let version: UInt8 = 1
+  public static let version: UInt8 = 2
   /// Plaintext bytes per chunk.
   public static let defaultChunkSize = 64 * 1024
   /// The AES-GCM tag after each chunk.
@@ -135,11 +139,11 @@ public enum EncryptedFile {
 
   // MARK: Whole data
 
-  /// Seals `data` with `key`, naming `keyID` in the header.
-  public static func seal(_ data: Data, key: SymmetricKey, keyID: String, chunkSize: Int = defaultChunkSize) throws
-    -> Data
-  {
-    let cipher = try ChunkCipher(header: Header(keyID: keyID, chunkSize: chunkSize), contentKey: key)
+  /// Seals `data` with `key`, naming `keyID` in the header and binding it to `context` (which opening must repeat).
+  public static func seal(
+    _ data: Data, key: SymmetricKey, keyID: String, chunkSize: Int = defaultChunkSize, context: Data = Data()
+  ) throws -> Data {
+    let cipher = try ChunkCipher(header: Header(keyID: keyID, chunkSize: chunkSize), contentKey: key, context: context)
     var output = cipher.header.encoded
     output.reserveCapacity(Int(ciphertextSize(plaintextSize: Int64(data.count), headerSize: cipher.header.size, chunkSize: chunkSize)))
     let count = chunkCount(plaintextSize: Int64(data.count), chunkSize: chunkSize)
@@ -152,12 +156,12 @@ public enum EncryptedFile {
     return output
   }
 
-  /// Opens data sealed by `seal`.
-  public static func open(_ data: Data, key: SymmetricKey) throws -> Data {
+  /// Opens data sealed by `seal` with the same `context`.
+  public static func open(_ data: Data, key: SymmetricKey, context: Data = Data()) throws -> Data {
     let header = try Header(parsing: data)
     guard let size = plaintextSize(ciphertextSize: Int64(data.count), headerSize: header.size, chunkSize: header.chunkSize)
     else { throw VaultFilesError.damaged }
-    let cipher = ChunkCipher(header: header, contentKey: key)
+    let cipher = ChunkCipher(header: header, contentKey: key, context: context)
     let count = Int(chunkCount(plaintextSize: size, chunkSize: header.chunkSize))
     let fullChunk = header.chunkSize + tagSize
     var output = Data(capacity: Int(size))
@@ -173,21 +177,24 @@ public enum EncryptedFile {
 
   /// Seals the file at `source` into `destination` (replaced if present), one chunk at a time.
   public static func seal(
-    contentsOf source: URL, to destination: URL, key: SymmetricKey, keyID: String, chunkSize: Int = defaultChunkSize
+    contentsOf source: URL, to destination: URL, key: SymmetricKey, keyID: String, chunkSize: Int = defaultChunkSize,
+    context: Data = Data()
   ) throws {
-    _ = try sealFile(source, to: destination, key: key, keyID: keyID, chunkSize: chunkSize)
+    _ = try sealFile(source, to: destination, key: key, keyID: keyID, chunkSize: chunkSize, context: context)
   }
 
   /// Opens the encrypted file at `source` into `destination` (replaced if present), one chunk at a time.
-  public static func open(contentsOf source: URL, to destination: URL, key: SymmetricKey) throws {
-    _ = try openFile(source, to: destination, key: key)
+  public static func open(contentsOf source: URL, to destination: URL, key: SymmetricKey, context: Data = Data())
+    throws
+  {
+    _ = try openFile(source, to: destination, key: key, context: context)
   }
 
   /// Seals `source` into `destination` and returns the plaintext's SHA-256, computed on the bytes it sealed.
   @discardableResult
   static func sealFile(
     _ source: URL, to destination: URL, key: SymmetricKey, keyID: String, chunkSize: Int = defaultChunkSize,
-    progress: ((Int64) -> Void)? = nil
+    context: Data = Data(), progress: ((Int64) -> Void)? = nil
   ) throws -> SHA256.Digest {
     let input = try FileHandle(forReadingFrom: source)
     defer { try? input.close() }
@@ -197,34 +204,25 @@ public enum EncryptedFile {
       try? output.close()
       if !finished { try? FileManager.default.removeItem(at: destination) }
     }
-    let cipher = try ChunkCipher(header: Header(keyID: keyID, chunkSize: chunkSize), contentKey: key)
-    try output.write(contentsOf: cipher.header.encoded)
-    var hash = SHA256()
-    var index: UInt32 = 0
+    let writer = try EncryptedFileWriter(key: key, keyID: keyID, chunkSize: chunkSize, context: context) {
+      try output.write(contentsOf: $0)
+    }
     var done: Int64 = 0
-    var chunk = try input.read(upToCount: chunkSize) ?? Data()
-    while true {
-      // Read one chunk ahead: the current chunk is the last when nothing follows it.
-      let next = chunk.count == chunkSize ? try input.read(upToCount: chunkSize) ?? Data() : Data()
-      let last = next.isEmpty
-      hash.update(data: chunk)
-      try output.write(contentsOf: cipher.seal(chunk, index: index, last: last))
+    while let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty {
+      try writer.append(chunk)
       done += Int64(chunk.count)
       progress?(done)
-      if last { break }
-      guard index < UInt32.max else { throw VaultFilesError.tooLarge }
-      index += 1
-      chunk = next
     }
+    let digest = try writer.finish()
     finished = true
-    return hash.finalize()
+    return digest
   }
 
   /// Opens `source` into `destination` and returns the plaintext's SHA-256.
   @discardableResult
-  static func openFile(_ source: URL, to destination: URL, key: SymmetricKey, progress: ((Int64) -> Void)? = nil)
-    throws -> SHA256.Digest
-  {
+  static func openFile(
+    _ source: URL, to destination: URL, key: SymmetricKey, context: Data = Data(), progress: ((Int64) -> Void)? = nil
+  ) throws -> SHA256.Digest {
     let input = try FileHandle(forReadingFrom: source)
     defer { try? input.close() }
     let header = try Header(parsing: try input.read(upToCount: maxHeaderSize) ?? Data())
@@ -238,7 +236,7 @@ public enum EncryptedFile {
       try? output.close()
       if !finished { try? FileManager.default.removeItem(at: destination) }
     }
-    let cipher = ChunkCipher(header: header, contentKey: key)
+    let cipher = ChunkCipher(header: header, contentKey: key, context: context)
     let count = chunkCount(plaintextSize: size, chunkSize: header.chunkSize)
     var hash = SHA256()
     var done: Int64 = 0
@@ -254,7 +252,7 @@ public enum EncryptedFile {
     return hash.finalize()
   }
 
-  private static func createForWriting(_ url: URL) throws -> FileHandle {
+  static func createForWriting(_ url: URL) throws -> FileHandle {
     guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
       throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
     }
@@ -272,7 +270,8 @@ public final class EncryptedFileReader: @unchecked Sendable {
   private let chunkCount: Int64
   private let lock = NSLock()
 
-  public init(url: URL, key: SymmetricKey) throws {
+  /// Opens the file at `url`, sealed with `key` and bound to `context`.
+  public init(url: URL, key: SymmetricKey, context: Data = Data()) throws {
     handle = try FileHandle(forReadingFrom: url)
     do {
       header = try EncryptedFile.Header(parsing: try handle.read(upToCount: EncryptedFile.maxHeaderSize) ?? Data())
@@ -286,7 +285,7 @@ public final class EncryptedFileReader: @unchecked Sendable {
       try? handle.close()
       throw error
     }
-    cipher = ChunkCipher(header: header, contentKey: key)
+    cipher = ChunkCipher(header: header, contentKey: key, context: context)
     chunkCount = EncryptedFile.chunkCount(plaintextSize: size, chunkSize: header.chunkSize)
   }
 
@@ -319,16 +318,72 @@ public final class EncryptedFileReader: @unchecked Sendable {
   public func readAll() throws -> Data { try read(range: 0..<size) }
 }
 
+/// Seals a stream of plaintext into the chunked format as it arrives, holding at most one chunk: for writers that
+/// produce a file piece by piece (folder sync assembling downloaded pieces, re-sealing a moved file).
+public final class EncryptedFileWriter {
+  private let cipher: ChunkCipher
+  private let output: (Data) throws -> Void
+  private var buffer = Data()
+  private var index: UInt32 = 0
+  private var hash = SHA256()
+  private var finished = false
+
+  /// Starts a file sealed with `key` (named `keyID`) and bound to `context`; `output` receives the header at once,
+  /// then each sealed chunk.
+  public init(
+    key: SymmetricKey, keyID: String, chunkSize: Int = EncryptedFile.defaultChunkSize, context: Data = Data(),
+    output: @escaping (Data) throws -> Void
+  ) throws {
+    cipher = try ChunkCipher(
+      header: EncryptedFile.Header(keyID: keyID, chunkSize: chunkSize), contentKey: key, context: context)
+    self.output = output
+    try output(cipher.header.encoded)
+  }
+
+  /// Adds plaintext. A full chunk is sealed once more data follows it (the last chunk is sealed differently).
+  public func append(_ data: Data) throws {
+    precondition(!finished, "EncryptedFileWriter used after finish()")
+    hash.update(data: data)
+    buffer.append(data)
+    let size = cipher.header.chunkSize
+    while buffer.count > size {
+      try sealChunk(buffer.prefix(size), last: false)
+      buffer = Data(buffer.dropFirst(size))
+    }
+  }
+
+  /// Seals the last chunk and returns the plaintext's SHA-256.
+  @discardableResult
+  public func finish() throws -> SHA256.Digest {
+    precondition(!finished, "EncryptedFileWriter finished twice")
+    try sealChunk(buffer, last: true)
+    buffer = Data()
+    finished = true
+    return hash.finalize()
+  }
+
+  private func sealChunk(_ chunk: Data, last: Bool) throws {
+    try output(cipher.seal(chunk, index: index, last: last))
+    if !last {
+      guard index < UInt32.max else { throw VaultFilesError.tooLarge }
+      index += 1
+    }
+  }
+}
+
 /// Seals and opens the chunks of one file.
 struct ChunkCipher: Sendable {
   let header: EncryptedFile.Header
   let key: SymmetricKey
+  /// What every chunk authenticates: the header, then the caller's context.
+  let associatedData: Data
 
-  init(header: EncryptedFile.Header, contentKey: SymmetricKey) {
+  init(header: EncryptedFile.Header, contentKey: SymmetricKey, context: Data = Data()) {
     self.header = header
     key = HKDF<SHA256>.deriveKey(
       inputKeyMaterial: contentKey, salt: header.fileID, info: Data("dev.v57.files.chunk".utf8),
       outputByteCount: 32)
+    associatedData = header.encoded + context
   }
 
   func nonce(index: UInt32, last: Bool) throws -> AES.GCM.Nonce {
@@ -339,7 +394,7 @@ struct ChunkCipher: Sendable {
   }
 
   func seal(_ chunk: Data, index: UInt32, last: Bool) throws -> Data {
-    let box = try AES.GCM.seal(chunk, using: key, nonce: nonce(index: index, last: last), authenticating: header.encoded)
+    let box = try AES.GCM.seal(chunk, using: key, nonce: nonce(index: index, last: last), authenticating: associatedData)
     return box.ciphertext + box.tag
   }
 
@@ -352,7 +407,7 @@ struct ChunkCipher: Sendable {
       let box = try AES.GCM.SealedBox(
         nonce: nonce(index: index, last: last), ciphertext: chunk.prefix(chunk.count - EncryptedFile.tagSize),
         tag: chunk.suffix(EncryptedFile.tagSize))
-      return try AES.GCM.open(box, using: key, authenticating: header.encoded)
+      return try AES.GCM.open(box, using: key, authenticating: associatedData)
     } catch {
       throw VaultFilesError.damaged
     }

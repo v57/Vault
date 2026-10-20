@@ -406,14 +406,16 @@ public final class DecryptSession: @unchecked Sendable {
   }
 
   /// The snapshot holds names and hashes of the plaintext, so it is sealed with the folder's key.
+  private var snapshotContext: Data { Data("dev.v57.files.session-snapshot.\(record.id)".utf8) }
+
   private func saveSnapshot() throws {
     let data = try JSONEncoder().encode(snapshot)
-    try EncryptedFile.seal(data, key: folder.subkeys.content, keyID: folder.key.id)
+    try EncryptedFile.seal(data, key: folder.subkeys.content, keyID: folder.key.id, context: snapshotContext)
       .write(to: snapshotURL, options: .atomic)
   }
 
   private func loadSnapshot() throws -> Snapshot {
-    let data = try EncryptedFile.open(Data(contentsOf: snapshotURL), key: folder.subkeys.content)
+    let data = try EncryptedFile.open(Data(contentsOf: snapshotURL), key: folder.subkeys.content, context: snapshotContext)
     return try JSONDecoder().decode(Snapshot.self, from: data)
   }
 

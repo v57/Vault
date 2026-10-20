@@ -174,6 +174,113 @@ struct EncryptedFolderTests {
     #expect(!diskPaths(folder.url).contains { $0.hasSuffix(".name") || $0.hasSuffix(".long") })
   }
 
+  /// Where `path`'s entry is on disk.
+  func disk(_ folder: EncryptedFolder, _ path: String) throws -> URL {
+    try folder.locate(EncryptedFolder.components(path)).url
+  }
+
+  @Test func swappedFilesDontOpen() throws {
+    let directory = try TemporaryDirectory()
+    let folder = try EncryptedFolder(url: directory.file("F"), key: key)
+    try folder.write(Data("pay alice".utf8), to: "a.txt")
+    try folder.write(Data("pay mallory".utf8), to: "b.txt")
+    let a = try disk(folder, "a.txt")
+    let b = try disk(folder, "b.txt")
+    let swap = directory.file("swap")
+    try FileManager.default.moveItem(at: a, to: swap)
+    try FileManager.default.moveItem(at: b, to: a)
+    try FileManager.default.moveItem(at: swap, to: b)
+    #expect(throws: VaultFilesError.damaged) { try folder.read("a.txt") }
+    #expect(throws: VaultFilesError.damaged) { try folder.read("b.txt") }
+    #expect(throws: VaultFilesError.damaged) { try folder.reader("a.txt").readAll() }
+    #expect(throws: VaultFilesError.damaged) { try folder.readFile("b.txt", to: directory.file("out")) }
+  }
+
+  @Test func filesCopiedIntoAnotherFolderDontOpen() throws {
+    let directory = try TemporaryDirectory()
+    let folder = try EncryptedFolder(url: directory.file("F"), key: key)
+    try folder.write(Data("secret".utf8), to: "one/x")
+    try folder.write(Data("other".utf8), to: "two/x")
+    // Same name, other folder: the copy has the right file name for its new folder, but its contents are bound to
+    // the old one.
+    try FileManager.default.removeItem(at: disk(folder, "two/x"))
+    try FileManager.default.copyItem(at: disk(folder, "one/x"), to: disk(folder, "two/x"))
+    #expect(throws: VaultFilesError.damaged) { try folder.read("two/x") }
+    #expect(try folder.read("one/x") == Data("secret".utf8))
+  }
+
+  @Test func swappedFoldersDontOpen() throws {
+    let directory = try TemporaryDirectory()
+    let folder = try EncryptedFolder(url: directory.file("F"), key: key)
+    try folder.write(Data("1".utf8), to: "one/file")
+    try folder.write(Data("2".utf8), to: "two/file")
+    let one = try disk(folder, "one")
+    let two = try disk(folder, "two")
+    let swap = directory.file("swap")
+    try FileManager.default.moveItem(at: one, to: swap)
+    try FileManager.default.moveItem(at: two, to: one)
+    try FileManager.default.moveItem(at: swap, to: two)
+    #expect(throws: VaultFilesError.damaged) { try folder.read("one/file") }
+    #expect(throws: VaultFilesError.damaged) { try folder.list("two") }
+    // A folder's sealed id moved into another folder doesn't open either.
+    try FileManager.default.copyItem(
+      at: one.appendingPathComponent(EncryptedFolder.directoryIDName),
+      to: directory.file("id"))
+    #expect(throws: VaultFilesError.damaged) {
+      try EncryptedFile.open(Data(contentsOf: directory.file("id")), key: folder.subkeys.content)
+    }
+  }
+
+  @Test func movesRebindFilesAndFolders() throws {
+    let directory = try TemporaryDirectory()
+    let folder = try EncryptedFolder(url: directory.file("F"), key: key)
+    let big = pseudoRandomData(150_000)
+    try folder.write(big, to: "a/big.bin")
+    try folder.write(Data("n".utf8), to: "a/deep/note.txt")
+    try folder.write(Data(), to: "empty")
+    try folder.move("a/big.bin", to: "b/moved.bin")
+    try folder.move("empty", to: "a/deep/empty")
+    #expect(try folder.read("b/moved.bin") == big)
+    #expect(try folder.read("a/deep/empty") == Data())
+    #expect(!folder.exists("a/big.bin") && !folder.exists("empty"))
+    try folder.move("a", to: "b/c/a2")
+    #expect(try folder.read("b/c/a2/deep/note.txt") == Data("n".utf8))
+    #expect(try folder.list("b/c/a2").map(\.name) == ["deep"])
+    #expect(!folder.exists("a"))
+    // Nothing but the new entries is left behind on disk.
+    #expect(try folder.walk().map(\.path) == ["b", "b/c", "b/c/a2", "b/c/a2/deep", "b/c/a2/deep/empty", "b/c/a2/deep/note.txt", "b/moved.bin"])
+    let reopened = try EncryptedFolder(url: folder.url, key: key)
+    #expect(try reopened.read("b/c/a2/deep/note.txt") == Data("n".utf8))
+  }
+
+  @Test func streamsWritesWithoutPlaintextOnDisk() throws {
+    let directory = try TemporaryDirectory()
+    let folder = try EncryptedFolder(url: directory.file("F"), key: key)
+    let data = pseudoRandomData(200_000)
+    let digest = try folder.write(to: "s/stream.bin") { writer in
+      for start in stride(from: 0, to: data.count, by: 30_000) {
+        try writer.append(data[start..<min(start + 30_000, data.count)])
+      }
+    }
+    #expect(Data(digest) == Data(SHA256.hash(data: data)))
+    #expect(try folder.read("s/stream.bin") == data)
+    struct Stop: Error {}
+    #expect(throws: Stop.self) { try folder.write(to: "s/stream.bin") { _ in throw Stop() } }
+    #expect(try folder.read("s/stream.bin") == data)
+    #expect(try folder.list("s").map(\.name) == ["stream.bin"])
+  }
+
+  @Test func refusesFormatOne() throws {
+    let directory = try TemporaryDirectory()
+    let url = directory.file("F")
+    _ = try EncryptedFolder(url: url, key: key)
+    let manifest = url.appendingPathComponent(EncryptedFolder.manifestName)
+    var data = try Data(contentsOf: manifest)
+    data[8] = 1
+    try data.write(to: manifest)
+    #expect(throws: VaultFilesError.unsupportedVersion(1)) { try EncryptedFolder(url: url, key: key) }
+  }
+
   @Test func foreignFilesAreSkipped() throws {
     let directory = try TemporaryDirectory()
     let folder = try EncryptedFolder(url: directory.file("F"), key: key)

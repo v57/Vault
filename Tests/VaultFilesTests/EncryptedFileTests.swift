@@ -141,6 +141,50 @@ struct EncryptedFileTests {
     #expect(throws: VaultFilesError.unsupportedVersion(9)) { try EncryptedFile.open(sealed, key: key) }
   }
 
+  @Test func refusesVersionOne() throws {
+    var sealed = try EncryptedFile.seal(Data("x".utf8), key: key, keyID: "k1")
+    sealed[8] = 1
+    #expect(throws: VaultFilesError.unsupportedVersion(1)) { try EncryptedFile.open(sealed, key: key) }
+  }
+
+  @Test func contentsAreBoundToTheirContext() throws {
+    let a = Data("folder A / name".utf8)
+    let b = Data("folder B / name".utf8)
+    for size in [0, 10, chunk + 1] {
+      let plaintext = pseudoRandomData(size)
+      let sealed = try EncryptedFile.seal(plaintext, key: key, keyID: "k1", context: a)
+      #expect(try EncryptedFile.open(sealed, key: key, context: a) == plaintext)
+      #expect(throws: VaultFilesError.damaged) { try EncryptedFile.open(sealed, key: key, context: b) }
+      #expect(throws: VaultFilesError.damaged) { try EncryptedFile.open(sealed, key: key) }
+    }
+    let directory = try TemporaryDirectory()
+    try EncryptedFile.seal(Data("x".utf8), key: key, keyID: "k1", context: a).write(to: directory.file("f"))
+    #expect(throws: VaultFilesError.damaged) {
+      try EncryptedFileReader(url: directory.file("f"), key: self.key, context: b).readAll()
+    }
+    #expect(try EncryptedFileReader(url: directory.file("f"), key: key, context: a).readAll() == Data("x".utf8))
+  }
+
+  @Test func writerStreamsPieces() throws {
+    for (size, piece) in [(0, 7), (10, 3), (chunk, 1000), (2 * chunk + 5, chunk), (3 * chunk, 50_000)] {
+      let plaintext = pseudoRandomData(size)
+      var sealed = Data()
+      let writer = try EncryptedFileWriter(key: key, keyID: "k1", context: Data("c".utf8)) { sealed.append($0) }
+      var offset = 0
+      while offset < size {
+        try writer.append(plaintext[offset..<min(offset + piece, size)])
+        offset += piece
+      }
+      let digest = try writer.finish()
+      #expect(Data(digest) == Data(SHA256.hash(data: plaintext)))
+      #expect(
+        Int64(sealed.count)
+          == EncryptedFile.ciphertextSize(
+            plaintextSize: Int64(size), headerSize: EncryptedFile.Header.size(keyID: "k1")))
+      #expect(try EncryptedFile.open(sealed, key: key, context: Data("c".utf8)) == plaintext, "\(size)")
+    }
+  }
+
   @Test func damagedStreamingLeavesNoOutput() throws {
     let directory = try TemporaryDirectory()
     var sealed = try EncryptedFile.seal(pseudoRandomData(chunk * 2), key: key, keyID: "k1")

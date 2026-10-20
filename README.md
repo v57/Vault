@@ -107,7 +107,10 @@ conflict versions of notes in folders the user adds to Markdown.
 sit on any disk or remote and show only ciphertext there. Each folder has its own key (`FolderKey`), which the vault
 keeps wrapped by the vault key in the folder's record. A file is sealed in 64 KB chunks (`EncryptedFile`, like age
 or Tink's streaming AEAD): it streams in and out, any range reads without decrypting the rest, and changed,
-reordered or truncated chunks fail to open. Names are encrypted deterministically under their parent folder's
+reordered or truncated chunks fail to open. Each file's chunks are bound to its place (its folder's id and its name),
+and so is each folder's sealed id, so someone who can write to the disk but has no key can't swap files or folders or
+move one elsewhere: it fails to open, and `move` re-seals for the new place (format 2; format 1 never shipped and is
+refused). Names are encrypted deterministically under their parent folder's
 random id, so paths resolve without an index and renaming a folder rewrites one name (`NameCipher`).
 `EncryptedFolder` lists, reads, writes, moves and removes by plaintext path. For tools that can't read it (git,
 Xcode, other apps), `DecryptSession` decrypts a working copy, hidden from Spotlight and backups, seals changes back

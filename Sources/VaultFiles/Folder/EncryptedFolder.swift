@@ -11,18 +11,25 @@ import Foundation
 /// folder.v57            the manifest: format version and folder id, sealed with the content key
 /// <encrypted name>      a file
 /// <encrypted name>/     a folder, with
-///   dir.v57             its random directory id (16 bytes), which its children's names are encrypted with
+///   dir.v57             its random directory id (16 bytes, sealed), which its children's names are encrypted with
 /// <hash>.long, .name    an entry whose encrypted name is too long, and the sidecar holding that name
 /// ```
 ///
 /// A name is encrypted with its parent's directory id, not its path, so moving or renaming a folder rewrites one
 /// name, not its whole subtree. The root's directory id is the folder id.
 ///
+/// Contents are bound to where they are (format 2): a file's chunks authenticate its parent's directory id and its
+/// name, and so does a folder's sealed `dir.v57`. Someone who can write to the disk but has no key can't swap two
+/// files, move one into another folder, or swap folders: it fails to open (`damaged`). `move` re-seals a file for
+/// its new place and gives a moved folder a `dir.v57` bound to the new place. What binding can't catch is an older
+/// copy of the same file put back at the same path; folder sync catches that with its signed logs.
+///
 /// Paths are relative, `/`-separated plaintext paths (`"docs/notes.txt"`); `""` is the root.
 public final class EncryptedFolder: Sendable {
   public static let manifestName = "folder.v57"
   public static let directoryIDName = "dir.v57"
-  public static let formatVersion = 1
+  public static let formatVersion = 2
+  static let manifestContext = Data("dev.v57.files.manifest".utf8)
   static let temporaryPrefix = ".v57tmp-"
 
   /// One file or folder, decrypted.
@@ -68,11 +75,12 @@ public final class EncryptedFolder: Sendable {
       let header = try EncryptedFile.Header(parsing: data)
       let manifest: Manifest
       do {
-        manifest = try JSONDecoder().decode(Manifest.self, from: EncryptedFile.open(data, key: subkeys.content))
+        manifest = try JSONDecoder().decode(
+          Manifest.self, from: EncryptedFile.open(data, key: subkeys.content, context: Self.manifestContext))
       } catch VaultFilesError.damaged {
         throw header.keyID == key.id ? VaultFilesError.damaged : VaultFilesError.wrongKey
       }
-      guard manifest.format <= Self.formatVersion else { throw VaultFilesError.unsupportedVersion(manifest.format) }
+      guard manifest.format == Self.formatVersion else { throw VaultFilesError.unsupportedVersion(manifest.format) }
       guard let rootID = Data(hex: manifest.id), rootID.count == 16 else { throw VaultFilesError.damaged }
       folderID = manifest.id
       self.rootID = rootID
@@ -83,7 +91,8 @@ public final class EncryptedFolder: Sendable {
       rootID = randomBytes(16)
       folderID = rootID.hexString
       let manifest = try JSONEncoder().encode(Manifest(format: Self.formatVersion, id: folderID))
-      try EncryptedFile.seal(manifest, key: subkeys.content, keyID: key.id).write(to: manifestURL, options: .atomic)
+      try EncryptedFile.seal(manifest, key: subkeys.content, keyID: key.id, context: Self.manifestContext)
+        .write(to: manifestURL, options: .atomic)
     }
   }
 
@@ -148,7 +157,8 @@ public final class EncryptedFolder: Sendable {
 
   /// The contents of the file at `path`.
   public func read(_ path: String) throws -> Data {
-    try EncryptedFile.open(Data(contentsOf: fileLocation(path).url), key: subkeys.content)
+    let location = try fileLocation(path)
+    return try EncryptedFile.open(Data(contentsOf: location.url), key: subkeys.content, context: location.fileContext)
   }
 
   /// Decrypts the file at `path` into `destination` without holding it all in memory.
@@ -158,20 +168,33 @@ public final class EncryptedFolder: Sendable {
 
   @discardableResult
   func readFile(_ path: String, to destination: URL, progress: ((Int64) -> Void)?) throws -> SHA256.Digest {
-    try EncryptedFile.openFile(fileLocation(path).url, to: destination, key: subkeys.content, progress: progress)
+    let location = try fileLocation(path)
+    return try EncryptedFile.openFile(
+      location.url, to: destination, key: subkeys.content, context: location.fileContext, progress: progress)
   }
 
   /// A reader for any range of the file at `path`.
   public func reader(_ path: String) throws -> EncryptedFileReader {
-    try EncryptedFileReader(url: fileLocation(path).url, key: subkeys.content)
+    let location = try fileLocation(path)
+    return try EncryptedFileReader(url: location.url, key: subkeys.content, context: location.fileContext)
   }
 
   // MARK: Writing
 
   /// Writes `data` to the file at `path`, replacing it, and makes the folders above it as needed.
   public func write(_ data: Data, to path: String) throws {
-    let sealed = try EncryptedFile.seal(data, key: subkeys.content, keyID: key.id)
-    try replaceFile(at: path) { temporary in try sealed.write(to: temporary) }
+    try replaceFile(at: path) { temporary, target in
+      try EncryptedFile.seal(data, key: subkeys.content, keyID: key.id, context: target.fileContext).write(to: temporary)
+    }
+  }
+
+  /// Writes the file at `path` from the pieces `produce` appends, without holding it all in memory or putting
+  /// plaintext on disk. The file is replaced once `produce` returns; if it throws, nothing changes.
+  @discardableResult
+  public func write(to path: String, produce: (EncryptedFileWriter) throws -> Void) throws -> SHA256.Digest {
+    var digest: SHA256.Digest?
+    try replaceFile(at: path) { temporary, target in digest = try seal(into: temporary, for: target, produce: produce) }
+    return digest!
   }
 
   /// Encrypts the file at `source` into the file at `path` without holding it all in memory.
@@ -182,9 +205,9 @@ public final class EncryptedFolder: Sendable {
   @discardableResult
   func writeFile(from source: URL, to path: String, progress: ((Int64) -> Void)?) throws -> SHA256.Digest {
     var digest: SHA256.Digest?
-    try replaceFile(at: path) { temporary in
+    try replaceFile(at: path) { temporary, target in
       digest = try EncryptedFile.sealFile(
-        source, to: temporary, key: subkeys.content, keyID: key.id, progress: progress)
+        source, to: temporary, key: subkeys.content, keyID: key.id, context: target.fileContext, progress: progress)
     }
     return digest!
   }
@@ -196,6 +219,11 @@ public final class EncryptedFolder: Sendable {
 
   /// Moves or renames the file or folder at `source` to `destination`, making the folders above it as needed.
   /// Fails when something is at `destination`.
+  ///
+  /// Contents are bound to their place, so a file is re-sealed into its new place (chunk by chunk) and the old one
+  /// removed. A folder gets a new entry with its directory id sealed for the new place, its contents are moved into
+  /// it (their names stay valid: they are encrypted with the directory id, which doesn't change), and the old entry
+  /// goes. A crash part way leaves the contents split between two folders that both open, never lost.
   public func move(_ source: String, to destination: String) throws {
     let from = try Self.components(source)
     let to = try Self.components(destination)
@@ -206,12 +234,29 @@ public final class EncryptedFolder: Sendable {
     let parent = try resolveDirectory(Array(to.dropLast()), create: true)
     let target = try location(of: to.last!, in: parent)
     guard !target.exists else { throw VaultFilesError.exists(destination) }
-    try target.writeSidecar()
-    do {
-      try FileManager.default.moveItem(at: sourceLocation.url, to: target.url)
-    } catch {
-      target.removeSidecar()
-      throw error
+    let fileManager = FileManager.default
+    if sourceLocation.isDirectory {
+      let id = try directoryID(of: sourceLocation)
+      try makeDirectory(target, in: parent.url, id: id)
+      for name in try fileManager.contentsOfDirectory(atPath: sourceLocation.url.path) where name != Self.directoryIDName {
+        try fileManager.moveItem(
+          at: sourceLocation.url.appendingPathComponent(name), to: target.url.appendingPathComponent(name))
+      }
+      try fileManager.removeItem(at: sourceLocation.url)
+    } else {
+      let reader = try EncryptedFileReader(
+        url: sourceLocation.url, key: subkeys.content, context: sourceLocation.fileContext)
+      try replaceFile(target, in: parent.url) { temporary, target in
+        try seal(into: temporary, for: target) { writer in
+          let step = Int64(reader.header.chunkSize)
+          var offset: Int64 = 0
+          while offset < reader.size {
+            try writer.append(reader.read(range: offset..<min(offset + step, reader.size)))
+            offset += step
+          }
+        }
+      }
+      try fileManager.removeItem(at: sourceLocation.url)
     }
     sourceLocation.removeSidecar()
   }
@@ -253,11 +298,15 @@ public final class EncryptedFolder: Sendable {
 
   static func join(_ components: [String]) -> String { components.joined(separator: "/") }
 
-  /// An entry on disk: where it is, and the sidecar its shortened name needs.
+  /// An entry on disk: where it is, the sidecar its shortened name needs, and what its contents are bound to.
   struct Location {
     let url: URL
     let sidecar: URL?
     let encryptedName: String
+    /// The context a file here is sealed with.
+    let fileContext: Data
+    /// The context a folder's `dir.v57` here is sealed with.
+    let directoryContext: Data
 
     var exists: Bool { FileManager.default.fileExists(atPath: url.path) }
 
@@ -280,7 +329,27 @@ public final class EncryptedFolder: Sendable {
     let disk = DiskName.forEncrypted(encrypted)
     return Location(
       url: directory.url.appendingPathComponent(disk.entry),
-      sidecar: disk.sidecar.map { directory.url.appendingPathComponent($0) }, encryptedName: encrypted)
+      sidecar: disk.sidecar.map { directory.url.appendingPathComponent($0) }, encryptedName: encrypted,
+      fileContext: Self.binding(.file, directoryID: directory.id, name: name),
+      directoryContext: Self.binding(.directory, directoryID: directory.id, name: name))
+  }
+
+  enum BindingKind: UInt8 {
+    case file = 1
+    case directory = 2
+  }
+
+  /// What an entry's sealed contents authenticate: its kind, its parent's directory id and its (normalized) name.
+  static func binding(_ kind: BindingKind, directoryID: Data, name: String) -> Data {
+    Data([kind.rawValue, UInt8(directoryID.count)]) + directoryID + Data(name.utf8)
+  }
+
+  /// The directory id in the folder entry at `location`, checked against where it is.
+  func directoryID(of location: Location) throws -> Data {
+    let sealed = try Data(contentsOf: location.url.appendingPathComponent(Self.directoryIDName))
+    let id = try EncryptedFile.open(sealed, key: subkeys.content, context: location.directoryContext)
+    guard id.count == 16 else { throw VaultFilesError.damaged }
+    return id
   }
 
   /// The location of the entry at `components` (whose parent folders must exist).
@@ -310,20 +379,20 @@ public final class EncryptedFolder: Sendable {
       } else if !location.isDirectory {
         throw VaultFilesError.notADirectory(path)
       }
-      let idData = try Data(contentsOf: location.url.appendingPathComponent(Self.directoryIDName))
-      guard idData.count == 16 else { throw VaultFilesError.damaged }
-      directory = (location.url, idData)
+      directory = (location.url, try directoryID(of: location))
     }
     return directory
   }
 
-  /// Makes a folder with a new directory id, complete before it appears under its name.
-  private func makeDirectory(_ location: Location, in parent: URL) throws {
+  /// Makes a folder with a new directory id (or `id`, for a moved folder), complete before it appears under its
+  /// name.
+  private func makeDirectory(_ location: Location, in parent: URL, id: Data = randomBytes(16)) throws {
     let fileManager = FileManager.default
     let temporary = parent.appendingPathComponent(Self.temporaryPrefix + UUID().uuidString)
     try fileManager.createDirectory(at: temporary, withIntermediateDirectories: false)
     defer { try? fileManager.removeItem(at: temporary) }
-    try randomBytes(16).write(to: temporary.appendingPathComponent(Self.directoryIDName))
+    try EncryptedFile.seal(id, key: subkeys.content, keyID: key.id, context: location.directoryContext)
+      .write(to: temporary.appendingPathComponent(Self.directoryIDName))
     try location.writeSidecar()
     do {
       try fileManager.moveItem(at: temporary, to: location.url)
@@ -333,23 +402,41 @@ public final class EncryptedFolder: Sendable {
   }
 
   /// Writes a file through a temporary file in the same folder, then puts it in place, so a reader never sees half
-  /// a file.
-  private func replaceFile(at path: String, write: (URL) throws -> Void) throws {
+  /// a file. `write` gets the temporary file and the target (whose context the contents must be sealed with).
+  private func replaceFile(at path: String, write: (URL, Location) throws -> Void) throws {
     let components = try Self.components(path)
     guard !components.isEmpty else { throw VaultFilesError.isADirectory(path) }
     let parent = try resolveDirectory(Array(components.dropLast()), create: true)
     let target = try location(of: components.last!, in: parent)
     if target.isDirectory { throw VaultFilesError.isADirectory(path) }
+    try replaceFile(target, in: parent.url, write: write)
+  }
+
+  private func replaceFile(_ target: Location, in parent: URL, write: (URL, Location) throws -> Void) throws {
     let fileManager = FileManager.default
-    let temporary = parent.url.appendingPathComponent(Self.temporaryPrefix + UUID().uuidString)
+    let temporary = parent.appendingPathComponent(Self.temporaryPrefix + UUID().uuidString)
     defer { try? fileManager.removeItem(at: temporary) }
-    try write(temporary)
+    try write(temporary, target)
     try target.writeSidecar()
     if target.exists {
       _ = try fileManager.replaceItemAt(target.url, withItemAt: temporary)
     } else {
       try fileManager.moveItem(at: temporary, to: target.url)
     }
+  }
+
+  /// Seals what `produce` appends into `temporary`, for the file at `target`.
+  @discardableResult
+  private func seal(into temporary: URL, for target: Location, produce: (EncryptedFileWriter) throws -> Void) throws
+    -> SHA256.Digest
+  {
+    let handle = try EncryptedFile.createForWriting(temporary)
+    defer { try? handle.close() }
+    let writer = try EncryptedFileWriter(key: subkeys.content, keyID: key.id, context: target.fileContext) {
+      try handle.write(contentsOf: $0)
+    }
+    try produce(writer)
+    return try writer.finish()
   }
 
   private func entry(at diskURL: URL, path components: [String]) -> Entry? {
