@@ -72,6 +72,13 @@ public final class HubDirectory {
     refresh()
   }
 
+  /// Turns record sync through the Hub on or off for this device (the Hub needs the `hub-vault` service).
+  public func setSyncs(_ hub: VaultHubServer, _ on: Bool) {
+    var hub = vault.hub(id: hub.id) ?? hub
+    if on { hub.syncs.insert(vault.deviceID) } else { hub.syncs.remove(vault.deviceID) }
+    vault.save(hub)
+  }
+
   /// Removes the Hub from every device, with the hosts it added.
   public func remove(_ hub: VaultHubServer) {
     connections[hub.id]?.stop()

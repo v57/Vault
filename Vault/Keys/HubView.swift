@@ -113,6 +113,18 @@ private struct HubSection: View {
           }
         }
       }
+      if hub.status != .off {
+        InspectorRow("Sync vault through it", copyText: nil) {
+          Toggle("Sync vault", isOn: Binding(get: { hub.syncsRecords }, set: { app.hubs.setSyncs(hub.id, $0) }))
+            .toggleStyle(.kitSwitch).kitLabelsHidden()
+        }
+        if hub.syncsRecords {
+          InspectorRow("Records", value: hub.recordSyncLine.isEmpty ? "Waiting for the connection" : hub.recordSyncLine, copyable: false)
+        } else {
+          Text("For devices without iCloud: your records go to the Hub's vault service sealed with your vault keys, and a device with both carries changes between iCloud and the Hub.")
+            .kitFont(.caption).padding(.horizontal, 8)
+        }
+      }
       if let identity = app.hubs.identity, hub.status == .needsApproval || hub.status == .connecting {
         VStack(alignment: .leading, spacing: 6) {
           Text("Approve this \(ThisDevice.word) on your Hub (the Hub app, another device’s Vault, or `hub device approve`), comparing this code:")

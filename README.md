@@ -158,6 +158,16 @@ A revoked or removed device's host and its trust go on the next update. Other ap
 alone (`Vault.hubHosts`, `VaultHost.isViaHub`), so they never link Hub. Owners also see `hub/devices/pending` and
 approve with the safety code, which Vault computes from the key rather than trusting the Hub's.
 
+**Record sync over Hub.** `HubSync` (VaultKit, next to `CloudSync`) syncs the records through the Hub's `hub-vault`
+service (`~/Developer/Hub/Services/hub-vault`), for devices without iCloud, when a device turns it on for a Hub
+(`syncs.<device>`, off by default). Each sealed item goes up as an envelope when its version changed since it last
+went up; the Hub keeps envelopes until every other member device acknowledged them and never has a key. Envelopes
+from other devices merge field by field (`VaultStore.applyFromPeer`), without touching CloudKit's bookkeeping, and a
+change goes into the outbox so a device with both carries it to iCloud. HubSync keeps its own account of what it sent
+(engine state `hub-sync:<device>`), so CloudKit's outbox stays CloudKit's. A new member, or a device that missed
+envelopes, makes every device send everything again. The vault's mailbox id is derived from the vault keys. Tested
+with a fake mailbox (`HubSyncTests`) and live against hub-pro and hub-vault (`HubRecordSyncLiveTests`, `HUB_E2E_PORT`).
+
 ## The Vault app
 
 `Vault/` is a Mac and iPad app on VaultKit and VaultFiles (`Vault.xcodeproj`, bundle `dev.v57.vault`; build it against

@@ -18,6 +18,9 @@ struct HubItem: Identifiable, Hashable {
   var isOwner = false
   var securityMode: String?
   var error: String?
+  /// Record sync through this Hub on this device, and how it went ("Synced just now · 3 in").
+  var syncsRecords = false
+  var recordSyncLine = ""
 
   var id: String { record.id }
   var name: String { record.displayName }
@@ -37,6 +40,7 @@ protocol HubEngine: AnyObject {
   var error: String? { get }
   func add(url: String, name: String) throws
   func setConnects(_ hubID: String, _ on: Bool)
+  func setSyncs(_ hubID: String, _ on: Bool)
   func remove(_ hubID: String)
   func approve(_ deviceID: String, on hubID: String) async
   func deny(_ deviceID: String, on hubID: String) async
@@ -60,7 +64,19 @@ final class LiveHubs: HubEngine {
       return HubItem(
         record: record, status: Self.status(connection.status), devices: connection.devices,
         pending: connection.pending, isOwner: connection.isOwner, securityMode: connection.securityMode,
-        error: connection.error)
+        error: connection.error, syncsRecords: record.syncs.contains(directory.vault.deviceID),
+        recordSyncLine: Self.line(connection.recordSync))
+    }
+  }
+
+  private static func line(_ sync: HubConnection.RecordSync) -> String {
+    switch sync {
+    case .off: ""
+    case .syncing: "Syncing…"
+    case .synced(let date, let sent, let received):
+      ["Synced \(RelativeTime.short(date))", sent > 0 ? "\(sent) out" : "", received > 0 ? "\(received) in" : ""]
+        .filter { !$0.isEmpty }.joined(separator: " · ")
+    case .unavailable(let reason): reason
     }
   }
 
@@ -71,6 +87,10 @@ final class LiveHubs: HubEngine {
 
   func setConnects(_ hubID: String, _ on: Bool) {
     if let hub = directory.vault.hub(id: hubID) { directory.setConnects(hub, on) }
+  }
+
+  func setSyncs(_ hubID: String, _ on: Bool) {
+    if let hub = directory.vault.hub(id: hubID) { directory.setSyncs(hub, on) }
   }
 
   func remove(_ hubID: String) {
@@ -148,7 +168,9 @@ final class DemoHubs: HubEngine {
         firstSeen: now.addingTimeInterval(-120))
     ]
     hubs = [
-      HubItem(record: home, status: .connected, devices: devices, pending: pending, isOwner: true, securityMode: "default-deny"),
+      HubItem(
+        record: home, status: .connected, devices: devices, pending: pending, isOwner: true,
+        securityMode: "default-deny", syncsRecords: true, recordSyncLine: "Synced 1 min ago · 3 in"),
       HubItem(record: playground, status: .off),
     ]
     mirror()
@@ -165,6 +187,12 @@ final class DemoHubs: HubEngine {
     let record = VaultHubServer(name: name, url: url, connects: [vault.deviceID], order: hubs.count)
     vault.save(record)
     hubs.append(HubItem(record: record, status: .connecting))
+  }
+
+  func setSyncs(_ hubID: String, _ on: Bool) {
+    guard let index = hubs.firstIndex(where: { $0.id == hubID }) else { return }
+    hubs[index].syncsRecords = on
+    hubs[index].recordSyncLine = on ? "Syncing…" : ""
   }
 
   func setConnects(_ hubID: String, _ on: Bool) {
