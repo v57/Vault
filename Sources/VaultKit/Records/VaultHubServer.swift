@@ -7,7 +7,7 @@ import Foundation
 /// at the same address fail to connect instead of being trusted.
 public struct VaultHubServer: VaultRecord, Hashable {
   public static let kind = "hub"
-  public static let dynamicPrefixes = ["connects.", "member."]
+  public static let dynamicPrefixes = ["connects.", "member.", "syncs."]
 
   public var id: String
   public var name: String
@@ -17,6 +17,9 @@ public struct VaultHubServer: VaultRecord, Hashable {
   public var hubKey: String?
   /// The devices that connect to it.
   public var connects: Set<String>
+  /// The devices that sync the vault's records through it (`HubSync`, the `hub-vault` service): off until turned
+  /// on, per device. Apple devices have iCloud; this is for the others, and for one device that bridges them.
+  public var syncs: Set<String> = []
   /// Each vault device's id on this Hub (`member.<vault device>`), written by the device itself when it connects, so
   /// a Hub device can be matched to the vault's per-device fields (a project's `path.<device>`).
   public var members: [String: String]
@@ -45,6 +48,7 @@ public struct VaultHubServer: VaultRecord, Hashable {
     hubKey = read.string("hubKey")
     connects = Set(read.flags(prefixed: "connects"))
     members = read.strings(prefixed: "member")
+    syncs = Set(read.flags(prefixed: "syncs"))
     order = read.int("order", default: 0)
     added = read.date("added")
   }
@@ -56,6 +60,7 @@ public struct VaultHubServer: VaultRecord, Hashable {
     ]
     for device in connects { values["connects.\(device)"] = .bool(true) }
     values.set(members, prefixed: "member")
+    for device in syncs { values["syncs.\(device)"] = .bool(true) }
     return values
   }
 

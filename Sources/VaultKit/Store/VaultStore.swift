@@ -421,6 +421,53 @@ public final class VaultStore: @unchecked Sendable {
     if changed { notifier?.post() }
   }
 
+  // MARK: Records from other devices directly (Hub)
+
+  /// Every item as it is sealed, for a transport that keeps its own account of what it sent (`HubSync`): id,
+  /// key, ciphertext and version. Placeholders for records this device can't open yet are left out.
+  public func sealedRecords() throws -> [OutgoingRecord] {
+    try withLock {
+      try database.query("SELECT id, key_id, payload, version FROM items WHERE kind != ''").compactMap { row in
+        guard let id = row[0].text, let keyID = row[1].text else { return nil }
+        return OutgoingRecord(id: id, keyID: keyID, payload: row[2].blob ?? Data(), systemFields: nil, version: row[3].int ?? 0)
+      }
+    }
+  }
+
+  public enum PeerApplyResult: Equatable, Sendable {
+    /// The store had every field already; its version.
+    case unchanged(version: Int64)
+    /// Fields merged in; the item's new version, and whether the local copy had newer fields the sender lacks.
+    case merged(version: Int64, hasNewerFields: Bool)
+    /// This device doesn't have the record's key: nothing was stored.
+    case undecryptable
+  }
+
+  /// Merges a record another device sent directly (through a Hub) instead of through CloudKit. Fields merge by
+  /// their clocks, so every device ends with the same item whichever order changes arrive in (concurrent edits of
+  /// a note's text keep the later one: the three-way text merge needs CloudKit's server copy). CloudKit's
+  /// bookkeeping stays as it is, and a change goes into the outbox, so a device with both carries it to iCloud.
+  @discardableResult
+  public func applyFromPeer(id: String, keyID: String, payload: Data) throws -> PeerApplyResult {
+    let result: PeerApplyResult = try withLock {
+      try database.transaction {
+        guard let remote = try? decode(id: id, keyID: keyID, payload: payload) else { return .undecryptable }
+        try observe(remote.fields.latestClock)
+        let local = try loadRow(id: id)?.item
+        let kind = local?.kind.isEmpty == false ? local!.kind : remote.kind
+        let merged = local.map { $0.fields.merged(with: remote.fields) } ?? remote.fields
+        let versionNow = { try self.database.query("SELECT version FROM items WHERE id = ?", [.text(id)]).first?[0].int ?? 0 }
+        if let local, merged == local.fields { return .unchanged(version: try versionNow()) }
+        try writeRow(id: id, kind: kind, fields: merged, queue: true)
+        _ = try foldDuplicates(of: id, kind: kind)
+        try bumpRevision()
+        return .merged(version: try versionNow(), hasNewerFields: merged != remote.fields)
+      }
+    }
+    if case .merged = result { notifier?.post() }
+    return result
+  }
+
   /// Forgets everything CloudKit knew and queues every item to go up again (the iCloud data was reset, or
   /// another account signed in).
   public func resetServerState() throws {
