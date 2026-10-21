@@ -28,7 +28,7 @@ public struct VaultHubServer: VaultRecord, Hashable {
 
   public init(
     id: String = UUID().uuidString, name: String = "", url: String, hubKey: String? = nil, connects: Set<String> = [],
-    members: [String: String] = [:], order: Int = 0, added: Date? = .now
+    members: [String: String] = [:], syncs: Set<String> = [], order: Int = 0, added: Date? = .now
   ) {
     self.id = id
     self.name = name
@@ -36,6 +36,7 @@ public struct VaultHubServer: VaultRecord, Hashable {
     self.hubKey = hubKey
     self.connects = connects
     self.members = members
+    self.syncs = syncs
     self.order = order
     self.added = added
   }
@@ -56,12 +57,31 @@ public struct VaultHubServer: VaultRecord, Hashable {
   public var values: [String: JSONValue] {
     var values: [String: JSONValue] = [
       "name": .string(name), "url": .string(url), "hubKey": .init(hubKey), "order": .init(order),
-      "added": .init(added),
+      "added": .init(added), "_identity": .init(identity),
     ]
     for device in connects { values["connects.\(device)"] = .bool(true) }
     values.set(members, prefixed: "member")
     for device in syncs { values["syncs.\(device)"] = .bool(true) }
     return values
+  }
+
+  /// What makes two records the same Hub: its address, normalized. The store folds records with the same identity
+  /// (two devices added the Hub before either saw the other's record), merging their per-device flags.
+  public var identity: String? { Self.identity(of: url) }
+
+  /// `ws://Hub.Example.com:1997/` and `ws://hub.example.com:1997` are one Hub.
+  public static func identity(of url: String) -> String? {
+    var text = url.trimmingCharacters(in: .whitespacesAndNewlines)
+    while text.hasSuffix("/") { text.removeLast() }
+    guard var components = URLComponents(string: text), let host = components.host, !host.isEmpty else { return nil }
+    components.scheme = components.scheme?.lowercased()
+    components.host = host.lowercased()
+    return components.string
+  }
+
+  /// The id for a new Hub record: derived from its identity, so the same Hub added on two devices is one record.
+  public static func newID(url: String, in store: VaultStore) -> String {
+    identity(of: url).flatMap { try? store.derivedID("hub|" + $0) } ?? UUID().uuidString
   }
 
   /// The name if given, else the address's host.

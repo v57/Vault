@@ -27,6 +27,10 @@ public final class HubDirectory {
   public func start() {
     guard !isStarted else { return }
     isStarted = true
+    // Records made before they carried their identity get it now, so duplicates of one Hub fold into one.
+    vault.perform { store in
+      for hub in vault.hubs where (try? store.item(id: hub.id))?.values["_identity"] == nil { try store.save(hub) }
+    }
     refresh()
   }
 
@@ -53,11 +57,15 @@ public final class HubDirectory {
   public func add(url text: String, name: String = "") throws -> VaultHubServer {
     guard let url = Self.normalized(text) else { throw HubDirectoryError.badAddress }
     guard let store = vault.store else { throw HubDirectoryError.noVault }
-    if let existing = vault.hubs.first(where: { Self.normalized($0.url) == url }) {
+    if let existing = vault.hubs.first(where: { Self.normalized($0.url) == url })
+      ?? (try? store.record(VaultHubServer.self, id: VaultHubServer.newID(url: url, in: store)))
+    {
       setConnects(existing, true)
       return existing
     }
-    let hub = VaultHubServer(name: name, url: url, connects: [vault.deviceID], order: vault.hubs.count)
+    let hub = VaultHubServer(
+      id: VaultHubServer.newID(url: url, in: store), name: name, url: url, connects: [vault.deviceID],
+      order: vault.hubs.count)
     try store.save(hub)
     vault.reload()
     refresh()
@@ -102,6 +110,12 @@ public final class HubDirectory {
   /// Starts and stops connections to match the records.
   public func refresh() {
     guard isStarted else { return }
+    // Hosts of a Hub record that is gone (removed, or folded into its twin) go too.
+    let live = Set(vault.hubs.map(\.id))
+    let orphaned = Set(vault.hubHosts.compactMap(\.hub?.hubID)).subtracting(live)
+    if !orphaned.isEmpty {
+      vault.perform { store in for hubID in orphaned { try store.forgetHubHosts(hubID: hubID) } }
+    }
     let wanted = Set(vault.hubs.filter { $0.connects(on: vault.deviceID) }.map(\.id))
     for (id, connection) in connections where !wanted.contains(id) {
       connection.stop()

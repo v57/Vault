@@ -128,6 +128,52 @@ struct HubMirrorTests {
     #expect(try store.knownFingerprint(host: "100.96.0.4", port: 22) == nil)
   }
 
+  /// Sends an item from one device's store to another's, as sync would.
+  func send(_ id: String, from: VaultStore, to: VaultStore) throws {
+    let record = try #require(try from.outgoing(id: id))
+    try to.apply(
+      RemoteRecord(id: id, keyID: record.keyID, payload: record.payload, changeTag: UUID().uuidString, systemFields: nil))
+  }
+
+  /// The iPhone and the iPad add the same Hub before either sees the other's record: one Hub, both connecting.
+  @Test func oneHubAddedOnTwoDevicesIsOneRecord() throws {
+    let phone = try store("phone")
+    let pad = try store("pad")
+    let onPhone = VaultHubServer(
+      id: VaultHubServer.newID(url: "ws://192.168.1.21:21999", in: phone), url: "ws://192.168.1.21:21999",
+      connects: ["phone"], syncs: ["phone"])
+    let onPad = VaultHubServer(
+      id: VaultHubServer.newID(url: "WS://192.168.1.21:21999/", in: pad), url: "ws://192.168.1.21:21999",
+      connects: ["pad"])
+    #expect(onPhone.id == onPad.id)
+    try phone.save(onPhone)
+    try pad.save(onPad)
+    try send(onPad.id, from: pad, to: phone)
+    let hubs = try phone.records(VaultHubServer.self)
+    #expect(hubs.count == 1)
+    #expect(hubs.first?.connects == ["phone", "pad"])
+    #expect(hubs.first?.syncs == ["phone"])
+  }
+
+  /// Records made before the derived id (random ids) fold by their identity when they meet.
+  @Test func duplicateHubRecordsFoldKeepingEveryDevicesFlags() throws {
+    let phone = try store("phone")
+    let pad = try store("pad")
+    let a = VaultHubServer(id: "aaa-old", url: "ws://192.168.1.21:21999", connects: ["phone"], members: ["phone": "h1"])
+    let b = VaultHubServer(id: "bbb-old", url: "ws://192.168.1.21:21999/", connects: ["pad"], members: ["pad": "h2"])
+    try phone.save(a)
+    try pad.save(b)
+    try send(b.id, from: pad, to: phone)
+    let hubs = try phone.records(VaultHubServer.self)
+    #expect(hubs.map(\.id) == ["aaa-old"])
+    #expect(hubs.first?.connects == ["phone", "pad"])
+    #expect(hubs.first?.members == ["phone": "h1", "pad": "h2"])
+    // The tombstone goes back to the iPad, which folds the same way.
+    try send(b.id, from: phone, to: pad)
+    try send(a.id, from: phone, to: pad)
+    #expect(try pad.records(VaultHubServer.self).map(\.id) == ["aaa-old"])
+  }
+
   @Test func hubRecordConnectsPerDevice() throws {
     var hub = VaultHubServer(url: "wss://hub.v57.dev")
     #expect(hub.isPlayground)
