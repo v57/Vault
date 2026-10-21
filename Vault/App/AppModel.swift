@@ -166,7 +166,7 @@ final class AppModel {
       selectedHubDevice = hubs.hubs.flatMap(\.devices).first { $0.name == name }?.id
     }
     if selectedHubDevice == nil {
-      selectedHubDevice = hubs.hubs.flatMap(\.devices).first { $0.id != hubs.identity?.id && !$0.isRevoked }?.id
+      selectedHubDevice = hubs.hubs.flatMap(\.members).first { $0.id != hubs.identity?.id }?.id
     }
   }
 

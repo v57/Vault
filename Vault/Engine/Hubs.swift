@@ -24,6 +24,15 @@ struct HubItem: Identifiable, Hashable {
 
   var id: String { record.id }
   var name: String { record.displayName }
+
+  /// The devices the Hub let in, for the list and the counts (`hub/devices` also lists the ones still waiting).
+  var members: [VaultHubDevice] { devices.filter { $0.isApproved && !$0.isRevoked } }
+
+  /// Devices still waiting that the waiting list doesn't show (it is the owners' only): listed as waiting.
+  var waitingElsewhere: [VaultHubDevice] {
+    let waiting = Set(pending.map(\.id))
+    return devices.filter { !$0.isApproved && !$0.isRevoked && !waiting.contains($0.id) }
+  }
 }
 
 /// This device as every Hub sees it.
@@ -156,6 +165,10 @@ final class DemoHubs: HubEngine {
       VaultHubDevice(
         id: "f3b9d2e0a1c7465e8b0f9d3a2c1e7b54", name: "Galaxy Tab", platform: "android", os: "Android 17",
         isOnline: false, lastSeen: now.addingTimeInterval(-3 * 86400)),
+      // hub/devices lists the device waiting to join too, unapproved (the screen shows it once, in the waiting list).
+      VaultHubDevice(
+        id: "9e4c2a7f1b0d3e58c6a9f2b1d0e7c435", name: "ThinkPad X1", platform: "windows", isApproved: false,
+        isOnline: true, lastSeen: now),
       VaultHubDevice(
         id: identity!.id, name: VaultDevice.name,
         platform: ThisDevice.word == "iPad" ? "ipados" : ThisDevice.word == "iPhone" ? "ios" : "macos", os: "27.0",
@@ -213,6 +226,7 @@ final class DemoHubs: HubEngine {
       let waiting = hubs[index].pending.first(where: { $0.id == deviceID })
     else { return }
     hubs[index].pending.removeAll { $0.id == deviceID }
+    hubs[index].devices.removeAll { $0.id == deviceID }
     hubs[index].devices.append(
       VaultHubDevice(id: waiting.id, name: waiting.name, platform: waiting.platform, isOnline: true, lastSeen: .now))
     mirror()
@@ -221,6 +235,7 @@ final class DemoHubs: HubEngine {
   func deny(_ deviceID: String, on hubID: String) async {
     guard let index = hubs.firstIndex(where: { $0.id == hubID }) else { return }
     hubs[index].pending.removeAll { $0.id == deviceID }
+    hubs[index].devices.removeAll { $0.id == deviceID }
   }
 
   func revoke(_ deviceID: String, on hubID: String) async {

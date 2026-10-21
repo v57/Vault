@@ -69,7 +69,7 @@ struct HubView: View {
 
   private func toolbarMeta(_ hubs: [HubItem]) -> [String] {
     guard !hubs.isEmpty else { return ["off", "bring your own"] }
-    let devices = hubs.flatMap(\.devices).filter { !$0.isRevoked }
+    let devices = hubs.flatMap(\.members)
     return ["\(hubs.count) \(hubs.count == 1 ? "Hub" : "Hubs")", "\(devices.count) devices", "\(devices.filter(\.isOnline).count) online"]
   }
 
@@ -95,7 +95,7 @@ private struct HubSection: View {
   @State private var confirmsRemove = false
 
   var body: some View {
-    let live = hub.devices.filter { !$0.isRevoked }
+    let live = hub.members
     KitSection(
       hub.name, meta: [HubStatusText.title(hub.status), "\(live.count) devices", hub.record.isPlayground ? "playground" : ""].filter { !$0.isEmpty },
       systemImage: "point.3.connected.trianglepath.dotted", hue: hub.status == .connected ? .purple : .gray
@@ -144,7 +144,14 @@ private struct HubSection: View {
           PendingRow(hub: hub, waiting: waiting)
         }
       }
-      ForEach(hub.devices.filter { !$0.isRevoked }) { device in
+      ForEach(hub.waitingElsewhere) { device in
+        SidebarRow(device.name, subtitle: "\(HubPlatform.name(device.platform)) · waiting for an owner") {
+          RowTile(systemImage: HubPlatform.systemImage(device.platform))
+        } trailing: {
+          Chip("Waiting", hue: .orange).controlSize(.small)
+        }
+      }
+      ForEach(hub.members) { device in
         SidebarRow(value: device.id, device.name, subtitle: subtitle(device)) {
           RowTile(systemImage: HubPlatform.systemImage(device.platform))
         } trailing: {

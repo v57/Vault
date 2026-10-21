@@ -71,7 +71,7 @@ struct SidebarView: View {
         if hubs.contains(where: { !$0.pending.isEmpty }) {
           Count(hubs.reduce(0) { $0 + $1.pending.count }, .attention)
         } else {
-          Text(hubs.isEmpty ? "Off" : "\(hubs.flatMap(\.devices).filter { !$0.isRevoked }.count)").kitFont(.caption)
+          Text(hubs.isEmpty ? "Off" : "\(hubs.flatMap(\.members).count)").kitFont(.caption)
         }
       }
       SidebarRow(value: SidebarItem.recoveryKey, "Recovery Key", systemImage: "key") {
