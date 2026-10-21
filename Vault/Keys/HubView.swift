@@ -113,7 +113,24 @@ private struct HubSection: View {
           }
         }
       }
-      if hub.status != .off {
+      if hub.status == .revoked {
+        Banner(
+          "This \(ThisDevice.word) was revoked on \(hub.name).",
+          message: "An owner removed it for good, so it can't connect again. Remove stops this \(ThisDevice.word) trying; the Hub stays for your other devices.",
+          systemImage: "xmark.shield", hue: .red
+        ) {
+          Button("Remove") { app.hubs.leave(hub.id) }.buttonStyle(.kit)
+        }
+      } else if hub.status == .wrongHub {
+        Banner(
+          "Another server answers at \(hub.record.url).",
+          message: "Its key isn't the one this Hub had, so nothing is sent to it. If the Hub was reinstalled, remove it here and add it again.",
+          systemImage: "exclamationmark.shield", hue: .red
+        ) {
+          Button("Remove") { app.hubs.leave(hub.id) }.buttonStyle(.kit)
+        }
+      }
+      if hub.status != .off, hub.status != .revoked, hub.status != .wrongHub {
         InspectorRow("Sync vault through it", copyText: nil) {
           Toggle("Sync vault", isOn: Binding(get: { hub.syncsRecords }, set: { app.hubs.setSyncs(hub.id, $0) }))
             .toggleStyle(.kitSwitch).kitLabelsHidden()
@@ -219,11 +236,13 @@ private struct PendingRow: View {
       }
     }
     .padding(8)
-    .kitConfirmation(
+    .kitDialog(
       "Approve \(waiting.name.isEmpty ? "this device" : waiting.name)?", isPresented: $confirmsApprove,
-      message: "Only if its screen shows \(waiting.safetyCode). It joins your devices on \(hub.name).",
-      systemImage: "checkmark.shield", confirm: "Approve", role: nil
+      message: "\(HubPlatform.name(waiting.platform)) · joins your devices on \(hub.name). Only if its screen shows this code:",
+      systemImage: "checkmark.shield", hue: .green, confirm: "Approve"
     ) {
+      KitSafetyCode(groups: waiting.safetyCode.split(separator: " ").map(String.init), columns: 2)
+    } action: {
       Task { await app.hubs.approve(waiting.id, on: hub.id) }
     }
   }
@@ -352,6 +371,7 @@ enum HubStatusText {
     case .connected: "connected"
     case .needsApproval: "waiting for approval"
     case .wrongHub: "different server"
+    case .revoked: "revoked"
     case .offline: "offline"
     }
   }
@@ -363,6 +383,7 @@ enum HubStatusText {
     case .connected: hub.isOwner ? "Connected as an owner" : "Connected"
     case .needsApproval: "Connected, waiting for an owner to approve this device"
     case .wrongHub: "A different server answers at this address than the Hub you added. Not connected."
+    case .revoked: "This \(ThisDevice.word) was revoked on the Hub. Not connected."
     case .offline: "Can’t reach the Hub; trying again"
     }
   }
@@ -371,7 +392,7 @@ enum HubStatusText {
     switch status {
     case .connected: .green
     case .connecting, .needsApproval: .orange
-    case .wrongHub: .red
+    case .wrongHub, .revoked: .red
     case .off, .offline: .gray
     }
   }

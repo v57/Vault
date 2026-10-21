@@ -8,7 +8,7 @@ struct HubItem: Identifiable, Hashable {
   enum Status: Hashable {
     /// This device doesn't connect to it (another one does).
     case off
-    case connecting, connected, needsApproval, wrongHub, offline
+    case connecting, connected, needsApproval, wrongHub, revoked, offline
   }
 
   var record: VaultHubServer
@@ -50,6 +50,8 @@ protocol HubEngine: AnyObject {
   func add(url: String, name: String) throws
   func setConnects(_ hubID: String, _ on: Bool)
   func setSyncs(_ hubID: String, _ on: Bool)
+  /// This device stops connecting and syncing; the Hub stays for the others.
+  func leave(_ hubID: String)
   func remove(_ hubID: String)
   func approve(_ deviceID: String, on hubID: String) async
   func deny(_ deviceID: String, on hubID: String) async
@@ -102,6 +104,12 @@ final class LiveHubs: HubEngine {
     if let hub = directory.vault.hub(id: hubID) { directory.setSyncs(hub, on) }
   }
 
+  func leave(_ hubID: String) {
+    guard let hub = directory.vault.hub(id: hubID) else { return }
+    directory.setSyncs(hub, false)
+    directory.setConnects(hub, false)
+  }
+
   func remove(_ hubID: String) {
     if let hub = directory.vault.hub(id: hubID) { directory.remove(hub) }
   }
@@ -116,6 +124,7 @@ final class LiveHubs: HubEngine {
     case .connected: .connected
     case .needsApproval: .needsApproval
     case .wrongHub: .wrongHub
+    case .revoked: .revoked
     case .offline: .offline
     }
   }
@@ -211,6 +220,11 @@ final class DemoHubs: HubEngine {
   func setConnects(_ hubID: String, _ on: Bool) {
     guard let index = hubs.firstIndex(where: { $0.id == hubID }) else { return }
     hubs[index].status = on ? (hubs[index].devices.isEmpty ? .connecting : .connected) : .off
+  }
+
+  func leave(_ hubID: String) {
+    setSyncs(hubID, false)
+    setConnects(hubID, false)
   }
 
   func remove(_ hubID: String) {

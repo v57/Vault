@@ -24,6 +24,8 @@ public final class HubConnection: Identifiable {
     case needsApproval
     /// The server at the address isn't the Hub that was pinned.
     case wrongHub
+    /// The Hub turns this device away (it was revoked, or its key isn't allowed): it stopped trying.
+    case revoked
     case offline
   }
 
@@ -114,11 +116,73 @@ public final class HubConnection: Identifiable {
   }
 
   private func stateChanged(_ state: ConnectionState) {
+    guard status != .wrongHub, status != .revoked else { return }
     switch state {
-    case .connected: if status == .offline || status == .connecting { status = .connected }
-    case .disconnected: if status != .wrongHub { status = .offline }
-    default: if status != .wrongHub { status = .connecting }
+    case .connected:
+      if status == .offline || status == .connecting { status = .connected }
+    case .disconnected:
+      status = .offline
+      checkRefusal()
+    default:
+      status = .connecting
     }
+  }
+
+  // MARK: Refused connections
+
+  @ObservationIgnored private var refusalCheck: Task<Void, Never>?
+  @ObservationIgnored private var lastRefusalCheck = Date.distantPast
+
+  /// When the connection drops or doesn't open, asks why, at most twice a minute: a Hub that refuses the upgrade
+  /// (HTTP 4xx) has either another key than the one pinned (`.wrongHub`) or turned this device away (`.revoked`).
+  /// Either way retrying can't help, so the connection stops.
+  private func checkRefusal() {
+    guard refusalCheck == nil, Date().timeIntervalSince(lastRefusalCheck) > 30, let hub, let url = URL(string: hub.url)
+    else { return }
+    lastRefusalCheck = Date()
+    let headers = headers()
+    refusalCheck = Task { [weak self] in
+      defer { self?.refusalCheck = nil }
+      guard await Self.upgradeIsRefused(url: url, headers: headers) else { return }
+      let key = await Self.hubKey(at: url)
+      guard let self, self.client != nil else { return }
+      let pinned = self.hub?.hubKey
+      self.stop()
+      self.status = pinned != nil && key != nil && key != pinned ? .wrongHub : .revoked
+    }
+  }
+
+  /// Opens one WebSocket with the connection's headers: true when the server answers the upgrade with an HTTP
+  /// client error instead of opening it. (Channel's client retries without saying why.)
+  nonisolated static func upgradeIsRefused(url: URL, headers: [String: String], timeout: TimeInterval = 8) async -> Bool {
+    var request = URLRequest(url: url, timeoutInterval: timeout)
+    for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+    let task = URLSession.shared.webSocketTask(with: request)
+    task.resume()
+    let watchdog = Task {
+      try? await Task.sleep(for: .seconds(timeout))
+      task.cancel(with: .goingAway, reason: nil)
+    }
+    defer {
+      watchdog.cancel()
+      task.cancel(with: .goingAway, reason: nil)
+    }
+    do {
+      _ = try await task.receive()
+      return false
+    } catch {
+      guard let status = (task.response as? HTTPURLResponse)?.statusCode else { return false }
+      return (400..<500).contains(status)
+    }
+  }
+
+  /// The key of the server at the address, asked without signing in (`hub/info` is public). Nil when it doesn't say.
+  static func hubKey(at url: URL, timeout: TimeInterval = 8) async -> String? {
+    let client = Channel<Void>().connect(url)
+    defer { client.stop() }
+    let options = SendOptions<EmptyCodable>(timeout: timeout, replay: false)
+    let info: HubWire.Info? = try? await client.send("hub/info", Optional<EmptyCodable>.none, options: options)
+    return info?.key
   }
 
   private func didConnect() async {
