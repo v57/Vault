@@ -4,13 +4,21 @@ import VaultKit
 
 @testable import VaultHub
 
-/// Record sync between two devices through a real hub-pro and hub-vault, when given: `HUB_E2E_PORT` (hub-pro on
-/// 127.0.0.1, with both device keys below and hub-vault's key as owners). The devices' keys come from fixed seeds:
-/// device A `a1…`, device B `b2…` (32 bytes each).
-@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["HUB_E2E_PORT"] != nil))
+/// The Hub the live tests use: `HUB_E2E_URL`, or hub-server on 127.0.0.1 at `HUB_E2E_PORT`.
+let liveHubURL: String? = {
+  let environment = ProcessInfo.processInfo.environment
+  return environment["HUB_E2E_URL"] ?? environment["HUB_E2E_PORT"].map { "ws://127.0.0.1:\($0)" }
+}()
+
+/// Record sync between two devices through a real hub-server and hub-vault, when given: `HUB_E2E_PORT` (hub-server on
+/// 127.0.0.1, with both device keys below and hub-vault's key as owners) or `HUB_E2E_URL`. The devices' keys come from
+/// fixed seeds: device A `a1…`, device B `b2…` (32 bytes each).
+@Suite(.serialized, .enabled(if: liveHubURL != nil))
 @MainActor
 struct HubRecordSyncLiveTests {
   static func seed(_ byte: UInt8) -> Data { Data(repeating: byte, count: 32) }
+
+  static var url: String? { liveHubURL }
 
   func device(_ name: String, seed: UInt8, keys: MemoryKeyProvider, url: String) throws -> (Vault, HubConnection) {
     let store = try VaultStore(
@@ -42,7 +50,7 @@ struct HubRecordSyncLiveTests {
 
   @Test func recordsTravelBetweenDevices() async throws {
     VaultSecrets.useInMemoryStore()
-    let url = "ws://127.0.0.1:\(ProcessInfo.processInfo.environment["HUB_E2E_PORT"]!)"
+    let url = try #require(Self.url)
     let keys = MemoryKeyProvider()
     let (macVault, mac) = try device("mac", seed: 0xa1, keys: keys, url: url)
     let (linuxVault, linux) = try device("linux", seed: 0xb2, keys: keys, url: url)
@@ -80,7 +88,7 @@ struct HubRecordSyncLiveTests {
   /// is new every run (a revoked key never comes back).
   @Test func aRevokedDeviceSaysSoAndStops() async throws {
     VaultSecrets.useInMemoryStore()
-    let url = "ws://127.0.0.1:\(ProcessInfo.processInfo.environment["HUB_E2E_PORT"]!)"
+    let url = try #require(Self.url)
     let keys = MemoryKeyProvider()
     let (_, owner) = try device("owner", seed: 0xa1, keys: keys, url: url)
     let (_, lost) = try device("lost", seed: UInt8.random(in: 0x10...0x6f), keys: keys, url: url)
@@ -104,7 +112,7 @@ struct HubRecordSyncLiveTests {
   /// Another server at the pinned address: the wrong-Hub state, not offline forever.
   @Test func aDifferentKeyAtTheAddressIsTheWrongHub() async throws {
     VaultSecrets.useInMemoryStore()
-    let url = "ws://127.0.0.1:\(ProcessInfo.processInfo.environment["HUB_E2E_PORT"]!)"
+    let url = try #require(Self.url)
     let keys = MemoryKeyProvider()
     let (vault, connection) = try device("pinned", seed: 0xa1, keys: keys, url: url)
     var hub = try #require(vault.hub(id: "hub"))
@@ -113,5 +121,24 @@ struct HubRecordSyncLiveTests {
     connection.start()
     defer { connection.stop() }
     try await wait("wrong hub", timeout: 60) { connection.status == .wrongHub }
+  }
+
+  /// One device against a Hub given by address (`HUB_E2E_URL`, e.g. a LAN hub), printing its states until its record
+  /// sync finishes: for checking a Hub whose owners are set up by hand (approve the device and add it to `owners`).
+  @Test(.enabled(if: ProcessInfo.processInfo.environment["HUB_E2E_SEED"] != nil))
+  func oneDeviceSyncs() async throws {
+    VaultSecrets.useInMemoryStore()
+    let url = try #require(Self.url)
+    let seed = UInt8(ProcessInfo.processInfo.environment["HUB_E2E_SEED"] ?? "90") ?? 0x5a
+    let (vault, connection) = try device("solo", seed: seed, keys: MemoryKeyProvider(), url: url)
+    vault.save(VaultHost(name: "solo host", hostname: "solo.example.com"))
+    print("device", connection.device.id, connection.device.safetyCode)
+    connection.start()
+    defer { connection.stop() }
+    try await wait("synced", timeout: 180) {
+      print("state", connection.status, connection.isOwner, connection.recordSync)
+      if case .synced = connection.recordSync { return true }
+      return false
+    }
   }
 }

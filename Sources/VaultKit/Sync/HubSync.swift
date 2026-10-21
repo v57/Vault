@@ -73,6 +73,9 @@ public final class HubSync: @unchecked Sendable {
   public let store: VaultStore
   public let mailbox: any HubMailbox
   public let deviceID: String
+  /// How long one call to the mailbox may take before the sync gives up and says so (the Hub holds calls it can't
+  /// forward yet, and may never answer them).
+  public var timeout: Duration
   private let lock = NSLock()
   private var running = false
 
@@ -100,10 +103,34 @@ public final class HubSync: @unchecked Sendable {
   }
 
   /// - Parameter deviceID: this device's id on the Hub (envelope ids are made unique with it).
-  public init(store: VaultStore, mailbox: any HubMailbox, deviceID: String) {
+  public init(store: VaultStore, mailbox: any HubMailbox, deviceID: String, timeout: Duration = .seconds(30)) {
     self.store = store
     self.mailbox = mailbox
     self.deviceID = deviceID
+    self.timeout = timeout
+  }
+
+  /// The mailbox didn't answer in time.
+  public struct TimedOut: LocalizedError, Equatable {
+    /// "join", "pull", "push", "ack".
+    public var call: String
+    public var errorDescription: String? {
+      "The Hub didn’t answer (vault \(call)). Its vault service may be starting or stuck; Vault tries again."
+    }
+  }
+
+  /// Runs a mailbox call, or throws `TimedOut` when it takes longer than `timeout`.
+  private func call<T: Sendable>(_ name: String, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+    let timeout = timeout
+    return try await withThrowingTaskGroup(of: T.self) { group in
+      group.addTask { try await work() }
+      group.addTask {
+        try await Task.sleep(for: timeout)
+        throw TimedOut(call: name)
+      }
+      defer { group.cancelAll() }
+      return try await group.next()!
+    }
   }
 
   /// The vault's mailbox id.
@@ -126,7 +153,8 @@ public final class HubSync: @unchecked Sendable {
     let vault = try vaultID()
     var state = loadState()
     var result = Result()
-    let joined = try await mailbox.join(vault: vault)
+    let mailbox = mailbox
+    let joined = try await call("join") { try await mailbox.join(vault: vault) }
     // A device that wasn't a member before needs everything: send it all again.
     if !Set(joined.members).isSubset(of: Set(state.members)) {
       state.sent = [:]
@@ -135,7 +163,8 @@ public final class HubSync: @unchecked Sendable {
     state.members = joined.members
 
     while true {
-      let pulled = try await mailbox.pull(vault: vault, after: state.pulled, limit: batch)
+      let after = state.pulled
+      let pulled = try await call("pull") { try await mailbox.pull(vault: vault, after: after, limit: batch) }
       if pulled.missed, !result.resent {
         state.sent = [:]
         result.resent = true
@@ -157,7 +186,7 @@ public final class HubSync: @unchecked Sendable {
       let highest = pulled.envelopes.map(\.seq).max() ?? state.pulled
       if highest > state.pulled {
         state.pulled = highest
-        try await mailbox.ack(vault: vault, seq: highest)
+        try await call("ack") { try await mailbox.ack(vault: vault, seq: highest) }
       }
       saveState(state)
       if pulled.envelopes.count < batch { break }
@@ -171,7 +200,7 @@ public final class HubSync: @unchecked Sendable {
           id: "\(deviceID):\(record.id):\(record.version)",
           payload: try JSONEncoder().encode(sealed).base64EncodedString())
       }
-      _ = try await mailbox.push(vault: vault, envelopes: envelopes)
+      _ = try await call("push") { try await mailbox.push(vault: vault, envelopes: envelopes) }
       for record in chunk { state.sent[record.id] = record.version }
       result.sent += chunk.count
       saveState(state)

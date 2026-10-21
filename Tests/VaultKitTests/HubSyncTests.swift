@@ -191,6 +191,35 @@ struct HubSyncTests {
     #expect(try macCloud.store.pendingCount() == 0)
   }
 
+  /// A Hub that holds the call and never answers (hub-server queues calls it can't forward yet): the sync says so
+  /// instead of hanging, and goes on once the Hub answers again.
+  @Test func aHubThatNeverAnswersTimesOut() async throws {
+    struct Stuck: HubMailbox {
+      let box: FakeMailbox
+      let device: String
+      let stuck: @Sendable () -> Bool
+      func join(vault: String) async throws -> HubMailboxJoin {
+        if stuck() { try await Task.sleep(for: .seconds(3600)) }
+        return box.join(device)
+      }
+      func push(vault: String, envelopes: [HubEnvelope]) async throws -> Int { box.push(device, envelopes) }
+      func pull(vault: String, after: Int, limit: Int) async throws -> HubMailboxPull { box.pull(device, after, limit) }
+      func ack(vault: String, seq: Int) async throws { box.ack(device, seq) }
+    }
+    final class Flag: @unchecked Sendable { var on = true }
+    let flag = Flag()
+    let store = try VaultStore(directory: temporaryDirectory(), keys: keys, deviceID: "mac", notifier: nil, owner: "mac.app")
+    try store.save(VaultHost(id: "h1", hostname: "a"))
+    let sync = HubSync(
+      store: store, mailbox: Stuck(box: mailbox, device: "hub-mac", stuck: { flag.on }), deviceID: "hub-mac",
+      timeout: .milliseconds(200))
+    let started = ContinuousClock.now
+    await #expect(throws: HubSync.TimedOut(call: "join")) { try await sync.sync() }
+    #expect(ContinuousClock.now - started < .seconds(5))
+    flag.on = false
+    #expect(try await sync.sync().sent == 1)
+  }
+
   @Test func theHubOnlySeesCiphertext() async throws {
     let mac = try device("mac")
     let peer = mailbox.device("observer")
