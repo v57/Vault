@@ -120,6 +120,10 @@ final class AppModel {
       if UserDefaults.standard.object(forKey: "iCloudSync") as? Bool ?? true { vault.startSync() }
       let hubs = HubDirectory(vault: vault)
       hubs.start()
+      #if DEBUG
+        // `--add-hub <ws address>`: adds a Hub and connects this device to it, for device tests without typing
+        if let address = LaunchOptions.value("--add-hub") { _ = try? hubs.add(url: address) }
+      #endif
       model = AppModel(
         vault: vault, isDemo: false, folders: FolderLibrary(vault: vault, sync: NoFolderSync()),
         remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault), recovery: UnavailableRecovery(),
