@@ -203,7 +203,35 @@ private struct SyncInspector: View {
       }
     }
     MembersCard(folder: folder)
+    RecordsCard(folder: folder)
     RemoteCard(folder: folder)
+  }
+}
+
+/// How the vault's records travel (iCloud, each Hub that syncs them) apart from this folder's files, which go through
+/// the folder's remote.
+private struct RecordsCard: View {
+  let folder: FolderItem
+  @Environment(AppModel.self) private var app
+
+  var body: some View {
+    let iCloud = app.isDemo || app.vault.sync?.isRunning == true
+    let hubs = app.hubs.hubs.filter(\.syncsRecords)
+    let sources = (iCloud ? ["iCloud"] : []) + hubs.map(\.name)
+    KitSection(
+      "Records",
+      meta: [sources.isEmpty ? "only on this \(ThisDevice.word)" : ListFormatter.localizedString(byJoining: sources),
+             iCloud && !hubs.isEmpty ? "this \(ThisDevice.word) bridges them" : ""],
+      systemImage: "arrow.triangle.2.circlepath", hue: .blue
+    ) {
+      InspectorRow("iCloud", value: iCloud ? app.syncedLine.prefix(1).uppercased() + app.syncedLine.dropFirst() : "Off", copyable: false)
+      ForEach(hubs) { hub in
+        InspectorRow(hub.name, value: hub.recordSyncLine.isEmpty ? "Waiting for the connection" : hub.recordSyncLine, copyable: false)
+      }
+      InspectorRow(
+        "This folder’s files",
+        value: folder.record.remoteID.flatMap(app.vault.remote(id:)).map { "through \($0.name)" } ?? "only on your devices", copyable: false)
+    }
   }
 }
 
