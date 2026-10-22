@@ -147,6 +147,7 @@ private struct HubSection: View {
           Text("Approve this \(ThisDevice.word) on your Hub (the Hub app, another device’s Vault, or `hub device approve`), comparing this code:")
             .kitFont(.caption)
           KitSafetyCode(groups: identity.safetyCode.split(separator: " ").map(String.init), columns: 2)
+            .fixedSize()
         }
         .padding(8)
       }
@@ -185,7 +186,8 @@ private struct HubSection: View {
       }
       if let error = hub.error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text).padding(.horizontal, 8) }
     } accessory: {
-      Button("Remove…", role: .destructive) { confirmsRemove = true }.buttonStyle(.kit).controlSize(.small)
+      // Neutral here; the confirmation says what removing does.
+      Button("Remove…") { confirmsRemove = true }.buttonStyle(.kit).controlSize(.small)
     }
     .kitConfirmation(
       "Remove \(hub.name)?", isPresented: $confirmsRemove,
@@ -201,7 +203,10 @@ private struct HubSection: View {
     if let parent = device.parent { parts.append("on \(parent)") }
     if idiom != .phone, let address = device.address { parts.append(address) }
     if device.ssh != nil { parts.append("SSH") }
-    if !device.isOnline, let seen = device.lastSeen { parts.append("seen \(RelativeTime.day(seen).lowercased())") }
+    if !device.isOnline, let seen = device.lastSeen {
+      let day = RelativeTime.day(seen)
+      parts.append("seen \(day == "Today" || day == "Yesterday" ? day.lowercased() : day)")
+    }
     return parts.joined(separator: " · ")
   }
 }
@@ -226,6 +231,7 @@ private struct PendingRow: View {
         Chip("Waiting", hue: .orange).controlSize(.small)
       }
       KitSafetyCode(groups: waiting.safetyCode.split(separator: " ").map(String.init), columns: 2)
+        .fixedSize()
       if !waiting.codeChecks {
         Text("The Hub sent a different code than this device’s key gives. Don’t approve it unless the code on its screen matches the one above.")
           .kitFont(.caption).foregroundStyle(Hue.red.text)
@@ -288,7 +294,7 @@ struct HubDeviceInspector: View {
       }
     }
     if !device.tools.isEmpty || !device.services.isEmpty {
-      KitSection("Offers", meta: ["\(device.tools.count) tools", "\(device.services.count) services"], systemImage: "hammer", hue: .gray) {
+      KitSection("Offers", meta: [Self.count(device.tools.count, "tool"), Self.count(device.services.count, "service")], systemImage: "hammer", hue: .gray) {
         ForEach(device.tools.sorted(by: { $0.key < $1.key }), id: \.key) { name, value in
           InspectorRow(name.capitalized, value: value, copyable: false)
         }
@@ -298,8 +304,10 @@ struct HubDeviceInspector: View {
       }
     }
     if hub.isOwner && !isThisDevice {
-      Button("Revoke \(device.name)…", role: .destructive) { confirmsRevoke = true }
-        .buttonStyle(.kit).frame(maxWidth: .infinity)
+      Button(role: .destructive) { confirmsRevoke = true } label: {
+        Text("Revoke \(device.name)…").frame(maxWidth: .infinity)
+      }
+      .buttonStyle(.kit)
         .kitConfirmation(
           "Revoke \(device.name)?", isPresented: $confirmsRevoke,
           message: "It can’t connect to \(hub.name) again, its services’ keys stop working, Hub Network drops it, and its host goes from every app. For a lost or sold device.",
@@ -309,6 +317,9 @@ struct HubDeviceInspector: View {
         }
     }
   }
+
+  /// "1 tool", "2 tools".
+  private static func count(_ n: Int, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }
 }
 
 /// Adding a Hub: its address and a name. Nothing connects before Connect.

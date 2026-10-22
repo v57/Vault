@@ -130,8 +130,9 @@ final class LiveHubs: HubEngine {
   }
 }
 
-/// Sample Hubs for `--demo`: a home Hub with a Mac Studio, a Linux VM on it, a NAS, an offline Android tablet and a
-/// ThinkPad waiting to join. Its SSH devices are mirrored into the demo vault's hosts like the live ones.
+/// Sample Hubs for `--demo`: a home Hub with Studio Mac, a MacBook Air, a Linux VM on the Mac, a NAS, an offline
+/// Android tablet and a ThinkPad waiting to join. Its SSH devices are mirrored into the demo vault's hosts like the live
+/// ones. `--hub-state none|approval|revoked|wrong|offline|no-answer` (Debug) shows the Home Hub in another state.
 @MainActor
 @Observable
 final class DemoHubs: HubEngine {
@@ -155,16 +156,25 @@ final class DemoHubs: HubEngine {
       try store.save(home)
       try store.save(playground)
     }
-    let devices = [
-      VaultHubDevice(
-        id: "8cef065b7af83669150b7d32704d3d3e", name: "Mac Studio", platform: "macos", os: "27.0", arch: "arm64",
-        isOnline: true, isNetworkOnline: true, address: "100.96.0.4", lastSeen: now,
-        ssh: .init(port: 22, hostKey: Self.studioKey, user: "dmitry"),
-        tools: ["xcode": "27.0", "swift": "6.3", "simulators": "iPhone 18 Pro, iPad Pro 13-inch"],
-        services: ["hub-launcher", "s3-local/Backup Disk", "dev-runner"]),
+    // The demo's own devices, in the Hub's order (never this device's real name): on the Mac this device is Studio Mac.
+    let isMac = ThisDevice.word == "Mac"
+    let studio = VaultHubDevice(
+      id: isMac ? identity!.id : "8cef065b7af83669150b7d32704d3d3e", name: "Studio Mac", platform: "macos", os: "macOS 27.0",
+      arch: "arm64", isOnline: true, isNetworkOnline: true, address: "100.96.0.2", lastSeen: now,
+      ssh: .init(port: 22, hostKey: Self.studioKey, user: "aiko"),
+      tools: ["xcode": "27.0", "swift": "6.3", "simulators": "iPhone 18 Pro, iPad Pro 13-inch"],
+      services: ["hub-launcher", "s3-local/Backup Disk", "dev-runner"])
+    let air = VaultHubDevice(
+      id: "a71c3e09d2b84f56e0c9a1d7b3f2e468", name: "MacBook Air", platform: "macos", os: "macOS 27.0", arch: "arm64",
+      isOnline: true, isNetworkOnline: true, address: "100.96.0.3", lastSeen: now)
+    let this = isMac ? nil : VaultHubDevice(
+      id: identity!.id, name: ThisDevice.word == "iPad" ? "iPad Pro" : "iPhone",
+      platform: ThisDevice.word == "iPad" ? "ipados" : "ios", os: ThisDevice.word == "iPad" ? "iPadOS 27.0" : "iOS 27.0",
+      arch: "arm64", isOnline: true, isNetworkOnline: true, address: "100.96.0.5", lastSeen: now)
+    let devices = [studio, air] + [this].compactMap { $0 } + [
       VaultHubDevice(
         id: "2b7f1e90c4d35a68e1f0b2c9d7a46e15", name: "builder", platform: "linux", os: "Ubuntu 26.04", arch: "arm64",
-        parent: "Mac Studio", isOnline: true, isNetworkOnline: true, address: "100.96.0.11", lastSeen: now,
+        parent: "Studio Mac", isOnline: true, isNetworkOnline: true, address: "100.96.0.11", lastSeen: now,
         ssh: .init(port: 22, hostKey: Self.builderKey, user: "ci"), tools: ["swift": "6.3", "docker": "yes"],
         services: ["dev-runner"]),
       VaultHubDevice(
@@ -178,11 +188,6 @@ final class DemoHubs: HubEngine {
       VaultHubDevice(
         id: "9e4c2a7f1b0d3e58c6a9f2b1d0e7c435", name: "ThinkPad X1", platform: "windows", isApproved: false,
         isOnline: true, lastSeen: now),
-      VaultHubDevice(
-        id: identity!.id, name: VaultDevice.name,
-        platform: ThisDevice.word == "iPad" ? "ipados" : ThisDevice.word == "iPhone" ? "ios" : "macos", os: "27.0",
-        arch: "arm64", isOnline: true,
-        isNetworkOnline: true, address: "100.96.0.2", lastSeen: now),
     ]
     let pending = [
       HubPendingDevice(
@@ -195,8 +200,33 @@ final class DemoHubs: HubEngine {
         securityMode: "default-deny", syncsRecords: true, recordSyncLine: "Synced 1 min ago · 3 in"),
       HubItem(record: playground, status: .off),
     ]
+    #if DEBUG
+      applyState(LaunchOptions.value("--hub-state"))
+    #endif
     mirror()
   }
+
+  #if DEBUG
+    /// The Home Hub before it lets this device in, turned away, or not answering (Hub board 15).
+    private func applyState(_ state: String?) {
+      guard let state else { return }
+      if state == "none" {
+        hubs = []
+        return
+      }
+      let gone: [String: HubItem.Status] = ["approval": .needsApproval, "revoked": .revoked, "wrong": .wrongHub, "offline": .offline]
+      if let status = gone[state] {
+        hubs[0].status = status
+        hubs[0].devices = []
+        hubs[0].pending = []
+        hubs[0].isOwner = false
+        hubs[0].syncsRecords = status == .offline
+        hubs[0].recordSyncLine = ""
+      } else if state == "no-answer" {
+        hubs[0].recordSyncLine = "The Hub didn’t answer (vault push). Its vault service may be starting or stuck; Vault tries again."
+      }
+    }
+  #endif
 
   private func mirror() {
     for hub in hubs where hub.status != .off {
