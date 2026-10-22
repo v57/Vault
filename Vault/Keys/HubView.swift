@@ -46,9 +46,10 @@ struct HubView: View {
     .onAppear { if idiom == .phone, LaunchOptions.pushes { pushed = app.selectedHubDevice } }
     .navigationDestination(item: $pushed) { id in
       if let (hub, device) = find(id) {
-        PushedDetail(title: device.name, meta: [HubPlatform.name(device.platform), device.isOnline ? "Online" : "Offline"]) {
-          RowTile(systemImage: HubPlatform.systemImage(device.platform))
-        } content: {
+        PushedDetail(
+          title: device.name, meta: [HubPlatform.name(device.platform), device.isOnline ? "Online" : "Offline"],
+          systemImage: HubPlatform.systemImage(device.platform), hue: .purple
+        ) {
           HubDeviceInspector(hub: hub, device: device)
         } trailing: {
           EmptyView()
