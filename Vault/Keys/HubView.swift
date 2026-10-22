@@ -43,6 +43,7 @@ struct HubView: View {
         ToolGroup { Button("Add Hub", systemImage: "plus") { app.sheet = .addHub } }
       }
     }
+    .onAppear { if idiom == .phone, LaunchOptions.pushes { pushed = app.selectedHubDevice } }
     .navigationDestination(item: $pushed) { id in
       if let (hub, device) = find(id) {
         PushedDetail(title: device.name, meta: [HubPlatform.name(device.platform), device.isOnline ? "Online" : "Offline"]) {
@@ -223,7 +224,7 @@ private struct PendingRow: View {
       HStack(spacing: 10) {
         RowTile(systemImage: HubPlatform.systemImage(waiting.platform))
         VStack(alignment: .leading, spacing: 1) {
-          Text(waiting.name.isEmpty ? "A new device" : waiting.name).lineLimit(1)
+          Text(waiting.name.isEmpty ? "A new device" : waiting.name).kitFont(.body).lineLimit(1)
           Text("\(HubPlatform.name(waiting.platform)) · wants to join\(waiting.firstSeen.map { " · \(RelativeTime.short($0))" } ?? "")")
             .kitFont(.caption).lineLimit(1)
         }

@@ -253,13 +253,13 @@ private struct HubDevicesRow: View {
         "On \(hub.name)",
         subtitle: [
           "\(hub.members.count) devices" + (idiom == .phone ? "" : ", Linux, Windows and Android too"),
-          idiom == .phone ? nil : firstWaiting.map { "\($0) waits to join" },
+          idiom == .phone ? (waiting > 0 ? "\(waiting) \(waiting == 1 ? "waits" : "wait") to join" : nil) : firstWaiting.map { "\($0) waits to join" },
         ].compactMap { $0 }.joined(separator: " · ")
       ) {
         RowTile(systemImage: "point.3.connected.trianglepath.dotted")
       } trailing: {
         HStack(spacing: 6) {
-          if waiting > 0 { Chip("\(waiting) waiting", hue: .orange).controlSize(.small) }
+          if waiting > 0 { Chip(idiom == .phone ? "Waiting" : "\(waiting) waiting", hue: .orange).controlSize(.small) }
           Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.kitTertiary)
         }
       }
