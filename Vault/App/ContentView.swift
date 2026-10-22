@@ -9,11 +9,11 @@ import VaultKit
 struct ContentView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.kitIdiom) private var idiom
-  @Environment(\.openWindow) private var openWindow
   #if os(macOS)
     @Environment(\.openSettings) private var openSettings
   #endif
-  @AppStorage("showWelcome") private var showWelcome = true
+  /// iPhone: the welcome was opened past once ("Open Vault"); later launches start on the root list.
+  @AppStorage("welcome.opened") private var welcomeOpened = false
   @Environment(\.scenePhase) private var scenePhase
   #if DEBUG
     // `--hide-sidebar`: iPad portrait screenshots.
@@ -23,8 +23,8 @@ struct ContentView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
   #endif
   @State private var compactColumn = NavigationSplitViewColumn.sidebar
-  @State private var showsWelcome = ThisDevice.isTouch
-    && (LaunchOptions.flag("--welcome") || (!LaunchOptions.flag("--demo") && UserDefaults.standard.object(forKey: "showWelcome") as? Bool ?? true))
+  @State private var showsPhoneWelcome = LaunchOptions.flag("--welcome")
+    || (!LaunchOptions.flag("--demo") && !UserDefaults.standard.bool(forKey: "welcome.opened"))
 
   var body: some View {
     @Bindable var app = app
@@ -42,12 +42,15 @@ struct ContentView: View {
         .presentationDetents(idiom == .phone && sheet.isBottomSheet ? [.medium, .large] : [.large])
     }
     #if os(iOS)
-      // iPhone and iPad: the welcome is the first screen, full height, until "Open Vault".
-      .fullScreenCover(isPresented: $showsWelcome) {
-        WelcomeWindow(onClose: { showsWelcome = false })
-          .environment(app)
-          .componentKit(accent: .vaultAccent)
-          .preferredColorScheme(LaunchOptions.colorScheme)
+      // iPhone: the welcome is the first screen, full height, until "Open Vault" (the Mac and iPad show it inline).
+      .fullScreenCover(isPresented: Binding(get: { showsPhoneWelcome && idiom == .phone }, set: { showsPhoneWelcome = $0 })) {
+        WelcomeScreen(onOpen: {
+          if !app.isDemo { welcomeOpened = true }
+          showsPhoneWelcome = false
+        })
+        .environment(app)
+        .componentKit(accent: .vaultAccent)
+        .preferredColorScheme(LaunchOptions.colorScheme)
       }
       // iPhone: the scanner fills the screen.
       .fullScreenCover(isPresented: Binding(get: { app.sheet == .scanInvite && idiom == .phone }, set: { if !$0 { app.sheet = nil } })) {
@@ -70,7 +73,6 @@ struct ContentView: View {
       // `--select` on iPhone opens that screen over the root list.
       if LaunchOptions.value("--select") != nil { compactColumn = .detail }
       #if os(macOS)
-        if LaunchOptions.flag("--welcome") || (showWelcome && !app.isDemo) { openWindow(id: "welcome") }
         if LaunchOptions.flag("--settings") { openSettings() }
       #endif
       #if DEBUG
@@ -78,7 +80,7 @@ struct ContentView: View {
         Screenshots.prepare(waitsForReady: false) { scene in
           LaunchOptions.arguments = scene.arguments
           app.sheet = nil
-          app.selection = .logins
+          app.selection = nil
           app.applyLaunchOptions()
         }
       #endif
@@ -102,7 +104,17 @@ struct DetailView: View {
 
   @ViewBuilder
   private var screen: some View {
-    switch app.selection ?? .logins {
+    if let selection = app.selection {
+      content(for: selection)
+    } else {
+      // Nothing selected: the welcome is the main screen (on iPhone the root list is).
+      WelcomeScreen()
+    }
+  }
+
+  @ViewBuilder
+  private func content(for selection: SidebarItem) -> some View {
+    switch selection {
     case .logins: LoginsView()
     case .cards: CardsView()
     case .notes: NotesView()

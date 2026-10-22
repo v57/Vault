@@ -42,13 +42,6 @@ struct VaultApp: App {
       #endif
     }
     #if os(macOS)
-      Window("Welcome to Vault", id: "welcome") {
-        WelcomeWindow()
-          .environment(app)
-          .componentKit(accent: .vaultAccent)
-      }
-      .windowResizability(.contentSize)
-      .windowStyle(.hiddenTitleBar)
       Settings {
         SettingsView(updater: updater)
           .environment(app)

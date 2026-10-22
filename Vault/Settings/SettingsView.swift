@@ -74,14 +74,10 @@ struct SettingsView: View {
 #endif
 
 private struct GeneralPane: View {
-  @AppStorage("showWelcome") private var showWelcome = true
   @AppStorage("defaultLockMinutes") private var lockMinutes = LockAfter.thirty.rawValue
 
   var body: some View {
     FormCard {
-      FormRow("Show the Welcome window", help: "When Vault opens.", systemImage: "macwindow", hue: .blue) {
-        Toggle("Show the Welcome window", isOn: $showWelcome).toggleStyle(.kitSwitch).kitLabelsHidden()
-      }
       FormRow("Lock decrypted folders after", help: "What the Decrypt sheet picks first.", systemImage: "lock", hue: .orange) {
         KitSegmented(selection: Binding(get: { LockAfter(rawValue: lockMinutes) ?? .thirty }, set: { lockMinutes = $0.rawValue }))
           .controlSize(.small)

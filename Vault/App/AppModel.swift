@@ -84,7 +84,8 @@ final class AppModel {
   /// The user's own Hubs (none until they add one).
   let hubs: any HubEngine
 
-  var selection: SidebarItem? = .logins
+  /// What the sidebar opened; nothing at launch, so the main screen shows the welcome.
+  var selection: SidebarItem?
   var sheet: AppSheet?
   /// Which login, host… each list has selected.
   var selectedLogin: String?
