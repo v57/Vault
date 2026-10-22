@@ -63,6 +63,12 @@ struct HostsView: View {
       .paneStatusBar(systemImage: "icloud", status: .done) {
         Text("\(all.count) hosts")
         Text("\(all.filter { $0.auth == .deviceKey }.count) sign in with this device’s key").foregroundStyle(.kitSecondary)
+        let viaHub = all.filter { $0.hub != nil }
+        if !viaHub.isEmpty {
+          let hubIDs = Set(viaHub.compactMap { $0.hub?.hubID })
+          Text("\(viaHub.count) via \(hubIDs.count == 1 ? app.vault.hub(id: hubIDs.first)?.displayName ?? "Hub" : "Hub")")
+            .foregroundStyle(.kitSecondary)
+        }
       }
     } inspector: {
       if let host = all.first(where: { $0.id == app.selectedHost }) {
@@ -176,8 +182,12 @@ struct HostInspector: View {
       }
     }
     if let known = vault.knownHosts.first(where: { $0.host == host.hostname.lowercased() && $0.port == host.port }) {
-      KitSection("Known host", meta: ["trusted \(known.accepted.map { RelativeTime.day($0) } ?? "")", "shared by every app"], systemImage: "checkmark.shield", hue: .teal) {
-        InspectorRow("Key", value: known.keyType?.uppercased() ?? "—", copyable: false)
+      KitSection(
+        "Known host",
+        meta: [host.hub != nil ? "trusted from the Hub" : "trusted \(known.accepted.map { RelativeTime.day($0) } ?? "")", "shared by every app"],
+        systemImage: "checkmark.shield", hue: .teal
+      ) {
+        InspectorRow("Key", value: known.keyType.map(Self.keyName) ?? "—", copyable: false)
         InspectorRow("Fingerprint", copyText: known.fingerprint) { Text(ShortKey.fingerprint(known.fingerprint)).kitFont(.mono) }
       }
     }
@@ -205,6 +215,15 @@ struct HostInspector: View {
         Button("Edit") { app.sheet = .newItem(.host) }
       }
     }
+  }
+
+  /// A host key's algorithm by its usual name ("ecdsa-sha2-nistp256" → "ECDSA").
+  nonisolated static func keyName(_ type: String) -> String {
+    let lower = type.lowercased()
+    if lower.contains("ecdsa") { return "ECDSA" }
+    if lower.contains("ed25519") { return "Ed25519" }
+    if lower.contains("rsa") { return "RSA" }
+    return type.uppercased()
   }
 }
 
