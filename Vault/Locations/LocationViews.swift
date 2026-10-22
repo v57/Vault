@@ -83,6 +83,7 @@ struct AddRemoteSheet: View {
     ChoiceCard(isOn: Binding(get: { draft.kind == kind }, set: { if $0 { draft.kind = kind; test = .idle; testLine = "" } })) {
       ChoiceCardLabel(title, subtitle: subtitle) { Tile(systemImage: image, hue: .indigo, size: 28) }
     }
+    .kindCardHover()
   }
 
   private func runTest() {

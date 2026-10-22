@@ -78,6 +78,20 @@ struct NewItemSheet: View {
     ChoiceCard(isOn: Binding(get: { kind == value }, set: { if $0 { withKitAnimation { kind = value } } })) {
       ChoiceCardLabel(title, subtitle: subtitle) { Tile(systemImage: kindImage(value), size: 28) }
     }
+    .kindCardHover()
+  }
+}
+
+extension View {
+  /// The kit's 3D hover on a kind card (New, Add Remote), in the card's own corners.
+  func kindCardHover() -> some View { modifier(KindCardHover()) }
+}
+
+private struct KindCardHover: ViewModifier {
+  @Environment(\.kitIdiom) private var idiom
+
+  func body(content: Content) -> some View {
+    content.kitHoverEffect(in: RoundedRectangle(cornerRadius: idiom == .mac ? 12 : idiom == .pad ? 14 : 16, style: .continuous))
   }
 }
 
