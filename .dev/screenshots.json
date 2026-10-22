@@ -112,6 +112,18 @@
       "platforms": ["iphone"],
       "arguments": ["--demo", "--welcome"],
       "caption": "What your other v57 apps saved, ready on a new iPhone"
+    },
+    {
+      "id": "09-hub",
+      "platforms": ["mac", "ipad"],
+      "arguments": ["--demo", "--select", "hub", "--hub-device", "builder"],
+      "caption": "Your own Hub: every device, Linux, Windows and Android too, reached over SSH"
+    },
+    {
+      "id": "31-iphone-hub",
+      "platforms": ["iphone"],
+      "arguments": ["--demo", "--select", "hub"],
+      "caption": "Your own Hub: every device, and the ones waiting to join"
     }
   ]
 }
