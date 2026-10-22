@@ -1,5 +1,6 @@
 import ComponentKit
 import SwiftUI
+import VaultHub
 import VaultKit
 
 /// Board 07: this device's key (it never leaves the Secure Enclave), your other devices (their vault keys arrive
@@ -47,6 +48,9 @@ struct DevicesView: View {
               Chip("Up to date", hue: .green).controlSize(.small)
             }
           }
+          ForEach(app.hubs.hubs.filter { $0.status == .connected }) { hub in
+            HubDevicesRow(hub: hub)
+          }
           LinkRow(title: "A device without iCloud Keychain", subtitle: "Linux, Windows or Android: it scans an invite from this \(ThisDevice.word)", systemImage: "qrcode") {
             app.sheet = .addDevice
           }
@@ -90,7 +94,6 @@ struct DevicesView: View {
       } else {
         ToolGroup {
           Button("Add Device", systemImage: "qrcode") { app.sheet = .addDevice }
-          Button("Scan Invite", systemImage: "qrcode.viewfinder") { app.sheet = .scanInvite }
           Button("Invite", systemImage: "person.badge.plus") { app.sheet = .invite }
         }
         ToolbarSearch(text: $search, prompt: "Search")
@@ -102,7 +105,7 @@ struct DevicesView: View {
     .onAppear { if idiom == .phone, LaunchOptions.pushes { pushed = app.selectedPerson } }
     .navigationDestination(item: $pushed) { id in
       if let person = people.first(where: { $0.id == id }) {
-        PushedDetail(title: person.name, meta: [person.status == .verified ? "Verified" : "Waiting", "shares \(person.record.roles.count) things"]) {
+        PushedDetail(title: person.name, meta: [person.status == .verified ? "Verified" : "Waiting", PersonItem.sharesLine(person)]) {
           Avatar(name: person.name, letters: LetterTile.initials(person.name), size: 30)
         } content: {
           PersonInspector(person: person)
@@ -164,7 +167,7 @@ private struct PersonInspector: View {
       RichHeader(Text(person.name), size: .title) {
         Avatar(name: person.name, letters: LetterTile.initials(person.name), size: 30)
       } meta: {
-        MetaLine(person.status == .verified ? "Verified \(person.record.verified.map { RelativeTime.day($0) } ?? "")" : "Not verified yet", "shares \(person.record.roles.count) things")
+        MetaLine(person.status == .verified ? "Verified \(person.record.verified.map { RelativeTime.day($0) } ?? "")" : "Not verified yet", PersonItem.sharesLine(person))
       } accessory: {
         EmptyView()
       }
@@ -231,5 +234,44 @@ struct RecoveryKeyScreen: View {
     .frame(maxWidth: .infinity)
     .kitPane(.content)
     .kitToolbar("Recovery Key", meta: [app.recovery.isOn ? "On" : "Off", "optional, never nagged"], systemImage: "key", hue: .orange) {}
+  }
+}
+
+/// A Hub's devices beside the iCloud ones: how many, that other platforms join too, who waits to join; opens the Hub.
+private struct HubDevicesRow: View {
+  let hub: HubItem
+  @Environment(AppModel.self) private var app
+  @Environment(\.kitIdiom) private var idiom
+
+  var body: some View {
+    let waiting = hub.pending.count + hub.waitingElsewhere.count
+    let firstWaiting = hub.pending.first?.name ?? hub.waitingElsewhere.first?.name
+    Button {
+      app.selection = .hub
+    } label: {
+      SidebarRow(
+        "On \(hub.name)",
+        subtitle: [
+          "\(hub.members.count) devices" + (idiom == .phone ? "" : ", Linux, Windows and Android too"),
+          idiom == .phone ? nil : firstWaiting.map { "\($0) waits to join" },
+        ].compactMap { $0 }.joined(separator: " · ")
+      ) {
+        RowTile(systemImage: "point.3.connected.trianglepath.dotted")
+      } trailing: {
+        HStack(spacing: 6) {
+          if waiting > 0 { Chip("\(waiting) waiting", hue: .orange).controlSize(.small) }
+          Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.kitTertiary)
+        }
+      }
+    }
+    .buttonStyle(.plain)
+  }
+}
+
+extension PersonItem {
+  /// "shares 2 things", "shares 1 thing".
+  static func sharesLine(_ person: PersonItem) -> String {
+    let count = person.record.roles.count
+    return "shares \(count) \(count == 1 ? "thing" : "things")"
   }
 }
