@@ -24,6 +24,12 @@ struct SettingsView: View {
   @AppStorage("settings.pane") private var pane = LaunchOptions.value("--settings-pane") ?? "Sync"
   @AppStorage("iCloudSync") private var iCloud = true
 
+  /// The connected Hubs' names, or Off.
+  private var hubValue: String {
+    let names = app.hubs.hubs.filter { $0.status == .connected }.map(\.name)
+    return names.isEmpty ? "Off" : ListFormatter.localizedString(byJoining: names)
+  }
+
   var body: some View {
     // The values show on iPhone, where the panes are rows.
     KitSettings(selection: $pane, window: .titled) {
@@ -31,7 +37,7 @@ struct SettingsView: View {
       SettingsPane("Sync", systemImage: "arrow.triangle.2.circlepath", hue: .blue, value: iCloud ? "iCloud" : "Off") { SyncPane() }
       SettingsPane("Recovery Key", systemImage: "key", hue: .orange, value: app.recovery.isOn ? "On" : "Off") { RecoveryKeyPane() }
       SettingsPane("AutoFill", systemImage: "rectangle.and.pencil.and.ellipsis", hue: .gray, value: "Off") { AutoFillPane() }
-      SettingsPane("Hub", systemImage: "point.3.connected.trianglepath.dotted", hue: .purple, value: "Off") { HubPane() }
+      SettingsPane("Hub", systemImage: "point.3.connected.trianglepath.dotted", hue: .purple, value: hubValue) { HubPane() }
       #if os(macOS)
         SettingsPane("Updates", systemImage: "arrow.down.circle", hue: .gray) { UpdatesPane(updater: updater) }
       #else
@@ -86,6 +92,7 @@ private struct GeneralPane: View {
 
 private struct SyncPane: View {
   @Environment(AppModel.self) private var app
+  @Environment(\.kitIdiom) private var idiom
   @AppStorage("iCloudSync") private var iCloud = true
   @AppStorage("remoteCheckMinutes") private var checkMinutes = RemoteCheck.five.rawValue
   @AppStorage("notifyConflicts") private var notifyConflicts = true
@@ -111,9 +118,30 @@ private struct SyncPane: View {
         systemImage: ThisDevice.word == "iPhone" ? "iphone" : ThisDevice.word == "iPad" ? "ipad" : "desktopcomputer", hue: .gray)
     }
     FormCard("Hub") {
-      FormRow("Live changes from your Hub", help: "Off. Your own Hub can tell your devices at once when a folder changes. The files still go through the remote.", systemImage: "point.3.connected.trianglepath.dotted", hue: .purple) {
+      ForEach(app.hubs.hubs.filter { $0.status != .off }) { hub in
+        FormRow(
+          idiom == .phone ? "Records through \(hub.name)" : "Vault records through \(hub.name)",
+          help: [
+            hub.syncsRecords ? (hub.recordSyncLine.isEmpty ? "Waiting for the connection." : hub.recordSyncLine + ".") : "Off.",
+            idiom == .phone
+              ? "Turned on on the Hub screen"
+              : "Per device and per Hub, off until turned on on the Hub screen; this \(ThisDevice.word) carries changes between iCloud and the Hub.",
+          ].joined(separator: " "),
+          systemImage: "point.3.connected.trianglepath.dotted", hue: .purple
+        ) {
+          Toggle("Records through \(hub.name)", isOn: Binding(get: { hub.syncsRecords }, set: { app.hubs.setSyncs(hub.id, $0) }))
+            .toggleStyle(.kitSwitch).kitLabelsHidden()
+        }
+      }
+      FormRow(
+        "Live changes from your Hub",
+        help: idiom == .phone
+          ? "Not yet: folder changes still come with Check remotes"
+          : "Not yet. Your own Hub will tell your devices at once when a folder changes. The files still go through the remote.",
+        systemImage: "point.3.connected.trianglepath.dotted", hue: .purple
+      ) {
         Toggle("Live changes from your Hub", isOn: .constant(false)).toggleStyle(.kitSwitch).kitLabelsHidden()
-          .disabled(true).help("Hub support comes in a later version")
+          .disabled(true)
       }
     }
     FormCard("Conflicts") {
@@ -192,11 +220,21 @@ private struct AutoFillPane: View {
   }
 }
 
+/// The Hubs this device knows, each opening the Hub screen; Add Hub when there's none.
 private struct HubPane: View {
+  @Environment(AppModel.self) private var app
+
   var body: some View {
     FormCard(footer: "Vault never contacts a server on its own. A Hub is yours: it runs where you choose, and Vault reaches it only once you add it.") {
-      FormRow("Hub", help: "Off. Add your own Hub to hear about changes at once and to enrol devices without iCloud Keychain.", systemImage: "point.3.connected.trianglepath.dotted", hue: .purple) {
-        Button("Add Hub…") {}.buttonStyle(.kit).disabled(true).help("Hub support comes in a later version")
+      ForEach(app.hubs.hubs) { hub in
+        FormRow(hub.name, help: HubStatusText.line(hub), systemImage: "point.3.connected.trianglepath.dotted", hue: hub.status == .connected ? .purple : .gray) {
+          Button("Open Hub") { app.selection = .hub }.buttonStyle(.kit)
+        }
+      }
+      if app.hubs.hubs.isEmpty {
+        FormRow("Hub", help: "Off. Add your own Hub to see all your devices, Linux, Windows and Android included, and reach them over SSH.", systemImage: "point.3.connected.trianglepath.dotted", hue: .purple) {
+          Button("Add Hub…") { app.sheet = .addHub }.buttonStyle(.kit)
+        }
       }
     }
   }
