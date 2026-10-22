@@ -7,7 +7,7 @@ import VaultKit
 struct NewItemSheet: View {
   @State var kind: NewItemKind
   @Environment(AppModel.self) private var app
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.kitDismiss) private var dismiss
   @Environment(\.kitIdiom) private var idiom
 
   var body: some View {
@@ -295,7 +295,7 @@ struct SheetFooterButtons: View {
   var canSave: Bool
   var status: String
   var onSave: () -> Void
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.kitDismiss) private var dismiss
 
   var body: some View {
     HStack(spacing: 8) {
@@ -432,7 +432,7 @@ private struct DatabaseForm: View {
 /// user first encrypts something.
 struct NewFolderSheet: View {
   @Environment(AppModel.self) private var app
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.kitDismiss) private var dismiss
   @State private var name = ""
   @State private var location: URL?
   @State private var error: String?

@@ -327,7 +327,7 @@ struct HubDeviceInspector: View {
 /// Adding a Hub: its address and a name. Nothing connects before Connect.
 struct AddHubSheet: View {
   @Environment(AppModel.self) private var app
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.kitDismiss) private var dismiss
   @State private var url = ""
   @State private var name = ""
   @State private var error: String?

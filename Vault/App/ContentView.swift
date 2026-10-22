@@ -36,10 +36,9 @@ struct ContentView: View {
       DetailView()
         .kitSidebarToggle(columnVisibility: $columnVisibility)
     }
-    .sheet(item: Binding(get: { app.sheet == .scanInvite && idiom == .phone ? nil : app.sheet }, set: { app.sheet = $0 })) { sheet in
+    // The kit's overlay on the Mac and iPad; the system sheet on iPhone, half height for the bottom sheets.
+    .kitSheet(item: Binding(get: { app.sheet == .scanInvite && idiom == .phone ? nil : app.sheet }, set: { app.sheet = $0 })) { sheet in
       SheetContent(sheet: sheet)
-        .environment(app)
-        .componentKit(accent: .vaultAccent)
         .presentationDetents(idiom == .phone && sheet.isBottomSheet ? [.medium, .large] : [.large])
     }
     #if os(iOS)
@@ -142,7 +141,7 @@ struct SheetContent: View {
 /// The AutoFill sheet as the extension shows it for atlas.example.com, over the demo logins.
 private struct AutoFillPreview: View {
   @Environment(AppModel.self) private var app
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.kitDismiss) private var dismiss
   @State private var model = AutoFillModel()
 
   var body: some View {

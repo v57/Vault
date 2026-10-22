@@ -7,7 +7,7 @@ import VaultKit
 struct AddRemoteSheet: View {
   @Environment(\.kitIdiom) private var idiom
   @Environment(AppModel.self) private var app
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.kitDismiss) private var dismiss
   @State private var draft = RemoteDraft()
   @State private var test: WorkStatus = .idle
   @State private var testLine = ""

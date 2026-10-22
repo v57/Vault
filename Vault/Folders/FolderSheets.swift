@@ -21,7 +21,7 @@ enum LockAfter: Int, KitOption, CaseIterable {
 struct DecryptSheet: View {
   let folderID: String
   @Environment(AppModel.self) private var app
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.kitDismiss) private var dismiss
   @Environment(\.kitIdiom) private var idiom
   @State private var lockAfter = LockAfter.thirty
   @State private var showInFinder = true
@@ -121,7 +121,7 @@ struct ShareSheet: View {
   let folderID: String
   @Environment(AppModel.self) private var app
   @Environment(\.kitIdiom) private var idiom
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.kitDismiss) private var dismiss
   @State private var personID: String?
   @State private var matches = false
   @State private var role = VaultPerson.Role.readWrite
@@ -229,7 +229,7 @@ struct ShareSheet: View {
 struct InviteSheet: View {
   var forDevice = false
   @Environment(AppModel.self) private var app
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.kitDismiss) private var dismiss
   @State private var link = ""
   @State private var copies = 0
 
@@ -268,7 +268,7 @@ struct InviteSheet: View {
 /// waiting for the safety code to be compared.
 struct ScanInviteSheet: View {
   @Environment(AppModel.self) private var app
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.kitDismiss) private var dismiss
   @State private var message: String?
   @State private var added: String?
 
