@@ -59,7 +59,8 @@ struct LoginsView: View {
           } else {
             KitSegmented(selection: $filter)
             Spacer()
-            Text("Sorted by name").kitFont(.caption)
+            // On the Mac only: at iPad widths it wraps beside the filters.
+            if idiom == .mac { Text("Sorted by name").kitFont(.caption) }
           }
         }
         .padding(.horizontal, KitMetrics.gutter + 4)
