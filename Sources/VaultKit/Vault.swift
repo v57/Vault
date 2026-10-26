@@ -201,7 +201,11 @@ public final class Vault {
   /// The vault device a host via Hub is, when that device runs a v57 app connected to the Hub: the key to its
   /// per-device fields, such as where a project is on it (`project.paths[device]`).
   public func vaultDevice(of host: VaultHost) -> String? {
-    guard let route = host.hub else { return nil }
-    return hub(id: route.hubID)?.vaultDevice(forHubDevice: route.deviceID)
+    guard let route = host.hub, let hub = hub(id: route.hubID) else { return nil }
+    if let device = hub.vaultDevice(forHubDevice: route.deviceID) { return device }
+    // The same Hub under another address (the hub's own machine reaches it at 127.0.0.1, the others at its LAN
+    // address): the record with the same pinned key may know the device
+    guard let key = hub.hubKey else { return nil }
+    return hubs.lazy.filter { $0.id != hub.id && $0.hubKey == key }.compactMap { $0.vaultDevice(forHubDevice: route.deviceID) }.first
   }
 }
