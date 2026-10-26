@@ -74,10 +74,10 @@ public enum HubKeyError: LocalizedError {
 /// Where this device keeps its Hub keys. They never leave the device: a key that synced would let a stolen backup
 /// connect as this device.
 ///
-/// - The device key: on the Mac `~/.hub/device.key` (or `HUB_DEVICE_KEY`), the file Hub's launcher and services use,
-///   so the Mac is one device on the Hub whichever of them made it. On iPhone and iPad, a this-device-only item in
-///   the v57 keychain group: every v57 app there is one device, apart from the Hub app (protocol §3: an app that
-///   can't share the device key becomes its own device).
+/// - The device key: a this-device-only item in the v57 keychain group, which the Hub app shares (protocol §3), so
+///   the Hub app and every v57 app are one device on the Hub. The Hub app stores it first with the key it had
+///   (`adoptDeviceKey`). On the Mac, until it has, the apps use `~/.hub/device.key` (or `HUB_DEVICE_KEY`, which also
+///   wins over the keychain), the file Hub's launcher and services use.
 /// - The key the v57 apps connect with: a this-device-only item in the v57 keychain group.
 ///
 /// Demo runs and tests (`VaultSecrets.useInMemoryStore()`) keep both in memory.
@@ -88,11 +88,36 @@ public enum HubKeyStore {
   public static func deviceKey() throws -> HubKey {
     if VaultSecrets.isInMemory { return inMemory("device") }
     #if os(macOS)
+      // Without the keychain group (command-line tools, tests) or before the Hub app stored one, the file
+      if !deviceKeyFileIsSet, let key = try? sharedDeviceKey() { return key }
       return try fileKey(at: deviceKeyFile)
     #else
-      return try keychainKey("hub.device-key", label: "Hub device key")
+      return try keychainKey(deviceKeyAccount, label: deviceKeyLabel)
     #endif
   }
+
+  /// The device key in the v57 keychain group, nil while there is none.
+  public static func sharedDeviceKey() throws -> HubKey? {
+    if VaultSecrets.isInMemory { return memory(of: "device") }
+    return try VaultKeychain().read(deviceKeyAccount, options: .thisDevice).map { try HubKey(seed: $0) }
+  }
+
+  /// The Hub app's device key: the one in the v57 keychain group, else `existing` (the key it had on its own, seed
+  /// bytes) stored there from now on, so the device keeps its id, approvals and Hub Network address; else a new one.
+  public static func adoptDeviceKey(_ existing: Data?) throws -> HubKey {
+    if VaultSecrets.isInMemory {
+      return lock.withLock {
+        if let key = memory["device"] { return key }
+        let key = existing.flatMap { try? HubKey(seed: $0) } ?? HubKey()
+        memory["device"] = key
+        return key
+      }
+    }
+    return try keychainKey(deviceKeyAccount, label: deviceKeyLabel, new: existing.map(HubKey.init(seed:)))
+  }
+
+  static let deviceKeyAccount = "hub.device-key"
+  static let deviceKeyLabel = "Hub device key"
 
   public static func clientKey() throws -> HubKey {
     if VaultSecrets.isInMemory { return inMemory("client") }
@@ -105,6 +130,12 @@ public enum HubKeyStore {
       return URL(fileURLWithPath: path)
     }
     return URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".hub/device.key")
+  }
+
+  static var deviceKeyFileIsSet: Bool { ProcessInfo.processInfo.environment["HUB_DEVICE_KEY"]?.isEmpty == false }
+
+  private static func memory(of name: String) -> HubKey? {
+    lock.withLock { memory[name] }
   }
 
   private static func inMemory(_ name: String) -> HubKey {
@@ -140,10 +171,10 @@ public enum HubKeyStore {
     return key
   }
 
-  private static func keychainKey(_ account: String, label: String) throws -> HubKey {
+  private static func keychainKey(_ account: String, label: String, new: HubKey? = nil) throws -> HubKey {
     let keychain = VaultKeychain()
     if let seed = try keychain.read(account, options: .thisDevice) { return try HubKey(seed: seed) }
-    let key = HubKey()
+    let key = new ?? HubKey()
     do {
       try keychain.addNew(key.seed, account: account, options: .init(synchronizable: false, label: label))
       return key
