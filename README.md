@@ -148,9 +148,9 @@ a new kit and deletes the old blobs, `turnOff` deletes them everywhere.
 Hub (`~/Developer/Hub`, wire contract `Docs/Devices/protocol.md`). Nothing connects until the user adds one: a
 `VaultHubServer` record (address, pinned Hub key) that each device turns on for itself (`connects.<device>`); the apps
 never pick a Hub, the v57.dev playground included, and the UI calls that one a playground. The device key never leaves
-the device: a this-device-only item in the v57 keychain group, which the Hub app shares, so the Hub app and the v57
-apps are one device (the Hub app stores it first with the key it had). On the Mac, until the Hub app has, the apps use
-`~/.hub/device.key`, the file Hub's launcher and services use. Each connection signs a 7-day certificate for the
+the device: a this-device-only item in the v57 keychain group, where the Hub app puts its own key, so the Hub app and
+the v57 apps are one device with the Hub app's approvals and Hub Network address. On the Mac, until the Hub app has,
+the apps use `~/.hub/device.key`, the file Hub's launcher and services use. Each connection signs a 7-day certificate for the
 key the apps connect with, pins the Hub's key from `hub/info` and uses v1 auth from then on. `HubDirectory` follows
 `hub/devices` and mirrors every approved device that offers SSH and has a Hub Network address into a `VaultHost` with
 a `hub` route (`HubRoute`: device id, name, platform, the host key the device signed, last seen to the hour). The

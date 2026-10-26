@@ -105,13 +105,14 @@ struct HubProtocolTests {
     #expect(mode == 0o600)
   }
 
-  @Test func theDeviceKeyIsAdoptedOnceAndSharedByEveryApp() throws {
+  @Test func theHubAppsDeviceKeyIsSharedWithEveryApp() throws {
     VaultSecrets.useInMemoryStore()
-    // The Hub app stores the key it had; later apps, and the Hub app again, get that one
-    let adopted = try HubKeyStore.adoptDeviceKey(HubKey().seed)
-    #expect(try HubKeyStore.adoptDeviceKey(HubKey().seed).spki == adopted.spki)
-    #expect(try HubKeyStore.deviceKey().spki == adopted.spki)
-    #expect(try HubKeyStore.sharedDeviceKey()?.spki == adopted.spki)
+    // The Hub app's own key replaces whatever a v57 app made; without one it keeps the group's
+    let own = HubKey()
+    #expect(try HubKeyStore.shareDeviceKey(own.seed).spki == own.spki)
+    #expect(try HubKeyStore.deviceKey().spki == own.spki)
+    #expect(try HubKeyStore.sharedDeviceKey()?.spki == own.spki)
+    #expect(try HubKeyStore.shareDeviceKey(nil).spki == own.spki)
   }
 
   // MARK: The directory
