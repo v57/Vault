@@ -359,7 +359,6 @@ struct AddHubSheet: View {
       }
       if let error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text) }
     } footer: {
-      Spacer()
       Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
       Button("Connect") { add() }.buttonStyle(.kitPrimary).keyboardShortcut(.defaultAction).disabled(url.isEmpty)
     }
