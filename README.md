@@ -39,7 +39,12 @@ try VaultSecrets.setPassword(password, for: database.id)
 | `keychain-access-groups` | `$(AppIdentifierPrefix)dev.v57.shared` |
 | `com.apple.developer.icloud-container-identifiers` | `iCloud.dev.v57` |
 | `com.apple.developer.icloud-services` | `CloudKit` |
+| `com.apple.developer.icloud-container-environment` | `Production`, in debug builds too |
 | `com.apple.developer.aps-environment` (`aps-environment` on iOS) | `development` / `production`, for sync pushes |
+
+Every app on a device shares one store, and an item one app sends is sent for all of them, so they all sync in
+CloudKit's Production environment: a debug build left in Development would send the others' writes where none of them
+looks. On the Mac, sync stays off in a build without it.
 
 A build without them (ad-hoc signed) still runs: the store falls back to the app's own Application Support and
 keychain, and sync stays off.

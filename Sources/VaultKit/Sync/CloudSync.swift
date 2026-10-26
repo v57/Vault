@@ -50,7 +50,13 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     name = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
   }
 
-  /// Whether this app is signed with the vault's CloudKit container (without it CloudKit traps).
+  /// Whether this app is signed with the vault's CloudKit container (without it CloudKit traps), in CloudKit's
+  /// Production environment.
+  ///
+  /// Every app on a device shares one store, and what one app sends is sent for all of them, so they must all sync
+  /// in one environment: a debug build signed for Development would take the others' writes to a database none of
+  /// them reads. On the Mac a build without `icloud-container-environment` = `Production` stays off; iOS can't read
+  /// its entitlements, so there it's the app's job.
   public static var isEntitled: Bool {
     #if os(macOS)
       guard let task = SecTaskCreateFromSelf(nil) else { return false }
@@ -59,7 +65,11 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         as? [String]
       let services =
         SecTaskCopyValueForEntitlement(task, "com.apple.developer.icloud-services" as CFString, nil) as? [String]
+      let environment =
+        SecTaskCopyValueForEntitlement(task, "com.apple.developer.icloud-container-environment" as CFString, nil)
+        as? String
       return containers?.contains(VaultConfiguration.cloudContainer) == true && services?.contains("CloudKit") == true
+        && environment == "Production"
     #else
       return true
     #endif
@@ -68,7 +78,8 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   /// Starts syncing once the iCloud account is available, and again whenever it changes.
   public func start() {
     guard Self.isEntitled else {
-      Self.log.notice("Not entitled for \(VaultConfiguration.cloudContainer, privacy: .public): the vault stays on this device")
+      Self.log.notice(
+        "Not entitled for \(VaultConfiguration.cloudContainer, privacy: .public) in Production: the vault stays on this device")
       return
     }
     observers.append(
@@ -105,6 +116,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   public var isRunning: Bool { currentEngine != nil }
 
   private var changeObserver: VaultChangeObserver?
+  private static let productionMark = "environment.production"
 
   deinit {
     for observer in observers { NotificationCenter.default.removeObserver(observer) }
@@ -151,6 +163,12 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   }
 
   private func startEngine(_ container: CKContainer, subscriptionID: CKSubscription.ID?) {
+    // Until 2026-10-26 debug builds synced in Development and releases in Production, so a write one sent went to
+    // a database the others never read: every item goes up once more, now that they all use Production.
+    if (try? store.engineState(Self.productionMark)) == nil {
+      try? store.resetServerState()
+      try? store.setEngineState(Data("1".utf8), for: Self.productionMark)
+    }
     let saved = (try? store.engineState(name)).flatMap {
       try? JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: $0)
     }
