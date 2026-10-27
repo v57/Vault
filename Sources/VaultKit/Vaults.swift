@@ -71,6 +71,37 @@ public final class Vaults {
     personal.save(account)
   }
 
+  /// Deletes an account everywhere: its mailbox on each Hub this device syncs records through (`hubs`: the Hub's
+  /// `hub-vault` service and this device's id on it), its record in Personal, its keys (iCloud Keychain removes them
+  /// on every device), its store here and its CloudKit zone (the sync engine deletes it once the record is gone, here
+  /// or on the first device with sync that sees the tombstone). Nothing of Personal changes but the record. Other
+  /// devices remove their store when the tombstone or the zone's deletion arrives.
+  ///
+  /// Returns why a Hub's mailbox couldn't be deleted (the Hub was unreachable): it keeps envelopes no key opens.
+  @discardableResult
+  public func delete(_ account: VaultAccount, hubs: [(mailbox: any HubMailbox, deviceID: String)] = []) async throws
+    -> [any Error]
+  {
+    guard !account.isPersonal else { throw VaultAccountStores.AccountError.personal }
+    guard let stores else { throw VaultAccountStores.AccountError.noStore }
+    var failures: [any Error] = []
+    // The mailbox's id comes from the account's key, so the mailboxes go first.
+    if !hubs.isEmpty, let store = try? stores.store(forAccount: account.id) {
+      for hub in hubs {
+        do {
+          try await HubSync(store: store, mailbox: hub.mailbox, deviceID: hub.deviceID).deleteMailbox()
+        } catch {
+          failures.append(error)
+        }
+      }
+    }
+    try personal.store?.delete(account)
+    opened[account.id] = nil
+    try stores.remove(account: account.id, keys: true)
+    personal.reload()
+    return failures
+  }
+
   // MARK: Matching
 
   /// The accounts in the order matching tries them: an organization's before Personal, so a team or GitHub owner

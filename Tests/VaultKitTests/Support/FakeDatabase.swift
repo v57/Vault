@@ -35,8 +35,9 @@ final class FakeZonedApp {
     self.zones = zones
   }
 
-  /// Sends every active zone's outbox, handling conflicts like CloudSync does.
-  func push(_ database: FakeDatabase) {
+  /// Sends every active zone's outbox, handling conflicts like CloudSync does, and deletes the zones of deleted
+  /// accounts (unless `deletingZones` is off: a device whose engine couldn't).
+  func push(_ database: FakeDatabase, deletingZones: Bool = true) {
     for zone in zones.activeZones() {
       guard let sync = zones.coordinator(forZone: zone) else { continue }
       sync.store.sendsOwnWrites = true
@@ -54,6 +55,10 @@ final class FakeZonedApp {
         }
         if action == .resend || action == .createZoneThenResend { queue.append(id) }
       }
+    }
+    // After `activeZones`, which removes the stores of accounts whose tombstone arrived.
+    if deletingZones {
+      for zone in zones.takeZonesToDelete() { database.deleteZone(zone) }
     }
   }
 
@@ -85,6 +90,35 @@ final class FakeZonedApp {
     push(database)
     pull(database)
     push(database)
+  }
+}
+
+/// Hub's `hub-vault` with several vaults: a `FakeMailbox` per vault id.
+final class FakeHub: @unchecked Sendable {
+  private let lock = NSLock()
+  private var vaults: [String: FakeMailbox] = [:]
+
+  func mailbox(_ vault: String) -> FakeMailbox {
+    lock.withLock {
+      if let box = vaults[vault] { return box }
+      let box = FakeMailbox()
+      vaults[vault] = box
+      return box
+    }
+  }
+
+  func device(_ id: String) -> HubMailbox { View(hub: self, device: id) }
+
+  struct View: HubMailbox {
+    let hub: FakeHub
+    let device: String
+    func join(vault: String) async throws -> HubMailboxJoin { hub.mailbox(vault).join(device) }
+    func push(vault: String, envelopes: [HubEnvelope]) async throws -> Int { hub.mailbox(vault).push(device, envelopes) }
+    func pull(vault: String, after: Int, limit: Int) async throws -> HubMailboxPull {
+      hub.mailbox(vault).pull(device, after, limit)
+    }
+    func ack(vault: String, seq: Int) async throws { hub.mailbox(vault).ack(device, seq) }
+    func leave(vault: String, device: String) async throws { hub.mailbox(vault).leave(device) }
   }
 }
 

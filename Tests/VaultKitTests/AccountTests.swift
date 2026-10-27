@@ -178,4 +178,90 @@ struct AccountTests {
     #expect(owner("https://github.com/acme") == nil)
     #expect(owner("/Users/me/rocket") == nil)
   }
+
+  // MARK: Deleting
+
+  @Test func deletingAnAccountRemovesItsZoneMailboxKeyAndStore() async throws {
+    let mac = try device("mac")
+    let phone = try device("phone")
+    let pad = try device("pad")
+    let hub = FakeHub()
+    let acme = try mac.vaults.createAccount(name: "Acme")
+    let globex = try mac.vaults.createAccount(name: "Globex")
+    mac.vaults.personal.save(project("Dotfiles", device: "mac"))
+    mac.vaults.personal.save(VaultHost(id: "h1", hostname: "home.lan"))
+    try #require(mac.vault("Acme")).save(project("Rocket", device: "mac"))
+    try #require(mac.vault("Globex")).save(project("Dome", device: "mac"))
+    for device in [mac, phone, pad] { device.sync(database) }
+
+    // Every device syncs every vault through the Hub too.
+    for device in [mac, phone, pad] {
+      for account in device.vaults.allAccounts {
+        let store = try #require(device.vaults.vault(for: account)?.store)
+        try await HubSync(store: store, mailbox: hub.device("hub-\(device.name)"), deviceID: "hub-\(device.name)").sync()
+      }
+    }
+    func mailbox(_ device: FakeDevice, _ account: VaultAccount) throws -> FakeMailbox {
+      hub.mailbox(try #require(device.vaults.vault(for: account)?.store).derivedID("hub-vault"))
+    }
+    let acmeMailbox = try mailbox(mac, acme)
+    let globexMailbox = try mailbox(mac, globex)
+    let personalMailbox = try mailbox(mac, .personal)
+    #expect(acmeMailbox.memberIDs.count == 3)
+    let personalRevision = mac.personal.revision
+
+    // The pad is away while the Mac deletes the account.
+    let failures = try await mac.vaults.delete(acme, hubs: [(hub.device("hub-mac"), "hub-mac")])
+    #expect(failures.isEmpty)
+    #expect(acmeMailbox.memberIDs.isEmpty)
+    #expect(acmeMailbox.waiting == 0)
+    #expect(globexMailbox.memberIDs.count == 3)
+    #expect(personalMailbox.memberIDs.count == 3)
+    #expect(!accountKeys.hasKeys(forAccount: acme.id))
+    #expect(accountKeys.hasKeys(forAccount: globex.id))
+    #expect(mac.vaults.accounts.map(\.name) == ["Globex"])
+    #expect(mac.vaults.vault(for: acme) == nil)
+    #expect(mac.files == ["\(globex.id).sqlite", "Vault.sqlite"].sorted())
+    // Personal lost only the account's record.
+    #expect(mac.personal.revision == personalRevision + 1)
+    mac.sync(database)
+    #expect(database.zoneNames == ["Vault", globex.zoneName].sorted())
+
+    phone.sync(database)
+    pad.sync(database)
+    #expect(database.zoneNames == ["Vault", globex.zoneName].sorted())
+    for device in [mac, phone, pad] {
+      #expect(device.vaults.accounts.map(\.name) == ["Globex"])
+      #expect(device.files == ["\(globex.id).sqlite", "Vault.sqlite"].sorted())
+      #expect(device.vault("Globex")?.projects.map(\.name) == ["Dome"])
+      #expect(device.vaults.personal.projects.map(\.name) == ["Dotfiles"])
+      #expect(device.vaults.personal.hosts.map(\.hostname) == ["home.lan"])
+      #expect(device.app.zones.coordinator(forZone: acme.zoneName) == nil)
+    }
+  }
+
+  @Test func anAccountsZoneLeftBehindGoesWithTheFirstDeviceThatSeesTheTombstone() async throws {
+    let mac = try device("mac")
+    let phone = try device("phone")
+    let acme = try mac.vaults.createAccount(name: "Acme")
+    try #require(mac.vault("Acme")).save(project("Rocket", device: "mac"))
+    mac.sync(database)
+    phone.sync(database)
+
+    // The Mac's engine sends Personal's tombstone but doesn't delete the zone.
+    try await mac.vaults.delete(acme)
+    mac.app.push(database, deletingZones: false)
+    #expect(database.zoneNames.contains(acme.zoneName))
+
+    phone.sync(database)
+    #expect(database.zoneNames == ["Vault"])
+    #expect(phone.vaults.accounts.isEmpty)
+    #expect(phone.files == ["Vault.sqlite"])
+  }
+
+  @Test func personalCantBeDeleted() async throws {
+    let mac = try device("mac")
+    await #expect(throws: VaultAccountStores.AccountError.personal) { try await mac.vaults.delete(.personal) }
+    #expect(mac.files == ["Vault.sqlite"])
+  }
 }

@@ -8,6 +8,9 @@ public protocol HubMailbox: Sendable {
   func push(vault: String, envelopes: [HubEnvelope]) async throws -> Int
   func pull(vault: String, after: Int, limit: Int) async throws -> HubMailboxPull
   func ack(vault: String, seq: Int) async throws
+  /// Removes a member device: this one, or another (only the Hub's owner may). Once no member is left the Hub drops
+  /// what the mailbox held.
+  func leave(vault: String, device: String) async throws
 }
 
 public struct HubEnvelope: Sendable, Equatable, Codable {
@@ -206,6 +209,21 @@ public final class HubSync: @unchecked Sendable {
       saveState(state)
     }
     return result
+  }
+
+  /// Deletes the vault's mailbox on the Hub (its account is being deleted): removes the other member devices, then
+  /// this one; with no member left the Hub drops the envelopes. Removing another device needs the Hub's owner: a device
+  /// that isn't one leaves only itself.
+  public func deleteMailbox() async throws {
+    let vault = try vaultID()
+    let mailbox = mailbox
+    let joined = try await call("join") { try await mailbox.join(vault: vault) }
+    for member in joined.members where member != deviceID {
+      try? await call("leave") { try await mailbox.leave(vault: vault, device: member) }
+    }
+    let me = deviceID
+    try await call("leave") { try await mailbox.leave(vault: vault, device: me) }
+    saveState(State())
   }
 
   private func loadState() -> State {

@@ -25,12 +25,14 @@ public final class VaultAccountStores: @unchecked Sendable {
     case deleted(String)
     /// Personal's store couldn't open, so neither can the accounts.
     case noStore
+    case personal
 
     public var errorDescription: String? {
       switch self {
       case .invalidID(let id): "“\(id)” isn’t an account id."
       case .deleted: "This account was deleted."
       case .noStore: "The shared store couldn’t be opened."
+      case .personal: "Personal can’t be deleted."
       }
     }
   }

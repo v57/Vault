@@ -16,6 +16,7 @@ final class FakeMailbox: @unchecked Sendable {
   func device(_ id: String) -> HubMailbox { View(box: self, device: id) }
 
   var waiting: Int { lock.withLock { log.count } }
+  var memberIDs: [String] { lock.withLock { members.keys.sorted() } }
 
   /// Drops every envelope, as retention would.
   func expireAll() {
@@ -32,6 +33,7 @@ final class FakeMailbox: @unchecked Sendable {
     func push(vault: String, envelopes: [HubEnvelope]) async throws -> Int { box.push(device, envelopes) }
     func pull(vault: String, after: Int, limit: Int) async throws -> HubMailboxPull { box.pull(device, after, limit) }
     func ack(vault: String, seq: Int) async throws { box.ack(device, seq) }
+    func leave(vault: String, device: String) async throws { box.leave(device) }
   }
 
   func join(_ device: String) -> HubMailboxJoin {
@@ -58,6 +60,14 @@ final class FakeMailbox: @unchecked Sendable {
       let acked = members[device] ?? 0
       let envelopes = log.filter { $0.seq > after && $0.from != device }.prefix(limit)
       return HubMailboxPull(envelopes: Array(envelopes), last: next - 1, missed: expiredTo > max(acked, after))
+    }
+  }
+
+  /// Removes a member; with none left the envelopes go, as hub-vault prunes them.
+  func leave(_ device: String) {
+    lock.withLock {
+      members[device] = nil
+      if members.isEmpty { log = [] }
     }
   }
 
@@ -205,6 +215,7 @@ struct HubSyncTests {
       func push(vault: String, envelopes: [HubEnvelope]) async throws -> Int { box.push(device, envelopes) }
       func pull(vault: String, after: Int, limit: Int) async throws -> HubMailboxPull { box.pull(device, after, limit) }
       func ack(vault: String, seq: Int) async throws { box.ack(device, seq) }
+      func leave(vault: String, device: String) async throws { box.leave(device) }
     }
     final class Flag: @unchecked Sendable { var on = true }
     let flag = Flag()

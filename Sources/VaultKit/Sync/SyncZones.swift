@@ -24,20 +24,39 @@ public final class SyncZones: @unchecked Sendable {
   /// Account zones deleted on the server while this process ran: they stay retired even before the account's
   /// tombstone arrives, so the engine doesn't make them again.
   private var deletedZones: Set<String> = []
+  /// Zones of accounts deleted here, or whose tombstone arrived, that the server still has.
+  private var zonesToDelete: Set<String> = []
   private var token: UUID?
 
   public init(accounts: VaultAccountStores) {
     self.accounts = accounts
     personal = SyncCoordinator(store: accounts.personal)
     token = accounts.observe { [weak self] event in
-      if case .removed(let id) = event {
-        self?.lock.withLock { _ = self?.coordinators.removeValue(forKey: Self.zoneName(forAccount: id)) }
-      }
+      if case .removed(let id) = event { self?.removed(account: id) }
     }
   }
 
   deinit {
     if let token { accounts.stopObserving(token) }
+  }
+
+  /// An account's store went: its zone goes too when the account was deleted, unless the server deleted it already.
+  /// Every device that sees the tombstone asks, so the zone goes even when the deleting device had no sync.
+  private func removed(account id: String) {
+    let zone = Self.zoneName(forAccount: id)
+    let deleted = accounts.isDeleted(account: id)
+    lock.withLock {
+      coordinators[zone] = nil
+      if deleted, !deletedZones.contains(zone) { zonesToDelete.insert(zone) }
+    }
+  }
+
+  /// The account zones to delete on the server; the engine deletes them (and `zoneDeleted` follows).
+  public func takeZonesToDelete() -> [String] {
+    lock.withLock {
+      defer { zonesToDelete = [] }
+      return zonesToDelete.sorted()
+    }
   }
 
   public enum Route {

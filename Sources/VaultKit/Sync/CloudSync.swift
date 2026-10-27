@@ -198,7 +198,9 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     accountsToken = zones.accounts.observe { [weak self] event in
       switch event {
       case .opened(let id, _): self?.attach(SyncZones.zoneName(forAccount: id), freshEngine: false)
-      case .removed(let id): self?.detach(SyncZones.zoneName(forAccount: id))
+      case .removed(let id):
+        self?.detach(SyncZones.zoneName(forAccount: id))
+        self?.queueZoneDeletions()
       }
     }
     for zone in zones.activeZones() { attach(zone, freshEngine: saved == nil) }
@@ -239,11 +241,11 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     })
   }
 
-  /// Deletes an account's zone on the server (the account is being deleted).
-  public func deleteZone(forAccount id: String) {
-    let zone = SyncZones.zoneName(forAccount: id)
-    detach(zone)
-    currentEngine?.state.add(pendingDatabaseChanges: [.deleteZone(CKRecordZone.ID(zoneName: zone))])
+  /// Deletes the zones of deleted accounts on the server (`SyncZones.takeZonesToDelete`).
+  private func queueZoneDeletions() {
+    guard let engine = currentEngine else { return }
+    let zoneIDs = zones.takeZonesToDelete().map { CKRecordZone.ID(zoneName: $0) }
+    if !zoneIDs.isEmpty { engine.state.add(pendingDatabaseChanges: zoneIDs.map { .deleteZone($0) }) }
   }
 
   /// Sends now, and fetches what pushes reported (the app came to the front). Changes from other devices
@@ -277,6 +279,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       attach(zone, freshEngine: false)
       if let coordinator = zones.coordinator(forZone: zone) { queue(coordinator.idsToSend(), in: zone) }
     }
+    queueZoneDeletions()
   }
 
   private func queue(_ ids: [String], in zone: String) {

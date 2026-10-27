@@ -17,6 +17,10 @@ struct HubVaultMailbox: HubMailbox {
     var after: Int
     var limit: Int
   }
+  struct LeaveBody: Encodable, Sendable {
+    var vault: String
+    var device: String
+  }
   struct AckBody: Encodable, Sendable {
     var vault: String
     var seq: Int
@@ -48,5 +52,9 @@ struct HubVaultMailbox: HubMailbox {
 
   func ack(vault: String, seq: Int) async throws {
     let _: EmptyCodable? = try await client.send("vault/ack", AckBody(vault: vault, seq: seq))
+  }
+
+  func leave(vault: String, device: String) async throws {
+    let _: EmptyCodable? = try await client.send("vault/leave", LeaveBody(vault: vault, device: device))
   }
 }
