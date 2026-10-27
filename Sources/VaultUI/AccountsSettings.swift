@@ -124,3 +124,24 @@ struct VaultAppleTeamSheet: View {
     }
   }
 }
+
+/// Settings ▸ Accounts as a sheet, for apps whose settings aren't a `KitSettings` window (`VaultAccountScope` shows
+/// it for Manage Accounts… when the app passes no `manage:`).
+///
+/// ```swift
+/// .kitSheet(isPresented: $managingAccounts) { VaultAccountsSheet() }
+/// ```
+public struct VaultAccountsSheet: View {
+  @Environment(\.kitDismiss) private var dismiss
+
+  public init() {}
+
+  public var body: some View {
+    KitSheet(
+      title: "Accounts", meta: "Each a vault of its own beside Personal, in every v57 app.", systemImage: "person.2",
+      hue: .indigo, width: 560, onClose: { dismiss() }
+    ) {
+      VStack(alignment: .leading, spacing: 18) { VaultAccountsSettings() }
+    }
+  }
+}

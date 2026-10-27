@@ -34,6 +34,8 @@ public struct VaultAccountWindow: Sendable {
 /// }
 /// ```
 ///
+/// Without `manage:` (an app with no Settings window), Manage Accounts… shows `VaultAccountsSheet` over the window.
+///
 /// The content is rebuilt (`.id`) for each account, so state made from the vault starts over. A window holding work
 /// that must outlive a switch (an unsaved document, a running job) passes `rebuildsContent: false` and follows
 /// `@Environment(\.vault)` itself. An account that is deleted, or whose store can't open, falls back to Personal.
@@ -46,6 +48,7 @@ public struct VaultAccountScope<Content: View>: View {
   @State private var vaults = Vaults.shared
   @State private var opened: Vault?
   @State private var creating = false
+  @State private var managing = false
 
   public init(
     selection: Binding<String>, rebuildsContent: Bool = true, manage: (@MainActor @Sendable () -> Void)? = nil,
@@ -72,12 +75,13 @@ public struct VaultAccountScope<Content: View>: View {
       .environment(
         \.vaultAccountWindow,
         VaultAccountWindow(
-          selection: $selection, newAccount: { [$creating] in $creating.wrappedValue = true }, manage: manage,
-          openInNewWindow: openInNewWindow)
+          selection: $selection, newAccount: { [$creating] in $creating.wrappedValue = true },
+          manage: manage ?? { [$managing] in $managing.wrappedValue = true }, openInNewWindow: openInNewWindow)
       )
       .kitSheet(isPresented: $creating) {
         VaultAccountSheet(account: nil) { selection = $0.id }
       }
+      .kitSheet(isPresented: $managing) { VaultAccountsSheet() }
       .onChange(of: selection, initial: true) { open() }
       .onChange(of: vaults.accounts) { open() }
   }
