@@ -3,9 +3,10 @@ import Observation
 
 /// The vault as SwiftUI sees it: the shared records, kept current as any app (or CloudKit) changes them.
 ///
-/// One per process (`Vault.shared`). It opens the store in the app group container, reloads when the store's
+/// `Vault.shared` is Personal. It opens the store in the app group container, reloads when the store's
 /// change notification arrives, and starts iCloud sync (`CloudSync`) when the app has an iCloud account:
-/// every app syncs on its own, and the one that made a change sends it.
+/// every app syncs on its own, and the one that made a change sends it. Each account (`VaultAccount`) is a `Vault`
+/// of its own, opened by `Vaults`, and synced by Personal's engine.
 @MainActor
 @Observable
 public final class Vault {
@@ -33,12 +34,22 @@ public final class Vault {
   public private(set) var people: [VaultPerson] = []
   /// The Hubs the user connected to (`VaultHub` connects; the other apps see their devices as hosts).
   public private(set) var hubs: [VaultHubServer] = []
+  /// The accounts beside Personal, by name (in Personal only).
+  public private(set) var accounts: [VaultAccount] = []
+  /// The Apple developer teams this account works with.
+  public private(set) var appleTeams: [VaultAppleTeam] = []
+  /// Which account this is (`VaultAccount.personal` for Personal).
+  public let accountID: String
+  public var isPersonal: Bool { accountID == VaultAccount.personal.id }
   /// Why the store couldn't open or save, for the UI.
   public var error: String?
 
   /// The store, nil when it couldn't open.
   @ObservationIgnored public let store: VaultStore?
-  @ObservationIgnored public private(set) var sync: CloudSync?
+  /// The app's sync engine: Personal's, which carries the accounts too.
+  @ObservationIgnored public internal(set) var sync: CloudSync?
+  /// Called after every reload that read the store (`Vaults` follows Personal's accounts).
+  @ObservationIgnored var didReload: (() -> Void)?
   @ObservationIgnored private var observer: VaultChangeObserver?
   @ObservationIgnored private var loadedRevision: Int64 = -1
   @ObservationIgnored var dumpObserver: VaultChangeObserver?
@@ -48,8 +59,9 @@ public final class Vault {
   @ObservationIgnored private var iconsLookedAt: Set<String> = []
   @ObservationIgnored private var iconTask: Task<Void, Never>?
 
-  /// Opens the shared store (or a given one, for tests and previews).
-  public init(store: VaultStore? = nil) {
+  /// Opens the shared store (or a given one, for tests and previews); `accountID` says which account's store it is.
+  public init(store: VaultStore? = nil, accountID: String = VaultAccount.personal.id) {
+    self.accountID = accountID
     if let store {
       self.store = store
     } else {
@@ -66,9 +78,9 @@ public final class Vault {
   }
 
   /// Starts iCloud sync for this app: call it once from the App's init. Does nothing without an iCloud account
-  /// or the CloudKit entitlement.
+  /// or the CloudKit entitlement. Only Personal starts the engine; it carries every account.
   public func startSync() {
-    guard sync == nil, let store else { return }
+    guard sync == nil, isPersonal, let store else { return }
     sync = CloudSync(store: store) { [weak self] in
       Task { @MainActor in self?.reload() }
     }
@@ -137,10 +149,15 @@ public final class Vault {
       cards = try store.records(VaultCard.self).sorted {
         ($0.order, $0.title.localizedLowercase) < ($1.order, $1.title.localizedLowercase)
       }
+      accounts = try store.records(VaultAccount.self).sorted {
+        $0.name.localizedStandardCompare($1.name) == .orderedAscending
+      }
+      appleTeams = try store.records(VaultAppleTeam.self).sorted { ($0.name, $0.teamID) < ($1.name, $1.teamID) }
     } catch {
       self.error = error.localizedDescription
     }
     lookForIcons()
+    didReload?()
   }
 
   /// Saves a record, reporting failures in `error`.

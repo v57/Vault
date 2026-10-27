@@ -75,6 +75,26 @@ public struct VaultProject: VaultRecord, Hashable {
     return values
   }
 
+  /// The GitHub user or organization of its remote (`github.com/<owner>/<repo>` over HTTPS or SSH).
+  public var gitHubOwner: String? { remoteURL.flatMap(Self.gitHubOwner(ofRemote:)) }
+
+  static func gitHubOwner(ofRemote remote: String) -> String? {
+    var text = remote.trimmingCharacters(in: .whitespaces)
+    if let scheme = text.range(of: "://") { text = String(text[scheme.upperBound...]) }
+    if let at = text.firstIndex(of: "@"), at < (text.firstIndex(of: "/") ?? text.endIndex) {
+      text = String(text[text.index(after: at)...])
+    }
+    // `github.com:owner/repo` (scp style), `github.com/owner/repo`, `github.com:22/owner/repo`
+    guard let separator = text.firstIndex(where: { $0 == "/" || $0 == ":" }) else { return nil }
+    var host = text[..<separator].lowercased()
+    if host.hasPrefix("www.") { host.removeFirst(4) }
+    guard host == "github.com" else { return nil }
+    let parts = text[text.index(after: separator)...].split(separator: "/").map(String.init)
+    let path = parts.first.map { Int($0) != nil } == true ? Array(parts.dropFirst()) : parts
+    guard path.count >= 2, let owner = path.first, !owner.isEmpty else { return nil }
+    return owner
+  }
+
   /// Where the project is on this device.
   public var localPath: String? { paths[VaultDevice.id] }
   public var localURL: URL? { localPath.map { URL(fileURLWithPath: $0, isDirectory: true) } }

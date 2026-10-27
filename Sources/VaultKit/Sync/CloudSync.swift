@@ -9,21 +9,26 @@ import os
   import UIKit
 #endif
 
-/// Syncs the store with the private CloudKit database through `CKSyncEngine`, one engine per app.
+/// Syncs the stores with the private CloudKit database through `CKSyncEngine`, one engine per app.
 ///
 /// There's no helper process: every app that opens the vault runs its own engine (with its own saved state)
-/// against the same `Vault` zone. The app that writes leases and sends its change; every app fetches and
-/// merges, and `VaultStore.apply` skips what another app on the device already applied. Conflicts merge field
-/// by field (`SyncCoordinator`), so an iPhone and a Mac editing the same item at once both keep their edits.
+/// against the same zones: Personal's `Vault` and each account's `Vault-<id>` (`SyncZones` routes each zone to its
+/// store; CloudKit allows one engine per database in Production). The app that writes leases and sends its change;
+/// every app fetches and merges, and `VaultStore.apply` skips what another app on the device already applied.
+/// Conflicts merge field by field (`SyncCoordinator`), so an iPhone and a Mac editing the same item at once both keep
+/// their edits.
 ///
 /// CloudKit only ever sees the item id, the key id and the AES-GCM payload.
 public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
+  /// Personal's store, which also keeps the engine's state.
   public let store: VaultStore
-  private let coordinator: SyncCoordinator
+  public let zones: SyncZones
   private let onChange: @Sendable () -> Void
   private let name: String
-  private let zoneID = CKRecordZone.ID(zoneName: "Vault")
   private let lock = NSLock()
+  /// The stores whose writes this engine queues, by zone.
+  private var attached: [String: VaultStore] = [:]
+  private var accountsToken: UUID?
   private var engine: CKSyncEngine?
   private var observers: [NSObjectProtocol] = []
   private var outboxTimer: Timer?
@@ -38,14 +43,19 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     get { lock.withLock { healthy } }
     set {
       lock.withLock { healthy = newValue }
-      store.sendsOwnWrites = newValue != false
+      for store in lock.withLock({ Array(attached.values) }) { store.sendsOwnWrites = newValue != false }
     }
   }
   private var healthy: Bool?
 
-  public init(store: VaultStore, onChange: @escaping @Sendable () -> Void = {}) {
-    self.store = store
-    coordinator = SyncCoordinator(store: store)
+  /// Syncs Personal (`store`) and the accounts beside it (`VaultAccountStores.forPersonal`).
+  public convenience init(store: VaultStore, onChange: @escaping @Sendable () -> Void = {}) {
+    self.init(zones: SyncZones(accounts: .forPersonal(store)), onChange: onChange)
+  }
+
+  public init(zones: SyncZones, onChange: @escaping @Sendable () -> Void = {}) {
+    self.zones = zones
+    store = zones.accounts.personal
     self.onChange = onChange
     name = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
   }
@@ -121,6 +131,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   deinit {
     for observer in observers { NotificationCenter.default.removeObserver(observer) }
     outboxTimer?.invalidate()
+    if let accountsToken { zones.accounts.stopObserving(accountsToken) }
   }
 
   private func startIfSignedIn() {
@@ -184,15 +195,55 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     self.engine = engine
     lock.unlock()
 
-    if saved == nil || (try? store.engineState(name + ".zone")) == nil {
+    accountsToken = zones.accounts.observe { [weak self] event in
+      switch event {
+      case .opened(let id, _): self?.attach(SyncZones.zoneName(forAccount: id), freshEngine: false)
+      case .removed(let id): self?.detach(SyncZones.zoneName(forAccount: id))
+      }
+    }
+    for zone in zones.activeZones() { attach(zone, freshEngine: saved == nil) }
+    queueOutbox()
+  }
+
+  /// Starts carrying a zone: makes it on the server unless this app did already, queues the store's own writes, and
+  /// deletes CloudKit's copies of old tombstones.
+  private func attach(_ zone: String, freshEngine: Bool) {
+    guard let engine = currentEngine, let store = zones.coordinator(forZone: zone)?.store else { return }
+    let isNew = lock.withLock {
+      guard attached[zone] !== store else { return false }
+      attached[zone] = store
+      return true
+    }
+    guard isNew else { return }
+    let zoneID = CKRecordZone.ID(zoneName: zone)
+    if freshEngine || (try? store.engineState(name + ".zone")) == nil {
       engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
     }
     store.sendsOwnWrites = isHealthy != false
-    store.didWriteLocally = { [weak self] ids in self?.queue(ids) }
+    store.didWriteLocally = { [weak self] ids in self?.queue(ids, in: zone) }
     if let purged = try? store.purgeTombstones(), !purged.isEmpty {
-      engine.state.add(pendingRecordZoneChanges: purged.map { .deleteRecord(recordID($0)) })
+      engine.state.add(pendingRecordZoneChanges: purged.map { .deleteRecord(recordID($0, in: zone)) })
     }
-    queueOutbox()
+  }
+
+  /// Stops carrying an account's zone whose store was removed here; what waited to go up in it is dropped.
+  private func detach(_ zone: String) {
+    lock.withLock { _ = attached.removeValue(forKey: zone) }
+    guard let engine = currentEngine else { return }
+    let zoneID = CKRecordZone.ID(zoneName: zone)
+    engine.state.remove(pendingRecordZoneChanges: engine.state.pendingRecordZoneChanges.filter { change in
+      switch change {
+      case .saveRecord(let id), .deleteRecord(let id): id.zoneID == zoneID
+      @unknown default: false
+      }
+    })
+  }
+
+  /// Deletes an account's zone on the server (the account is being deleted).
+  public func deleteZone(forAccount id: String) {
+    let zone = SyncZones.zoneName(forAccount: id)
+    detach(zone)
+    currentEngine?.state.add(pendingDatabaseChanges: [.deleteZone(CKRecordZone.ID(zoneName: zone))])
   }
 
   /// Sends now, and fetches what pushes reported (the app came to the front). Changes from other devices
@@ -218,20 +269,27 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     return engine
   }
 
-  /// Leases what's waiting in the outbox and hands it to the engine (not while this app's sync fails).
+  /// Leases what's waiting in every zone's outbox and hands it to the engine (not while this app's sync fails).
+  /// Accounts that arrived since are attached first.
   private func queueOutbox() {
-    guard isHealthy != false else { return }
-    queue(coordinator.idsToSend())
+    guard isHealthy != false, currentEngine != nil else { return }
+    for zone in zones.activeZones() {
+      attach(zone, freshEngine: false)
+      if let coordinator = zones.coordinator(forZone: zone) { queue(coordinator.idsToSend(), in: zone) }
+    }
   }
 
-  private func queue(_ ids: [String]) {
+  private func queue(_ ids: [String], in zone: String) {
     guard let engine = currentEngine, !ids.isEmpty else { return }
-    engine.state.add(pendingRecordZoneChanges: ids.map { .saveRecord(recordID($0)) })
+    engine.state.add(pendingRecordZoneChanges: ids.map { .saveRecord(recordID($0, in: zone)) })
   }
 
-  private func recordID(_ id: String) -> CKRecord.ID {
-    CKRecord.ID(recordName: id, zoneID: zoneID)
+  private func recordID(_ id: String, in zone: String) -> CKRecord.ID {
+    CKRecord.ID(recordName: id, zoneID: CKRecordZone.ID(zoneName: zone))
   }
+
+  /// The stores of every zone this app carries.
+  private var activeStores: [VaultStore] { lock.withLock { Array(attached.values) } }
 
   private func record(_ error: Error) {
     lastError = error.localizedDescription
@@ -251,38 +309,62 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         queueOutbox()
       case .switchAccounts, .signOut:
         // What the old account's server held means nothing now; everything goes up again on the next account.
-        try? store.resetServerState()
+        for store in activeStores { try? store.resetServerState() }
       @unknown default:
         break
       }
 
     case .fetchedDatabaseChanges(let changes):
-      for deletion in changes.deletions where deletion.zoneID == zoneID {
+      for deletion in changes.deletions {
+        let zone = deletion.zoneID.zoneName
+        let reason: SyncZones.ZoneDeletion
         switch deletion.reason {
-        case .purged:
-          // The user deleted the data in iCloud settings: delete it here too.
-          try? store.deleteAll()
-        case .deleted, .encryptedDataReset:
-          try? store.resetServerState()
+        case .purged: reason = .purged
+        case .deleted: reason = .deleted
+        case .encryptedDataReset: reason = .encryptedDataReset
+        @unknown default: continue
+        }
+        lock.withLock { _ = attached.removeValue(forKey: zone) }
+        if zones.zoneDeleted(zone, reason: reason), let store = zones.coordinator(forZone: zone)?.store {
           try? store.setEngineState(nil, for: name + ".zone")
-          syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
-          queueOutbox()
-        @unknown default:
+          syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: deletion.zoneID))])
+        } else {
+          detach(zone)
+        }
+      }
+      queueOutbox()
+
+    case .fetchedRecordZoneChanges(let changes):
+      var modified: [String: [RemoteRecord]] = [:]
+      var deleted: [String: [String]] = [:]
+      for modification in changes.modifications {
+        if let record = Self.remote(modification.record) {
+          modified[modification.record.recordID.zoneID.zoneName, default: []].append(record)
+        }
+      }
+      for deletion in changes.deletions {
+        deleted[deletion.recordID.zoneID.zoneName, default: []].append(deletion.recordID.recordName)
+      }
+      for zone in Set(modified.keys).union(deleted.keys).sorted() {
+        switch zones.route(zone) {
+        case .zone(let coordinator):
+          queue(coordinator.fetched(modified: modified[zone] ?? [], deleted: deleted[zone] ?? []), in: zone)
+        case .retired:
+          // An account deleted on a device whose engine couldn't delete its zone.
+          syncEngine.state.add(pendingDatabaseChanges: [.deleteZone(CKRecordZone.ID(zoneName: zone))])
+        case .foreign:
           break
         }
       }
-
-    case .fetchedRecordZoneChanges(let changes):
-      let modified = changes.modifications.compactMap { Self.remote($0.record) }
-      let deleted = changes.deletions.map(\.recordID.recordName)
-      let resend = coordinator.fetched(modified: modified, deleted: deleted)
       isHealthy = true
-      queue(resend)
+      // Accounts that just arrived in Personal start syncing; deleted ones go.
+      queueOutbox()
       onChange()
 
     case .sentDatabaseChanges(let changes):
-      if changes.savedZones.contains(where: { $0.zoneID == zoneID }) {
-        try? store.setEngineState(Data("1".utf8), for: name + ".zone")
+      for saved in changes.savedZones {
+        try? zones.coordinator(forZone: saved.zoneID.zoneName)?.store
+          .setEngineState(Data("1".utf8), for: name + ".zone")
       }
       for failure in changes.failedZoneSaves { record(failure.error) }
 
@@ -290,19 +372,22 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       if !changes.savedRecords.isEmpty { isHealthy = true }
       for saved in changes.savedRecords {
         Self.removeAssetFile(of: saved)
+        let zone = saved.recordID.zoneID.zoneName
+        guard let coordinator = zones.coordinator(forZone: zone) else { continue }
         let action = coordinator.saved(
           id: saved.recordID.recordName, changeTag: saved.recordChangeTag, systemFields: Self.archive(saved))
-        if action == .resend { queue([saved.recordID.recordName]) }
+        if action == .resend { queue([saved.recordID.recordName], in: zone) }
       }
       for failure in changes.failedRecordSaves {
         Self.removeAssetFile(of: failure.record)
         let id = failure.record.recordID.recordName
+        guard let coordinator = zones.coordinator(forZone: failure.record.recordID.zoneID.zoneName) else { continue }
         let action = coordinator.failed(id: id, Self.failure(failure.error))
         switch action {
         case .resend, .retryLater:
           syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(failure.record.recordID)])
         case .createZoneThenResend:
-          syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
+          syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: failure.record.recordID.zoneID))])
           syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(failure.record.recordID)])
         case .done:
           break
@@ -324,9 +409,11 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   ) async -> CKSyncEngine.RecordZoneChangeBatch? {
     let pending = syncEngine.state.pendingRecordZoneChanges.filter { context.options.scope.contains($0) }
     guard !pending.isEmpty else { return nil }
-    return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { [coordinator] recordID in
-      // Nil when another app holds the lease or nothing is waiting: the engine drops it.
-      guard let outgoing = coordinator.record(for: recordID.recordName) else {
+    return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { [zones] recordID in
+      // Nil when another app holds the lease or nothing is waiting, or the zone's account is gone: the engine drops it.
+      guard let coordinator = zones.coordinator(forZone: recordID.zoneID.zoneName),
+        let outgoing = coordinator.record(for: recordID.recordName)
+      else {
         syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
         return nil
       }

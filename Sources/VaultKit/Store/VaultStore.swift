@@ -93,22 +93,28 @@ public final class VaultStore: @unchecked Sendable {
   /// How long a lease on an outbox row lasts before another app may send it.
   public var lease: TimeInterval = 120
 
+  /// Personal's file; an account's is `<account id>.sqlite` beside it.
   public static let fileName = "Vault.sqlite"
+
+  /// The SQLite file.
+  public let fileURL: URL
 
   public init(
     directory: URL = VaultConfiguration.defaultDirectory(),
+    fileName: String = VaultStore.fileName,
     keys: VaultKeyProvider = KeychainKeyProvider(),
     deviceID: String = VaultDevice.id,
     notifier: VaultChangeNotifier? = SystemChangeNotifier(),
     owner: String = VaultStore.processOwner
   ) throws {
     self.directory = directory
+    fileURL = directory.appendingPathComponent(fileName)
     self.keys = keys
     self.deviceID = deviceID
     self.notifier = notifier
     self.owner = owner
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    database = try SQLiteConnection(url: directory.appendingPathComponent(Self.fileName))
+    database = try SQLiteConnection(url: fileURL)
     try database.transaction {
       try database.execute(
         """
@@ -130,6 +136,14 @@ public final class VaultStore: @unchecked Sendable {
   /// it can't open. `Vault.shared` uses it, and code off the main actor (an SSH engine checking a host key)
   /// can too.
   public static let shared: VaultStore? = try? VaultStore()
+
+  /// Removes a store's file and SQLite's journal beside it. A connection still open keeps reading the removed file
+  /// until it closes.
+  public static func removeFiles(at url: URL) {
+    for suffix in ["", "-wal", "-shm"] {
+      try? FileManager.default.removeItem(at: URL(fileURLWithPath: url.path + suffix))
+    }
+  }
 
   /// This process, as the owner of outbox leases.
   public static let processOwner: String = {

@@ -28,14 +28,26 @@ extension VaultKeyProvider {
 /// The keys in the shared keychain group, synced by iCloud Keychain.
 public final class KeychainKeyProvider: VaultKeyProvider, @unchecked Sendable {
   private let keychain: VaultKeychain
+  private let prefix: String
+  /// Made when there is none yet (Personal); an account's key is made with the account, so a device it hasn't
+  /// reached yet waits for it instead of starting a key of its own.
+  private let label: String?
   private let lock = NSLock()
   private var cache: [String: SymmetricKey] = [:]
 
-  public init(keychain: VaultKeychain = VaultKeychain()) {
-    self.keychain = keychain
+  /// Personal's keys.
+  public convenience init(keychain: VaultKeychain = VaultKeychain()) {
+    self.init(keychain: keychain, prefix: Self.prefix, createsKeyLabelled: "v57 Vault key")
   }
 
-  /// Keychain items are named `key.<id>`.
+  /// The keys named `<prefix><id>`; `label` names the key made when there is none, nil to make none.
+  init(keychain: VaultKeychain, prefix: String, createsKeyLabelled label: String?) {
+    self.keychain = keychain
+    self.prefix = prefix
+    self.label = label
+  }
+
+  /// Personal's keychain items are named `key.<id>`.
   static let prefix = "key."
 
   public func primary() throws -> (id: String, key: SymmetricKey) {
@@ -43,11 +55,11 @@ public final class KeychainKeyProvider: VaultKeyProvider, @unchecked Sendable {
     defer { lock.unlock() }
     if cache.isEmpty { try reload() }
     if cache.isEmpty {
+      guard let label else { throw VaultCrypto.CryptoError.missingKey(prefix) }
       let id = Self.newKeyID()
       let key = SymmetricKey(size: .bits256)
       try keychain.addNew(
-        key.withUnsafeBytes { Data($0) }, account: Self.prefix + id,
-        options: .init(synchronizable: true, label: "v57 Vault key"))
+        key.withUnsafeBytes { Data($0) }, account: prefix + id, options: .init(synchronizable: true, label: label))
       cache[id] = key
     }
     let id = cache.keys.min()!
@@ -73,8 +85,8 @@ public final class KeychainKeyProvider: VaultKeyProvider, @unchecked Sendable {
   }
 
   private func reload() throws {
-    for item in try keychain.readAll(options: .synced) where item.account.hasPrefix(Self.prefix) {
-      cache[String(item.account.dropFirst(Self.prefix.count))] = SymmetricKey(data: item.data)
+    for item in try keychain.readAll(options: .synced) where item.account.hasPrefix(prefix) {
+      cache[String(item.account.dropFirst(prefix.count))] = SymmetricKey(data: item.data)
     }
   }
 
