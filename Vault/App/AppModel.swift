@@ -148,18 +148,16 @@ final class AppModel {
   }
 
   /// The model of the account a window shows (`VaultAccountScope`'s vault): Personal's from `launch()`, an account's
-  /// made on first use with its own folders (sealed with the account's keys), remotes, people and Hubs. It starts the
+  /// made on first use with its own folders (sealed with the shared vault keys), remotes, people and Hubs. It starts the
   /// account's Hubs, which writes to its vault, so call it outside a view's body.
   static func model(for vault: Vault) -> AppModel {
     if let model = models[vault.accountID] { return model }
     let personal = models[VaultAccount.personal.id]
-    let keys = Vaults.shared.stores?.keychain.keys(forAccount: vault.accountID)
     let hubs = HubDirectory(vault: vault)
     hubs.start()
     let model = AppModel(
       vault: vault, deviceVault: personal?.vault ?? Vaults.shared.personal, isDemo: false,
-      folders: keys.map { FolderLibrary(vault: vault, keys: $0, sync: NoFolderSync()) }
-        ?? FolderLibrary(vault: vault, sync: NoFolderSync()),
+      folders: FolderLibrary(vault: vault, sync: NoFolderSync()),
       remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault), recovery: UnavailableRecovery(),
       hubs: LiveHubs(directory: hubs))
     model.lastSync = personal?.lastSync

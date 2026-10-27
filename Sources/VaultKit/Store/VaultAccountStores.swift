@@ -1,13 +1,12 @@
 import Foundation
 
 /// The accounts' stores on this device (`VaultAccount`), opened on first use: `<id>.sqlite` beside Personal's
-/// `Vault.sqlite`, sealed with the account's own keys. One per Personal store (`forPersonal`), shared by `Vaults` and
-/// the sync engine (`SyncZones`), so both use one connection per account.
+/// `Vault.sqlite`, sealed with Personal's keys. One per Personal store (`forPersonal`), shared by `Vaults` and the sync
+/// engine (`SyncZones`), so both use one connection per account.
 ///
 /// Thread-safe.
 public final class VaultAccountStores: @unchecked Sendable {
   public let personal: VaultStore
-  public let keychain: VaultAccountKeychain
   private let notifier: VaultChangeNotifier?
   private let lock = NSRecursiveLock()
   private var stores: [String: VaultStore] = [:]
@@ -37,19 +36,15 @@ public final class VaultAccountStores: @unchecked Sendable {
     }
   }
 
-  public init(
-    personal: VaultStore, keychain: VaultAccountKeychain = KeychainAccountKeychain(),
-    notifier: VaultChangeNotifier? = SystemChangeNotifier()
-  ) {
+  public init(personal: VaultStore, notifier: VaultChangeNotifier? = SystemChangeNotifier()) {
     self.personal = personal
-    self.keychain = keychain
     self.notifier = notifier
   }
 
   nonisolated(unsafe) private static var registries: [ObjectIdentifier: VaultAccountStores] = [:]
   private static let registriesLock = NSLock()
 
-  /// The accounts beside a Personal store, with the keychain's keys: the same object for every caller in the process.
+  /// The accounts beside a Personal store: the same object for every caller in the process.
   public static func forPersonal(_ store: VaultStore) -> VaultAccountStores {
     registriesLock.withLock {
       if let stores = registries[ObjectIdentifier(store)] { return stores }
@@ -79,26 +74,24 @@ public final class VaultAccountStores: @unchecked Sendable {
     (try? personal.item(id: id))?.isDeleted == true
   }
 
-  /// Makes an account: its key, then its record in Personal. Its store opens on first use.
+  /// Makes an account: its record in Personal. Its store opens on first use.
   public func create(name: String, color: String = "blue") throws -> VaultAccount {
-    let id = VaultAccount.newID()
-    let keyID = try keychain.createKey(forAccount: id, label: name)
-    let account = VaultAccount(id: id, name: name, color: color, keyID: keyID)
+    let account = VaultAccount(name: name, color: color)
     try personal.save(account)
     return account
   }
 
   // MARK: Stores
 
-  /// The account's store, opened on first use. It opens before the account's record or key has arrived (another
-  /// device's records may come first); it refuses an account that was deleted.
+  /// The account's store, opened on first use. It opens before the account's record has arrived (another device's
+  /// records may come first); it refuses an account that was deleted.
   public func store(forAccount id: String) throws -> VaultStore {
     guard VaultAccount.isValidID(id) else { throw AccountError.invalidID(id) }
     let (store, isNew): (VaultStore, Bool) = try lock.withLock {
       if let store = stores[id] { return (store, false) }
       guard !isDeleted(account: id) else { throw AccountError.deleted(id) }
       let store = try VaultStore(
-        directory: personal.directory, fileName: Self.fileName(forAccount: id), keys: keychain.keys(forAccount: id),
+        directory: personal.directory, fileName: Self.fileName(forAccount: id), accountID: id, keys: personal.keys,
         deviceID: personal.deviceID, notifier: notifier, owner: personal.owner)
       stores[id] = store
       return (store, true)
@@ -110,13 +103,18 @@ public final class VaultAccountStores: @unchecked Sendable {
   /// The ids of the accounts whose stores this process opened.
   public var openAccounts: [String] { lock.withLock { stores.keys.sorted() } }
 
-  /// Closes the account's store here and removes its file (its zone and record are the caller's). With `keys`, the
-  /// account's keys go too, on every device.
-  public func remove(account id: String, keys: Bool) throws {
+  /// Closes the account's store here and removes its file (its zone and record are the caller's). With `secrets`, the
+  /// passwords and other secrets of its records go too (`VaultSecrets`, synced: on every device).
+  public func remove(account id: String, secrets: Bool) throws {
     guard VaultAccount.isValidID(id) else { throw AccountError.invalidID(id) }
-    lock.withLock { _ = stores.removeValue(forKey: id) }
+    let store = lock.withLock { stores.removeValue(forKey: id) }
+    if secrets {
+      let store = try store ?? VaultStore(
+        directory: personal.directory, fileName: Self.fileName(forAccount: id), accountID: id, keys: personal.keys,
+        deviceID: personal.deviceID, notifier: nil, owner: personal.owner)
+      for item in try store.allIDs() { try VaultSecrets.deleteSecrets(forItem: item) }
+    }
     VaultStore.removeFiles(at: fileURL(forAccount: id))
-    if keys { try keychain.deleteKeys(forAccount: id) }
     notify(.removed(account: id))
   }
 
@@ -130,7 +128,7 @@ public final class VaultAccountStores: @unchecked Sendable {
       ids.insert(String(file.dropLast(".sqlite".count)))
     }
     let deleted = ids.filter { VaultAccount.isValidID($0) && isDeleted(account: $0) }.sorted()
-    for id in deleted { try? remove(account: id, keys: false) }
+    for id in deleted { try? remove(account: id, secrets: false) }
     return deleted
   }
 

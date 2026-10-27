@@ -7,13 +7,12 @@ import Testing
 @MainActor
 struct AccountTests {
   let personalKeys = MemoryKeyProvider()
-  let accountKeys = MemoryAccountKeychain()
   let database = FakeDatabase()
 
   init() { VaultSecrets.useInMemoryStore() }
 
   func device(_ name: String) throws -> FakeDevice {
-    try FakeDevice(name, personalKeys: personalKeys, accountKeys: accountKeys)
+    try FakeDevice(name, personalKeys: personalKeys)
   }
 
   func project(_ name: String, remote: String? = nil, device: String) -> VaultProject {
@@ -22,7 +21,7 @@ struct AccountTests {
 
   @Test func personalStaysAsItWas() throws {
     let mac = try device("mac")
-    let personalMailbox = try mac.personal.derivedID("hub-vault")
+    let personalMailbox = try mac.personal.derivedID("hub-vault")  // as before accounts
     let acme = try mac.vaults.createAccount(name: "Acme")
     let acmeVault = try #require(mac.vaults.vault(for: acme))
 
@@ -33,12 +32,14 @@ struct AccountTests {
     #expect(acme.zoneName == "Vault-\(acme.id)")
     #expect(acmeVault.store?.fileURL.lastPathComponent == "\(acme.id).sqlite")
     #expect(acmeVault.store?.directory == mac.personal.directory)
-    // Personal's mailbox and key are untouched; the account's are its own.
-    #expect(try mac.personal.derivedID("hub-vault") == personalMailbox)
+    // Personal's mailbox is untouched; the account has its own, under the same key.
     let acmeStore = try #require(acmeVault.store)
-    #expect(try HubSync(store: acmeStore, mailbox: FakeMailbox().device("mac"), deviceID: "mac").vaultID() != personalMailbox)
-    #expect(try acmeStore.keys.primary().id == acme.keyID)
-    #expect(try acmeStore.keys.primary().id != personalKeys.primary().id)
+    let box = FakeMailbox()
+    #expect(try HubSync(store: mac.personal, mailbox: box.device("mac"), deviceID: "mac").vaultID() == personalMailbox)
+    #expect(try HubSync(store: acmeStore, mailbox: box.device("mac"), deviceID: "mac").vaultID() != personalMailbox)
+    #expect(try acmeStore.keys.primary().id == personalKeys.primary().id)
+    #expect(mac.personal.accountID == nil)
+    #expect(acmeStore.accountID == acme.id)
     // The account's record is in Personal; nothing of the account is.
     #expect(try mac.personal.records(VaultAccount.self).map(\.name) == ["Acme"])
     acmeVault.save(project("Rocket", device: "mac"))
@@ -98,7 +99,7 @@ struct AccountTests {
 
     // Each account's Hub mailbox is derived from its key: the same on every device, apart from the others.
     func mailboxes(_ device: FakeDevice) throws -> [String] {
-      try device.vaults.allAccounts.map { try #require(device.vaults.vault(for: $0)?.store).derivedID("hub-vault") }
+      try device.vaults.allAccounts.map { try #require(device.vaults.vault(for: $0)?.store).hubVaultID() }
     }
     #expect(Set(try mailboxes(mac)).count == 3)
     #expect(try mailboxes(phone) == mailboxes(mac))
@@ -121,21 +122,20 @@ struct AccountTests {
     #expect(phone.vault("Acme")?.projects.map(\.name) == ["Rocket"])
   }
 
-  @Test func anAccountWaitsForItsKey() throws {
+  @Test func accountsSealWithTheVaultKeys() throws {
     let mac = try device("mac")
+    let phone = try device("phone")
     let acme = try mac.vaults.createAccount(name: "Acme")
     try #require(mac.vault("Acme")).save(project("Rocket", device: "mac"))
     mac.sync(database)
 
-    // A device whose iCloud Keychain hasn't brought the account's key: records wait, writes fail.
-    let elsewhere = MemoryAccountKeychain()
-    let phone = try FakeDevice("phone", personalKeys: personalKeys, accountKeys: elsewhere)
+    // CloudKit holds the account's records sealed with Personal's key, which every device already has.
+    let personalKey = try personalKeys.primary().id
+    #expect(database.zone(acme.zoneName).records.values.map(\.keyID) == [personalKey])
     phone.sync(database)
-    let vault = try #require(phone.vaults.vault(for: acme))
-    #expect(vault.projects.isEmpty)
-    vault.save(project("Draft", device: "phone"))
-    #expect(vault.error != nil)
-    #expect(try #require(phone.vaults.vault(for: .personal)?.store).keys.primary().id == personalKeys.primary().id)
+    #expect(phone.vault("Acme")?.projects.map(\.name) == ["Rocket"])
+    try #require(phone.vault("Acme")).save(project("Draft", device: "phone"))
+    #expect(phone.vault("Acme")?.error == nil)
   }
 
   @Test func matchesTeamsAndGitHubOwnersToAccounts() throws {
@@ -181,7 +181,7 @@ struct AccountTests {
 
   // MARK: Deleting
 
-  @Test func deletingAnAccountRemovesItsZoneMailboxKeyAndStore() async throws {
+  @Test func deletingAnAccountRemovesItsZoneMailboxPasswordsAndStore() async throws {
     let mac = try device("mac")
     let phone = try device("phone")
     let pad = try device("pad")
@@ -192,6 +192,15 @@ struct AccountTests {
     mac.vaults.personal.save(VaultHost(id: "h1", hostname: "home.lan"))
     try #require(mac.vault("Acme")).save(project("Rocket", device: "mac"))
     try #require(mac.vault("Globex")).save(project("Dome", device: "mac"))
+    // Passwords of each vault's records.
+    let homeHost = UUID().uuidString, acmeHost = UUID().uuidString, acmeLogin = UUID().uuidString
+    let globexHost = UUID().uuidString
+    mac.vaults.personal.save(VaultHost(id: homeHost, hostname: "nas.lan"))
+    try #require(mac.vault("Acme")).save(VaultHost(id: acmeHost, hostname: "build.acme.com"))
+    try #require(mac.vault("Acme")?.store).save(VaultLogin(id: acmeLogin, title: "Acme SSO"))
+    try #require(mac.vault("Globex")).save(VaultHost(id: globexHost, hostname: "ci.globex.com"))
+    for id in [homeHost, acmeHost, acmeLogin, globexHost] { try VaultSecrets.setPassword("secret-\(id)", for: id) }
+    try VaultSecrets.setSecretText("JBSWY3DPEHPK3PXP", named: VaultLogin.oneTimeCodeSecret(acmeLogin))
     for device in [mac, phone, pad] { device.sync(database) }
 
     // Every device syncs every vault through the Hub too.
@@ -202,7 +211,7 @@ struct AccountTests {
       }
     }
     func mailbox(_ device: FakeDevice, _ account: VaultAccount) throws -> FakeMailbox {
-      hub.mailbox(try #require(device.vaults.vault(for: account)?.store).derivedID("hub-vault"))
+      hub.mailbox(try #require(device.vaults.vault(for: account)?.store).hubVaultID())
     }
     let acmeMailbox = try mailbox(mac, acme)
     let globexMailbox = try mailbox(mac, globex)
@@ -217,8 +226,12 @@ struct AccountTests {
     #expect(acmeMailbox.waiting == 0)
     #expect(globexMailbox.memberIDs.count == 3)
     #expect(personalMailbox.memberIDs.count == 3)
-    #expect(!accountKeys.hasKeys(forAccount: acme.id))
-    #expect(accountKeys.hasKeys(forAccount: globex.id))
+    // The account's passwords went with it; the others' stay.
+    #expect(VaultSecrets.password(for: acmeHost) == nil)
+    #expect(VaultSecrets.password(for: acmeLogin) == nil)
+    #expect(VaultSecrets.secretText(VaultLogin.oneTimeCodeSecret(acmeLogin)) == nil)
+    #expect(VaultSecrets.password(for: homeHost) == "secret-\(homeHost)")
+    #expect(VaultSecrets.password(for: globexHost) == "secret-\(globexHost)")
     #expect(mac.vaults.accounts.map(\.name) == ["Globex"])
     #expect(mac.vaults.vault(for: acme) == nil)
     #expect(mac.files == ["\(globex.id).sqlite", "Vault.sqlite"].sorted())
@@ -235,7 +248,7 @@ struct AccountTests {
       #expect(device.files == ["\(globex.id).sqlite", "Vault.sqlite"].sorted())
       #expect(device.vault("Globex")?.projects.map(\.name) == ["Dome"])
       #expect(device.vaults.personal.projects.map(\.name) == ["Dotfiles"])
-      #expect(device.vaults.personal.hosts.map(\.hostname) == ["home.lan"])
+      #expect(device.vaults.personal.hosts.map(\.hostname).sorted() == ["home.lan", "nas.lan"])
       #expect(device.app.zones.coordinator(forZone: acme.zoneName) == nil)
     }
   }

@@ -2,11 +2,11 @@ import Foundation
 
 /// An account: the vault of one organization the user works for (a client, an employer), next to Personal.
 ///
-/// Each account is a vault of its own, not a tag on records: its own key (`VaultAccountKeychain`), store file
-/// (`<id>.sqlite` next to Personal's `Vault.sqlite`), CloudKit zone (`Vault-<id>`) and Hub mailbox (derived from its
-/// key, as Personal's is), so it can be shared with the organization's members later and deleted cleanly. The
-/// records describing the accounts live in Personal; `Vaults` opens each account's vault. Personal itself has no
-/// record: it is `VaultAccount.personal`.
+/// Each account keeps its records apart (passwords, projects, hosts, configs, settings): its own store file
+/// (`<id>.sqlite` next to Personal's `Vault.sqlite`), CloudKit zone (`Vault-<id>`) and Hub mailbox, so deleting it
+/// removes exactly what it holds. Every account seals with the same vault keys as Personal, and the device's identity
+/// (its SSH key) is the same in all of them. The records describing the accounts live in Personal; `Vaults` opens
+/// each account's vault. Personal itself has no record: it is `VaultAccount.personal`.
 public struct VaultAccount: VaultRecord, Hashable {
   public static let kind = "account"
 
@@ -21,15 +21,12 @@ public struct VaultAccount: VaultRecord, Hashable {
   public var name: String
   /// Its tile's color in the account picker: a ComponentKit accent name.
   public var color: String
-  /// The id of the key the account was made with (`VaultAccountKeychain`), to tell whether it has arrived here.
-  public var keyID: String
   public var role: Role
 
-  public init(id: String = VaultAccount.newID(), name: String, color: String = "blue", keyID: String, role: Role = .owner) {
+  public init(id: String = VaultAccount.newID(), name: String, color: String = "blue", role: Role = .owner) {
     self.id = id
     self.name = name
     self.color = color
-    self.keyID = keyID
     self.role = role
   }
 
@@ -38,16 +35,15 @@ public struct VaultAccount: VaultRecord, Hashable {
     self.id = id
     name = read.string("name", default: "")
     color = read.string("color", default: "blue")
-    keyID = read.string("keyID", default: "")
     role = read.string("role").flatMap(Role.init(rawValue:)) ?? .owner
   }
 
   public var values: [String: JSONValue] {
-    ["name": .string(name), "color": .string(color), "keyID": .string(keyID), "role": .string(role.rawValue)]
+    ["name": .string(name), "color": .string(color), "role": .string(role.rawValue)]
   }
 
   /// Personal: today's vault (`Vault.sqlite`, the `Vault` zone, the `hub-vault` mailbox), which always exists.
-  public static let personal = VaultAccount(id: "personal", name: "Personal", color: "gray", keyID: "", role: .owner)
+  public static let personal = VaultAccount(id: "personal", name: "Personal", color: "gray", role: .owner)
 
   public var isPersonal: Bool { id == Self.personal.id }
 

@@ -132,11 +132,11 @@ final class FakeDevice {
   let app: FakeZonedApp
   let vaults: Vaults
 
-  /// `personalKeys` and `accountKeys` shared by every device stand for iCloud Keychain.
-  init(_ name: String, personalKeys: VaultKeyProvider, accountKeys: VaultAccountKeychain) throws {
+  /// `personalKeys` shared by every device stand for iCloud Keychain.
+  init(_ name: String, personalKeys: VaultKeyProvider) throws {
     self.name = name
     personal = try VaultStore(directory: directory, keys: personalKeys, deviceID: name, notifier: nil, owner: "\(name).app")
-    stores = VaultAccountStores(personal: personal, keychain: accountKeys, notifier: nil)
+    stores = VaultAccountStores(personal: personal, notifier: nil)
     app = FakeZonedApp(zones: SyncZones(accounts: stores))
     vaults = Vaults(personal: Vault(store: personal), stores: stores)
   }

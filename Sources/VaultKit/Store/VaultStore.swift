@@ -98,10 +98,13 @@ public final class VaultStore: @unchecked Sendable {
 
   /// The SQLite file.
   public let fileURL: URL
+  /// The account whose records the store holds (`VaultAccount`); nil for Personal.
+  public let accountID: String?
 
   public init(
     directory: URL = VaultConfiguration.defaultDirectory(),
     fileName: String = VaultStore.fileName,
+    accountID: String? = nil,
     keys: VaultKeyProvider = KeychainKeyProvider(),
     deviceID: String = VaultDevice.id,
     notifier: VaultChangeNotifier? = SystemChangeNotifier(),
@@ -109,6 +112,7 @@ public final class VaultStore: @unchecked Sendable {
   ) throws {
     self.directory = directory
     fileURL = directory.appendingPathComponent(fileName)
+    self.accountID = accountID
     self.keys = keys
     self.deviceID = deviceID
     self.notifier = notifier
@@ -184,6 +188,11 @@ public final class VaultStore: @unchecked Sendable {
     }
   }
 
+  /// Every item's id, deleted ones and placeholders too.
+  public func allIDs() throws -> [String] {
+    try withLock { try database.query("SELECT id FROM items").compactMap { $0[0].text } }
+  }
+
   /// An item by id, deleted or not; nil when missing or not decryptable here.
   public func item(id: String) throws -> VaultItem? {
     try withLock { try loadRow(id: id)?.item }
@@ -239,6 +248,12 @@ public final class VaultStore: @unchecked Sendable {
       }
     }
     if deleted { didChange(locally: [id]) }
+  }
+
+  /// The vault's mailbox id on a Hub (`HubSync`): `hub-vault` derived for Personal, `hub-vault:<account id>` for an
+  /// account, so each has a mailbox of its own under the shared keys.
+  public func hubVaultID() throws -> String {
+    try derivedID(accountID.map { "hub-vault:\($0)" } ?? "hub-vault")
   }
 
   /// An id derived from content (a project's remote URL), the same on every device with the same keys.

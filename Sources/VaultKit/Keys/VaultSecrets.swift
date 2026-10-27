@@ -58,6 +58,15 @@ public enum VaultSecrets {
     }
   }
 
+  /// Deletes every secret kept for an item: its password, a login's one-time-code secret, a card's number and code,
+  /// a passkey's private key.
+  public static func deleteSecrets(forItem id: String) throws {
+    try setPassword(nil, for: id)
+    for name in ["otp.\(id)", "card.number.\(id)", "card.code.\(id)", "passkey.\(id)"] {
+      try setSecret(nil, named: name)
+    }
+  }
+
   /// A secret kept as UTF-8 text.
   public static func secretText(_ name: String) -> String? {
     secret(name).flatMap { String(data: $0, encoding: .utf8) }

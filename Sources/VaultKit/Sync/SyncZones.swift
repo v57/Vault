@@ -132,7 +132,7 @@ public final class SyncZones: @unchecked Sendable {
     switch reason {
     case .purged, .deleted:
       lock.withLock { _ = deletedZones.insert(zone) }
-      try? accounts.remove(account: id, keys: false)
+      try? accounts.remove(account: id, secrets: false)
       return false
     case .encryptedDataReset:
       guard let store = coordinator(forZone: zone)?.store else { return false }

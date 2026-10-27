@@ -78,16 +78,16 @@ first, the lease runs out and any other app sends it. Every app fetches, and the
 has, so a change is sent once and applied once. A conflict merges the server's copy and sends the merge on top.
 
 **Accounts.** One person can work for several organizations, each with its own teams, hosts and keys. Each account
-(`VaultAccount`: name, color, key id, role) is a vault of its own, never a tag on records: its own key (synced keychain
-items `accountKey.<account>.<key>`, apart from Personal's `key.<id>`), store file (`<account id>.sqlite` beside
-`Vault.sqlite`), CloudKit zone (`Vault-<account id>`) and Hub mailbox (derived from its key, like Personal's). The
-account records live in Personal, which is today's vault unchanged, so `Vault.shared` is still Personal. `Vaults.shared`
-lists the accounts and opens a `Vault` per account on first use; an account's store opens before its record or key
-has arrived, keeping what it can't read yet. CloudKit allows one sync engine per database, so each app's engine carries
+(`VaultAccount`: name, color, role) keeps its records apart, never as a tag on them: passwords, projects, hosts, configs
+and settings live in its own store file (`<account id>.sqlite` beside `Vault.sqlite`), CloudKit zone
+(`Vault-<account id>`) and Hub mailbox (`hub-vault:<account id>`, derived like Personal's `hub-vault`). Every account
+seals with the same vault keys as Personal, and the device's SSH identity is shared too. The account records live in
+Personal, which is today's vault unchanged, so `Vault.shared` is still Personal. `Vaults.shared` lists the accounts and
+opens a `Vault` per account on first use; an account's store opens before its record has arrived. CloudKit allows one sync engine per database, so each app's engine carries
 every zone, and `SyncZones` routes each zone to its store. `Vaults.account(forTeam:)` and `account(forGitHubOwner:)`
 find the account that holds a project's `DEVELOPMENT_TEAM` (`VaultAppleTeam`) or GitHub owner (its projects' remotes),
-trying the organizations before Personal. Deleting an account removes its zone, Hub mailboxes, keys, store and record,
-and nothing of Personal; other devices drop their copy when the record's tombstone or the zone's deletion arrives.
+trying the organizations before Personal. Deleting an account removes its zone, Hub mailboxes, its records' passwords
+and other secrets, its store and its record, and nothing of Personal; other devices drop their copy when the record's tombstone or the zone's deletion arrives.
 
 **Project tree.** Projects sit in groups that nest (`VaultProjectGroup`), so every app's sidebar can show the same
 arrangement on every device. A project's place is its `groupID` and `order`, a group's its `parentID` and `order`;

@@ -71,7 +71,7 @@ struct DeviceHostTests {
   }
 
   @Test @MainActor func anAccountsProjectsUsePersonalsHosts() throws {
-    let phone = try FakeDevice("phone", personalKeys: keys, accountKeys: MemoryAccountKeychain())
+    let phone = try FakeDevice("phone", personalKeys: keys)
     let mac = try store()
     try mac.publishDeviceHost(name: "Studio", address: "Studio.local", user: "me", hostKey: Self.hostKey, allowed: [])
     try phone.personal.save(try #require(try mac.records(VaultHost.self).first))

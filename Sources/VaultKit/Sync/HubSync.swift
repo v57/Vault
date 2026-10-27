@@ -71,7 +71,8 @@ public struct HubMailboxPull: Sendable, Equatable {
 /// (engine state `hub-sync:<vault>`), so CloudKit's outbox is untouched. A new member device, or one that missed
 /// envelopes, makes every device send everything again: merging is idempotent, so they converge.
 ///
-/// The vault's id on the Hub is derived from the vault keys, the same on every device that has them.
+/// The vault's id on the Hub is derived from the vault keys, the same on every device that has them: `hub-vault` for
+/// Personal, `hub-vault:<account id>` for an account, so each account has a mailbox of its own.
 public final class HubSync: @unchecked Sendable {
   public let store: VaultStore
   public let mailbox: any HubMailbox
@@ -137,7 +138,7 @@ public final class HubSync: @unchecked Sendable {
   }
 
   /// The vault's mailbox id.
-  public func vaultID() throws -> String { try store.derivedID("hub-vault") }
+  public func vaultID() throws -> String { try store.hubVaultID() }
 
   private var stateName: String { "hub-sync:\(deviceID)" }
 
