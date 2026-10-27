@@ -66,4 +66,16 @@ for target in package.targets where target.name == "VaultKit" {
 for target in package.targets where ["VaultFiles", "VaultSync", "VaultHub"].contains(target.name) {
   target.dependencies.append(.product(name: "CryptoKit", package: "SwiftUI"))
 }
+#if os(Linux)
+// Linux: keychain items in the freedesktop Secret Service (SwiftUI's SecretService, on libsecret), note ids in
+// extended attributes (CVaultLinux: <sys/xattr.h>, which Glibc's module leaves out) and folder watching on inotify.
+package.targets.append(.target(name: "CVaultLinux"))
+for target in package.targets where target.name == "VaultKit" {
+  target.dependencies += ["CVaultLinux", .product(name: "SecretService", package: "SwiftUI")]
+}
+// FolderWatcher on inotify (SwiftUIPortability's DirectoryWatcher).
+for target in package.targets where target.name == "VaultFiles" {
+  target.dependencies.append(.product(name: "SwiftUIPortability", package: "SwiftUI"))
+}
+#endif
 #endif

@@ -3,7 +3,7 @@
   import Foundation
 
   /// Calls a handler when anything under a folder changes (FSEvents, coalesced over `latency` seconds). Runs in the
-  /// app's own process, while the app runs: no helper. macOS only; elsewhere the app calls
+  /// app's own process, while the app runs: no helper. macOS and Linux; elsewhere the app calls
   /// `DecryptSession.sealChanges()` on a timer.
   public final class FolderWatcher: @unchecked Sendable {
     private final class Handler {
@@ -53,7 +53,31 @@
 
     deinit { stop() }
   }
+#elseif os(Linux)
+  import Foundation
+  import SwiftUIPortability
 
+  /// Calls a handler when anything under a folder changes (inotify through SwiftUIPortability's DirectoryWatcher,
+  /// coalesced over `latency` seconds), as the macOS one does with FSEvents.
+  public final class FolderWatcher: @unchecked Sendable {
+    private var watcher: DirectoryWatcher?
+    private let queue = DispatchQueue(label: "dev.v57.VaultFiles.FolderWatcher")
+
+    public init(url: URL, latency: TimeInterval = 1, handler: @escaping @Sendable () -> Void) {
+      watcher = DirectoryWatcher(paths: [url.path], latency: latency, queue: queue) { _ in handler() }
+    }
+
+    /// Stops watching; no handler call starts after it returns.
+    public func stop() {
+      watcher?.stop()
+      watcher = nil
+    }
+
+    deinit { stop() }
+  }
+#endif
+
+#if os(macOS) || os(Linux)
   extension DecryptSession {
     /// Seals changes whenever the working copy changes, reporting each pass that changed
     /// something, or failed, to `onSeal` on the watcher's queue. Keep the watcher; stop it before `lock()`.

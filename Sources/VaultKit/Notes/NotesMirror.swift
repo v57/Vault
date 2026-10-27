@@ -1,6 +1,10 @@
 import CryptoKit
 import Foundation
 
+#if os(Linux)
+  import CVaultLinux
+#endif
+
 /// Keeps a folder of note files and the vault's notes the same, both ways.
 ///
 /// The vault (CloudKit) syncs notes between devices; the folder is this device's copy of them as real files, so

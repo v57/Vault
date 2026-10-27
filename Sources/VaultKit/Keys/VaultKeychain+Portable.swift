@@ -3,6 +3,8 @@
 
   #if os(Windows)
     import WinSDK
+  #elseif os(Linux)
+    import SecretService
   #endif
 
   /// Keychain status codes, as Apple's Security framework numbers them.
@@ -13,10 +15,12 @@
   public let errSecDuplicateItem: OSStatus = -25299
   public let errSecItemNotFound: OSStatus = -25300
   public let errSecMissingEntitlement: OSStatus = -34018
+  public let errSecNotAvailable: OSStatus = -25291
 
   /// Generic-password items for the vault where Apple's keychain is missing: the Windows Credential Manager
-  /// (encrypted for the user, like the login keychain), and elsewhere a file only the user can read. Items
-  /// are never synced; `synchronizable` items are kept apart from this-device ones, as on Apple platforms.
+  /// (encrypted for the user, like the login keychain), on Linux the freedesktop Secret Service (the login keyring,
+  /// through v57/SwiftUI's SecretService), and elsewhere a file only the user can read. Items are never synced;
+  /// `synchronizable` items are kept apart from this-device ones, as on Apple platforms.
   public struct VaultKeychain: Sendable {
     public let service: String
     public let accessGroup: String?
@@ -52,36 +56,31 @@
     /// Every app of the user shares the items.
     public static let isShared = true
 
-    /// The item's name: service, kind and account.
-    private func target(_ account: String, _ options: Options) -> String {
-      "\(prefix(options))\(account)"
-    }
-
+    /// The items' group: service and kind (an item's name is the group, then its account).
     private func prefix(_ options: Options) -> String {
       "\(service)|\(options.synchronizable ? "synced" : "device")|"
     }
 
     public func read(_ account: String, options: Options) throws -> Data? {
-      try Store.read(target(account, options))
+      try Store.read(prefix(options), account)
     }
 
     public func readAll(options: Options) throws -> [(account: String, data: Data)] {
-      let prefix = prefix(options)
-      return try Store.all(prefix: prefix).map { (String($0.target.dropFirst(prefix.count)), $0.data) }
+      try Store.all(prefix(options))
     }
 
     public func write(_ data: Data, account: String, options: Options) throws {
-      try Store.write(target(account, options), data, label: options.label)
+      try Store.write(prefix(options), account, data, label: options.label)
     }
 
     public func addNew(_ data: Data, account: String, options: Options) throws {
-      let target = target(account, options)
-      if try Store.read(target) != nil { throw KeychainError.status(errSecDuplicateItem) }
-      try Store.write(target, data, label: options.label)
+      let prefix = prefix(options)
+      if try Store.read(prefix, account) != nil { throw KeychainError.status(errSecDuplicateItem) }
+      try Store.write(prefix, account, data, label: options.label)
     }
 
     public func delete(_ account: String, options: Options) throws {
-      try Store.delete(target(account, options))
+      try Store.delete(prefix(options), account)
     }
   }
 
@@ -91,7 +90,8 @@
     private enum Store {
       private static var failure: VaultKeychain.KeychainError { .status(OSStatus(truncatingIfNeeded: GetLastError())) }
 
-      static func read(_ target: String) throws -> Data? {
+      static func read(_ prefix: String, _ account: String) throws -> Data? {
+        let target = prefix + account
         var credential: PCREDENTIALW?
         let ok = target.withCString(encodedAs: UTF16.self) { CredReadW($0, DWORD(CRED_TYPE_GENERIC), 0, &credential) }
         guard ok, let credential else {
@@ -102,7 +102,7 @@
         return blob(credential.pointee)
       }
 
-      static func all(prefix: String) throws -> [(target: String, data: Data)] {
+      static func all(_ prefix: String) throws -> [(account: String, data: Data)] {
         var count: DWORD = 0
         var credentials: UnsafeMutablePointer<PCREDENTIALW?>?
         let ok = (prefix + "*").withCString(encodedAs: UTF16.self) { CredEnumerateW($0, 0, &count, &credentials) }
@@ -113,11 +113,12 @@
         defer { CredFree(credentials) }
         return (0..<Int(count)).compactMap { index in
           guard let credential = credentials[index]?.pointee, let name = credential.TargetName else { return nil }
-          return (String(decodingCString: name, as: UTF16.self), blob(credential))
+          return (String(String(decodingCString: name, as: UTF16.self).dropFirst(prefix.count)), blob(credential))
         }
       }
 
-      static func write(_ target: String, _ data: Data, label: String?) throws {
+      static func write(_ prefix: String, _ account: String, _ data: Data, label: String?) throws {
+        let target = prefix + account
         guard data.count <= Int(CRED_MAX_CREDENTIAL_BLOB_SIZE) else { throw VaultKeychain.KeychainError.status(errSecParam) }
         var bytes = [UInt8](data)
         let ok = target.withCString(encodedAs: UTF16.self) { name in
@@ -140,14 +141,40 @@
         guard ok else { throw failure }
       }
 
-      static func delete(_ target: String) throws {
-        let ok = target.withCString(encodedAs: UTF16.self) { CredDeleteW($0, DWORD(CRED_TYPE_GENERIC), 0) }
+      static func delete(_ prefix: String, _ account: String) throws {
+        let ok = (prefix + account).withCString(encodedAs: UTF16.self) { CredDeleteW($0, DWORD(CRED_TYPE_GENERIC), 0) }
         guard ok || GetLastError() == DWORD(ERROR_NOT_FOUND) else { throw failure }
       }
 
       private static func blob(_ credential: CREDENTIALW) -> Data {
         guard let pointer = credential.CredentialBlob, credential.CredentialBlobSize > 0 else { return Data() }
         return Data(bytes: pointer, count: Int(credential.CredentialBlobSize))
+      }
+    }
+  #elseif os(Linux)
+    /// Items in the Secret Service's login collection, named by the group (service and kind) and the account. A
+    /// failure (no D-Bus session or keyring daemon) carries `errSecNotAvailable` as the status.
+    private enum Store {
+      static func read(_ prefix: String, _ account: String) throws -> Data? {
+        do { return try SecretService.read(service: prefix, account: account) } catch { throw failure(error) }
+      }
+
+      static func all(_ prefix: String) throws -> [(account: String, data: Data)] {
+        do { return try SecretService.all(service: prefix) } catch { throw failure(error) }
+      }
+
+      static func write(_ prefix: String, _ account: String, _ data: Data, label: String?) throws {
+        do {
+          try SecretService.write(data, service: prefix, account: account, label: label ?? "\(prefix)\(account)")
+        } catch { throw failure(error) }
+      }
+
+      static func delete(_ prefix: String, _ account: String) throws {
+        do { try SecretService.delete(service: prefix, account: account) } catch { throw failure(error) }
+      }
+
+      private static func failure(_ error: SecretService.Failure) -> VaultKeychain.KeychainError {
+        .status(errSecNotAvailable)
       }
     }
   #else
@@ -169,27 +196,29 @@
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
       }
 
-      static func read(_ target: String) throws -> Data? {
+      static func read(_ prefix: String, _ account: String) throws -> Data? {
         lock.lock(); defer { lock.unlock() }
-        return load()[target].flatMap { Data(base64Encoded: $0) }
+        return load()[prefix + account].flatMap { Data(base64Encoded: $0) }
       }
 
-      static func all(prefix: String) throws -> [(target: String, data: Data)] {
+      static func all(_ prefix: String) throws -> [(account: String, data: Data)] {
         lock.lock(); defer { lock.unlock() }
-        return load().filter { $0.key.hasPrefix(prefix) }.compactMap { key, value in Data(base64Encoded: value).map { (key, $0) } }
+        return load().filter { $0.key.hasPrefix(prefix) }.compactMap { key, value in
+          Data(base64Encoded: value).map { (String(key.dropFirst(prefix.count)), $0) }
+        }
       }
 
-      static func write(_ target: String, _ data: Data, label: String?) throws {
+      static func write(_ prefix: String, _ account: String, _ data: Data, label: String?) throws {
         lock.lock(); defer { lock.unlock() }
         var items = load()
-        items[target] = data.base64EncodedString()
+        items[prefix + account] = data.base64EncodedString()
         try save(items)
       }
 
-      static func delete(_ target: String) throws {
+      static func delete(_ prefix: String, _ account: String) throws {
         lock.lock(); defer { lock.unlock() }
         var items = load()
-        items[target] = nil
+        items[prefix + account] = nil
         try save(items)
       }
     }

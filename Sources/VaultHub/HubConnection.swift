@@ -7,6 +7,9 @@ import VaultKit
 #if canImport(UIKit)
   import UIKit
 #endif
+#if canImport(FoundationNetworking)
+  import FoundationNetworking
+#endif
 
 /// One Hub, while this app runs: connected as this device, its device directory mirrored into the vault's hosts, and
 /// the requests of devices waiting to join.

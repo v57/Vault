@@ -257,7 +257,7 @@ struct FolderActivityTests {
     try session.lock()
   }
 
-  #if os(macOS)
+  #if os(macOS) || os(Linux)
     @Test func watcherSealsChangesAsTheyHappen() throws {
       let directory = try TemporaryDirectory()
       let folder = try EncryptedFolder(url: directory.file("F"), key: key)
