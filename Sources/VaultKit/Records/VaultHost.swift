@@ -1,6 +1,6 @@
 import Foundation
 
-/// An SSH host: Shell's saved connections, which Database and DatabasePro tunnel through.
+/// An SSH host: Shell's saved connections, which Database tunnels through.
 public struct VaultHost: VaultRecord, Hashable {
   public static let kind = "host"
 
@@ -9,7 +9,7 @@ public struct VaultHost: VaultRecord, Hashable {
     case deviceKey
     /// A password, saved with `VaultSecrets` when `savePassword` is on.
     case password
-    /// A key imported into one app (DatabasePro), named by `keyID`.
+    /// A key imported into one app (Database), named by `keyID`.
     case importedKey
   }
 

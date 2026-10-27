@@ -1,8 +1,8 @@
 import Foundation
 
-/// A saved database connection, shared by Database, DatabasePro and Shell.
+/// A saved database connection, shared by Database and Shell.
 ///
-/// The model is DatabasePro's (the most complete); Database and Shell read what they support and leave the
+/// The model is Database's (the most complete); Shell reads what it supports and leaves the
 /// rest alone. Engine-specific settings are `options` (`authSource`, `replicaSet`, `directConnection`,
 /// `authMechanism`, `consistency`…), each its own field so two devices changing different options merge.
 /// The password is a `VaultSecrets` item named after the connection.
@@ -10,7 +10,7 @@ public struct VaultDatabase: VaultRecord, Hashable {
   public static let kind = "database"
   public static let dynamicPrefixes = ["option."]
 
-  /// Engine names, as DatabasePro's `EngineKind` raw values.
+  /// Engine names, as Database's `EngineKind` raw values.
   public enum Engine {
     public static let postgres = "postgres"
     public static let mysql = "mysql"

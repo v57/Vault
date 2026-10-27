@@ -3,7 +3,7 @@ import Foundation
 /// A JSON value: the type of every field in an item.
 ///
 /// Fields stay untyped in the store so an app that doesn't know a field (an older build, or an app that keeps
-/// a smaller model, like Shell's view of a DatabasePro connection) still carries it through unchanged.
+/// a smaller model, like Shell's view of a Database connection) still carries it through unchanged.
 public enum JSONValue: Hashable, Sendable {
   case null
   case bool(Bool)
