@@ -260,13 +260,15 @@ extension VaultStore {
   }
 }
 
-/// A project's folder on another device, and the way there when that device is on one of the user's Hubs.
+/// A project's folder on another device, and the way there: through one of the user's Hubs, or straight to a Mac that
+/// published itself.
 public struct VaultProjectPlace: Sendable, Hashable, Identifiable {
   /// The vault device.
   public var device: String
   public var deviceName: String
   public var path: String
-  /// The device as a host via Hub, when it's on one of the user's Hubs (and runs a v57 app connected to it).
+  /// The device as a host: via Hub when it's on one of the user's Hubs (and runs a v57 app connected to it), which
+  /// reaches it from anywhere, else the host the device published (`VaultHost.device`).
   public var host: VaultHost?
 
   public var id: String { device }
@@ -289,14 +291,18 @@ extension Vault {
     return projects.first { $0.paths[deviceID].map { URL(fileURLWithPath: $0).standardizedFileURL.path } == path }
   }
 
-  /// Where else a project is: every other device with a folder for it, by name, with the host via Hub that
-  /// reaches the device when there is one.
+  /// Where else a project is: every other device with a folder for it, by name, with the host that reaches the
+  /// device when there is one: via Hub first, else the host the device published.
   public func otherPlaces(of project: VaultProject) -> [VaultProjectPlace] {
-    let hubHosts = hubHosts
+    // The ways to the user's devices are Personal's, whichever account the project is in.
+    let personal = personalVault
+    let hubHosts = personal.hubHosts
+    let deviceHosts = personal.deviceHosts
     return project.paths.compactMap { device, path -> VaultProjectPlace? in
       guard device != deviceID else { return nil }
-      let host = hubHosts.first { vaultDevice(of: $0) == device }
-      let name = deviceKeys.first { $0.id == device }?.deviceName ?? host?.hub?.deviceName ?? "Another device"
+      let host =
+        hubHosts.first { personal.vaultDevice(of: $0) == device } ?? deviceHosts.first { $0.device?.deviceID == device }
+      let name = personal.deviceKeys.first { $0.id == device }?.deviceName ?? host?.hub?.deviceName ?? "Another device"
       return VaultProjectPlace(device: device, deviceName: name, path: path, host: host)
     }
     .sorted { $0.deviceName.localizedStandardCompare($1.deviceName) == .orderedAscending }

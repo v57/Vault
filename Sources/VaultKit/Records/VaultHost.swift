@@ -37,11 +37,14 @@ public struct VaultHost: VaultRecord, Hashable {
   public var jumpHostID: String?
   /// Sidebar order.
   public var order: Int
-  /// Where it came from: "shell", "ssh-config" (imported from ~/.ssh/config), "dev-vm", "hub".
+  /// Where it came from: "shell", "ssh-config" (imported from ~/.ssh/config), "dev-vm", "hub", "device".
   public var source: String?
   /// A device on one of the user's Hubs (`VaultHub`), reached at its Hub Network address: `hostname` is the
   /// overlay address, `hostKey` the SSH host key the device signed. Nil for a host the user added.
   public var hub: HubRoute?
+  /// A Mac that published itself (`VaultStore.publishDeviceHost`): SSH straight to it, at the address it gave, with
+  /// the host key it read from its own `/etc/ssh`. Nil for other hosts.
+  public var device: DeviceRoute?
   /// How builds started there over SSH sign; nil until the user picks (builds don't sign).
   public var buildSigning: BuildSigning?
 
@@ -75,19 +78,47 @@ public struct VaultHost: VaultRecord, Hashable {
     /// "SHA256:…" of `hostKey`.
     public var hostKeyFingerprint: String? { hostKey.flatMap { VaultIdentity.fingerprint(keyLine: $0) } }
 
-    /// Whether every v57 app negotiates this key's type, so trusting it ahead of time matches what they see.
-    /// Their libssh2 is built on mbedTLS, without Ed25519: a pinned Ed25519 key would look like a changed key
-    /// next to the ECDSA one the server offers them.
-    public var hostKeyIsPinnable: Bool {
-      guard let type = hostKey?.split(separator: " ").first else { return false }
-      return type.hasPrefix("ecdsa-sha2-") || type == "ssh-rsa"
+    public var hostKeyIsPinnable: Bool { hostKey.map(VaultHost.isPinnable) ?? false }
+  }
+
+  /// How a Mac that published itself is reached, kept current by that Mac.
+  public struct DeviceRoute: Sendable, Hashable {
+    /// The vault device (`VaultDevice.id`) the host is: the key to its per-device fields, such as `path.<device>`.
+    public var deviceID: String
+    /// The address the Mac published ("Studio.local"): `hostname` follows it until the user changes the hostname
+    /// (to a Tailscale name, say).
+    public var address: String
+    /// The OpenSSH host key line the Mac read from its own `/etc/ssh`.
+    public var hostKey: String?
+    /// The devices whose keys the Mac's `authorized_keys` lists, as the Mac last saw it: what the others show.
+    public var allowed: Set<String>
+
+    public init(deviceID: String, address: String, hostKey: String? = nil, allowed: Set<String> = []) {
+      self.deviceID = deviceID
+      self.address = address
+      self.hostKey = hostKey
+      self.allowed = allowed
     }
+
+    /// "SHA256:…" of `hostKey`.
+    public var hostKeyFingerprint: String? { hostKey.flatMap { VaultIdentity.fingerprint(keyLine: $0) } }
+
+    public var hostKeyIsPinnable: Bool { hostKey.map(VaultHost.isPinnable) ?? false }
+  }
+
+  /// Whether every v57 app negotiates this host key's type, so trusting it ahead of time matches what they see.
+  /// Their libssh2 is built on mbedTLS, without Ed25519: a pinned Ed25519 key would look like a changed key next
+  /// to the ECDSA one the server offers them.
+  public static func isPinnable(_ keyLine: String) -> Bool {
+    guard let type = keyLine.split(separator: " ").first else { return false }
+    return type.hasPrefix("ecdsa-sha2-") || type == "ssh-rsa"
   }
 
   public init(
     id: String = UUID().uuidString, name: String = "", hostname: String, port: Int = 22, user: String = "",
     auth: Auth = .deviceKey, keyID: String? = nil, savePassword: Bool = true, jumpHostID: String? = nil,
-    order: Int = 0, source: String? = nil, hub: HubRoute? = nil, buildSigning: BuildSigning? = nil
+    order: Int = 0, source: String? = nil, hub: HubRoute? = nil, device: DeviceRoute? = nil,
+    buildSigning: BuildSigning? = nil
   ) {
     self.id = id
     self.name = name
@@ -101,6 +132,7 @@ public struct VaultHost: VaultRecord, Hashable {
     self.order = order
     self.source = source
     self.hub = hub
+    self.device = device
     self.buildSigning = buildSigning
   }
 
@@ -127,6 +159,12 @@ public struct VaultHost: VaultRecord, Hashable {
         platform: read.string("hub.platform", default: ""), hostKey: read.string("hub.hostKey"),
         lastSeen: read.date("hub.lastSeen"))
     }
+    if let deviceID = read.string("device.id") {
+      let allowed = read.string("device.allowed", default: "").split(separator: ",").map(String.init)
+      device = DeviceRoute(
+        deviceID: deviceID, address: read.string("device.address", default: ""), hostKey: read.string("device.hostKey"),
+        allowed: Set(allowed))
+    }
   }
 
   public var values: [String: JSONValue] {
@@ -138,11 +176,17 @@ public struct VaultHost: VaultRecord, Hashable {
       "hub.id": .init(hub?.hubID), "hub.device": .init(hub?.deviceID), "hub.deviceName": .init(hub?.deviceName),
       "hub.platform": .init(hub?.platform), "hub.hostKey": .init(hub?.hostKey), // Whole hours, written as an integer: that's how the store reads it back, so an unchanged value isn't a change.
       "hub.lastSeen": hub?.lastSeen.map { .int(Int64($0.timeIntervalSince1970)) } ?? .null,
+      // Only the Mac writes its route, so the allowed devices can be one field.
+      "device.id": .init(device?.deviceID), "device.address": .init(device?.address),
+      "device.hostKey": .init(device?.hostKey), "device.allowed": .init(device.map { $0.allowed.sorted().joined(separator: ",") }),
     ]
   }
 
   /// Whether the host is a device on one of the user's Hubs, reached through Hub Network.
   public var isViaHub: Bool { hub != nil }
+
+  /// Whether the host is a Mac of the user's that published itself, reached over SSH without a Hub.
+  public var isDevice: Bool { device != nil }
 
   /// Name if given, otherwise user@host.
   public var displayName: String {

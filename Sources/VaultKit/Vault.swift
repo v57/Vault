@@ -48,6 +48,8 @@ public final class Vault {
   @ObservationIgnored public let store: VaultStore?
   /// The app's sync engine: Personal's, which carries the accounts too.
   @ObservationIgnored public internal(set) var sync: CloudSync?
+  /// Personal, for an account's vault that `Vaults` opened.
+  @ObservationIgnored weak var personal: Vault?
   /// Called after every reload that read the store (`Vaults` follows Personal's accounts).
   @ObservationIgnored var didReload: (() -> Void)?
   @ObservationIgnored private var observer: VaultChangeObserver?
@@ -120,6 +122,7 @@ public final class Vault {
     let revision = store.revision
     guard force || revision != loadedRevision else { return }
     loadedRevision = revision
+    let oldDeviceKeys = deviceKeys
     do {
       projects = try store.records(VaultProject.self).sorted {
         $0.name.localizedStandardCompare($1.name) == .orderedAscending
@@ -157,6 +160,12 @@ public final class Vault {
       self.error = error.localizedDescription
     }
     lookForIcons()
+    #if os(macOS)
+      // At launch, and when a device's key arrives, changes or goes: keep this Mac's authorized_keys and host current.
+      if deviceKeys != oldDeviceKeys, isPersonal, thisDeviceHost != nil {
+        Task { @MainActor [weak self] in self?.refreshThisMac() }
+      }
+    #endif
     didReload?()
   }
 
@@ -220,12 +229,23 @@ public final class Vault {
     id.flatMap { id in hubs.first { $0.id == id } }
   }
 
+  /// The vault holding what belongs to the user rather than an account: devices' keys, Hubs, the hosts that reach the
+  /// user's devices and the host keys they trust. Itself for Personal.
+  public var personalVault: Vault { personal ?? self }
+
   /// The hosts that are devices on the user's Hubs, reached through Hub Network.
   public var hubHosts: [VaultHost] { hosts.filter(\.isViaHub) }
+
+  /// The Macs that published themselves, reached over SSH without a Hub.
+  public var deviceHosts: [VaultHost] { hosts.filter(\.isDevice) }
+
+  /// This Mac as the others reach it, when it lets them in (`VaultStore.publishDeviceHost`).
+  public var thisDeviceHost: VaultHost? { deviceHosts.first { $0.device?.deviceID == deviceID } }
 
   /// The vault device a host via Hub is, when that device runs a v57 app connected to the Hub: the key to its
   /// per-device fields, such as where a project is on it (`project.paths[device]`).
   public func vaultDevice(of host: VaultHost) -> String? {
+    if let route = host.device { return route.deviceID }
     guard let route = host.hub, let hub = hub(id: route.hubID) else { return nil }
     if let device = hub.vaultDevice(forHubDevice: route.deviceID) { return device }
     // The same Hub under another address (the hub's own machine reaches it at 127.0.0.1, the others at its LAN

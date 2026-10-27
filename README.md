@@ -178,6 +178,16 @@ in an SSH session. Other apps read these hosts through VaultKit
 alone (`Vault.hubHosts`, `VaultHost.isViaHub`), so they never link Hub. Owners also see `hub/devices/pending` and
 approve with the safety code, which Vault computes from the key rather than trusting the Hub's.
 
+**Macs without a Hub.** A Mac can let the user's devices in over plain SSH (the Vault app's Devices ▸ SSH from your
+devices, off until turned on): it publishes itself as a `VaultHost` with a `device` route (`DeviceRoute`: its vault
+device id, its Bonjour address, the host key from its own `/etc/ssh`, trusted for every app, and the devices it
+allows), so `Vault.otherPlaces` finds its projects' folders there when no Hub reaches it. Each device is allowed by
+hand: its `VaultDeviceKey` goes into `~/.ssh/authorized_keys` with a `v57-device=<id>` comment (`VaultAuthorizedKeys`),
+which only Vault's own lines carry. A device that's gone or has a new key loses its line whenever a Mac app reloads
+the keys, and a new key is never allowed by following the vault. The hostname follows the Mac's address until the
+user sets another (a Tailscale name, say). These hosts, like the Hubs, are Personal's: an account's vault finds them
+through `personalVault`.
+
 **Record sync over Hub.** `HubSync` (VaultKit, next to `CloudSync`) syncs the records through the Hub's `hub-vault`
 service (`~/Developer/Hub/Services/hub-vault`), for devices without iCloud, when a device turns it on for a Hub
 (`syncs.<device>`, off by default). Each sealed item goes up as an envelope when its version changed since it last
@@ -211,7 +221,7 @@ sample data only for folder sync and remote listings. It never touches the user'
 | `Core/` | `JSONValue`, `HybridClock`, `ItemFields` (the merge), `VaultConfiguration` (identifiers) |
 | `Keys/` | `VaultKeychain` (shared group), `VaultKeys` (AES keys, sealing), `VaultIdentity` (SSH key), `VaultSecrets`, `VaultDevice`, the recovery key (`VaultRecovery`, `RecoverySecret` and `RecoveryWordList`, `RecoveryKit`, the `VaultRecoveryKey` and `VaultRecoveryBlob` records) |
 | `Store/` | `VaultStore` (SQLite, outbox, merging records in), change notifications, `VaultFieldChange` (each field's last write: when, which device) |
-| `Records/` | Typed records: `VaultProject`, `VaultProjectGroup` (with `VaultProjectTree`), `VaultHost` (with its `HubRoute`), `VaultKnownHost`, `VaultDeviceKey`, `VaultHubServer` (with `VaultHubDevice` and the mirror), `VaultDatabase`, `VaultNote`, `VaultNoteFile`, `VaultLogin`, `VaultCard`, `VaultFolder`, `VaultRemote` |
+| `Records/` | Typed records: `VaultProject`, `VaultProjectGroup` (with `VaultProjectTree`), `VaultHost` (with its `HubRoute` and `DeviceRoute`, and `VaultDeviceHost`'s publishing), `VaultKnownHost`, `VaultDeviceKey`, `VaultHubServer` (with `VaultHubDevice` and the mirror), `VaultDatabase`, `VaultNote`, `VaultNoteFile`, `VaultLogin`, `VaultCard`, `VaultFolder`, `VaultRemote` |
 | `Remote/` | `RemoteFileSystem` (list, stat, read range, write, rename, delete), `MemoryRemoteFileSystem`, `LocalRemoteFileSystem`, `S3FileSystem` (AWS S3, R2, B2, MinIO; `AWSSignatureV4`, an injectable `S3Transport`), `RemoteConnections` (the file system for a `VaultRemote`) |
 | `Sharing/` | `PersonalIdentity` (X25519 + Ed25519, one per person, `VaultPersonalIdentity`), `PublicIdentity` (`v57id:`), `SafetyCode`, `KeyWrap` (a key sealed to a person), `VaultPerson`, `VaultInvite` (`v57vault://invite`) |
 | `Sync/` | `SyncCoordinator` (the sync rules, testable), `CloudSync` (the `CKSyncEngine` adapter) |

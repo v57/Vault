@@ -50,6 +50,7 @@ public final class Vaults {
     do {
       let vault = Vault(store: try stores.store(forAccount: account.id), accountID: account.id)
       vault.sync = personal.sync
+      vault.personal = personal
       opened[account.id] = vault
       return vault
     } catch {
