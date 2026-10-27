@@ -10,6 +10,7 @@ let package = Package(
     .library(name: "VaultFiles", targets: ["VaultFiles"]),
     .library(name: "VaultSync", targets: ["VaultSync"]),
     .library(name: "VaultHub", targets: ["VaultHub"]),
+    .library(name: "VaultUI", targets: ["VaultUI"]),
   ],
   dependencies: [
   ],
@@ -32,6 +33,9 @@ let package = Package(
         .product(name: "Channel", package: "ChannelSwift"),
       ]),
     .testTarget(name: "VaultHubTests", dependencies: ["VaultHub"], resources: [.copy("Fixtures")]),
+    // The accounts' screens every app shows, on ComponentKit: the window's account (VaultAccountScope), its picker,
+    // New Account and Settings ▸ Accounts.
+    .target(name: "VaultUI", dependencies: ["VaultKit", .product(name: "ComponentKit", package: "Component")]),
   ]
 )
 
@@ -42,6 +46,11 @@ package.dependencies += Context.environment["V57_LOCAL"] == nil
     .package(url: "https://github.com/v57/ChannelSwift.git", branch: "main"),
   ]
   : [.package(path: "../../Hub/HubService/HubService"), .package(path: "../../Hub/Channel/ChannelSwift")]
+
+// ComponentKit (`../Component`) for VaultUI: GitHub's main branch, or the checkout next to this one with `V57_LOCAL=1`.
+package.dependencies.append(
+  Context.environment["V57_LOCAL"] == nil
+    ? .package(url: "https://github.com/v57/Component.git", branch: "main") : .package(path: "../Component"))
 
 #if os(Windows) || os(Linux)
 // Off Apple platforms CryptoKit and SQLite3 come from v57/SwiftUI's stand-ins (GitHub's main branch, or the
