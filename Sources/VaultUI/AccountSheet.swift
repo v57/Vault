@@ -30,7 +30,7 @@ public struct VaultAccountSheet: View {
     KitSheet(
       title: account == nil ? "New Account" : account!.name,
       meta: account == nil
-        ? "A vault of its own for a client, an employer or a team: its projects, hosts, keys and settings stay apart from Personal's."
+        ? "A vault of its own for a client, an employer or a team: its projects, hosts, passwords and settings stay apart from Personal's."
         : "Its tile in the account picker."
     ) {
       Avatar(name: trimmed.isEmpty ? "?" : trimmed, letters: trimmed.first.map { String($0).uppercased() } ?? "?",

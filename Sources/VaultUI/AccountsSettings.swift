@@ -63,7 +63,7 @@ public struct VaultAccountsSettings: View {
       }
       .kitConfirmation(
         "Delete \(deleting?.name ?? "")?", isPresented: Binding { deleting != nil } set: { if !$0 { deleting = nil } },
-        message: "Its projects, hosts, keys and settings are deleted on every device. Personal keeps everything.",
+        message: "Its projects, hosts, passwords and settings are deleted on every device. Personal keeps everything.",
         systemImage: "trash", confirm: "Delete"
       ) {
         guard let account = deleting else { return }
