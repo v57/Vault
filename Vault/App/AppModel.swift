@@ -68,12 +68,15 @@ enum NewItemKind: String, CaseIterable, Hashable, Identifiable {
   var id: String { rawValue }
 }
 
-/// The app: the vault (the shared store, or a demo one), the folders and the services that aren't built yet, the
-/// window's selection and the sheet it shows.
+/// An account's side of the app: its vault (Personal's shared store, an account's, or the demo one), the folders and
+/// the services that aren't built yet, and the selection and sheet of the windows showing it.
 @MainActor
 @Observable
 final class AppModel {
   let vault: Vault
+  /// Personal's vault (the demo one with `--demo`): devices' keys (`VaultDeviceKey`) are per device, the same for
+  /// every account, and only Personal's store holds them.
+  let deviceVault: Vault
   /// A demo vault in a temporary folder, with in-memory keys and secrets: screenshots and design checks, never the
   /// user's data.
   let isDemo: Bool
@@ -97,9 +100,10 @@ final class AppModel {
   /// When iCloud last synced, as this app saw it.
   var lastSync: Date?
 
-  init(vault: Vault, isDemo: Bool, folders: FolderLibrary, remotes: any RemoteService, sharing: any SharingService,
-       recovery: any RecoveryService, hubs: any HubEngine) {
+  init(vault: Vault, deviceVault: Vault? = nil, isDemo: Bool, folders: FolderLibrary, remotes: any RemoteService,
+       sharing: any SharingService, recovery: any RecoveryService, hubs: any HubEngine) {
     self.vault = vault
+    self.deviceVault = deviceVault ?? vault
     self.isDemo = isDemo
     self.folders = folders
     self.remotes = remotes
@@ -108,7 +112,14 @@ final class AppModel {
     self.hubs = hubs
   }
 
-  /// The model for this launch: the demo vault with `--demo`, the shared store otherwise.
+  /// The models windows showed in this process, by account id: Personal's (or the demo's) from `launch()`, an
+  /// account's from the first window that shows it, kept so its Hubs and decrypted folders don't depend on a window.
+  private static var models: [String: AppModel] = [:]
+
+  /// Every account's model this process made.
+  static var all: [AppModel] { Array(models.values) }
+
+  /// The model for this launch, Personal's: the demo vault with `--demo`, the shared store otherwise.
   static func launch() -> AppModel {
     FilePreviewPage.removeLeftoverCopies()
     let model: AppModel
@@ -132,7 +143,39 @@ final class AppModel {
       model.lastSync = vault.sync?.isRunning == true ? .now : nil
     }
     model.applyLaunchOptions()
+    models[VaultAccount.personal.id] = model
     return model
+  }
+
+  /// The model of the account a window shows (`VaultAccountScope`'s vault): Personal's from `launch()`, an account's
+  /// made on first use with its own folders (sealed with the account's keys), remotes, people and Hubs. It starts the
+  /// account's Hubs, which writes to its vault, so call it outside a view's body.
+  static func model(for vault: Vault) -> AppModel {
+    if let model = models[vault.accountID] { return model }
+    let personal = models[VaultAccount.personal.id]
+    let keys = Vaults.shared.stores?.keychain.keys(forAccount: vault.accountID)
+    let hubs = HubDirectory(vault: vault)
+    hubs.start()
+    let model = AppModel(
+      vault: vault, deviceVault: personal?.vault ?? Vaults.shared.personal, isDemo: false,
+      folders: keys.map { FolderLibrary(vault: vault, keys: $0, sync: NoFolderSync()) }
+        ?? FolderLibrary(vault: vault, sync: NoFolderSync()),
+      remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault), recovery: UnavailableRecovery(),
+      hubs: LiveHubs(directory: hubs))
+    model.lastSync = personal?.lastSync
+    model.applyLaunchOptions()
+    models[vault.accountID] = model
+    return model
+  }
+
+  /// Drops the models of accounts deleted here or on another device: their Hubs disconnect and their decrypted
+  /// folders lock.
+  static func dropDeletedAccounts() {
+    for (id, model) in models where id != VaultAccount.personal.id && Vaults.shared.account(id: id) == nil {
+      model.folders.lockAll()
+      (model.hubs as? LiveHubs)?.directory.stop()
+      models[id] = nil
+    }
   }
 
   /// `--select <item>`, `--login <title>`, `--host <name>`, `--person <name>`, `--sheet <name>` (new-login, add-remote, decrypt, share, scan, autofill; DEBUG and screenshots).
@@ -180,18 +223,20 @@ final class AppModel {
     }
   }
 
-  /// The system’s background turn (iPhone and iPad): sync iCloud and check the remotes folders use, then ask for
-  /// the next turn while remote checks are on.
-  func refreshInBackground() async {
-    syncNow()
-    await folders.syncAll()
+  /// The system’s background turn (iPhone and iPad): sync iCloud (one engine carries every account) and check the
+  /// remotes every account's folders use, then ask for the next turn while remote checks are on.
+  static func refreshInBackground() async {
+    for model in all {
+      model.syncNow()
+      await model.folders.syncAll()
+    }
     scheduleBackgroundRefresh()
   }
 
   /// Asks the system for the next background turn, as often as Settings' "Check remotes" says.
-  func scheduleBackgroundRefresh() {
+  static func scheduleBackgroundRefresh() {
     let minutes = UserDefaults.standard.object(forKey: "remoteCheckMinutes") as? Int ?? 5
-    if folders.folders.contains(where: { $0.record.remoteID != nil }) {
+    if all.contains(where: { $0.folders.folders.contains { $0.record.remoteID != nil } }) {
       VaultBackgroundRefresh.schedule(after: TimeInterval(max(15, minutes) * 60))
     } else {
       VaultBackgroundRefresh.cancel()
@@ -214,15 +259,15 @@ final class AppModel {
   var notes: [VaultNote] { (try? vault.store?.records(VaultNote.self)) ?? [] }
 
   /// Devices that published a key: this one and the others.
-  var devices: [VaultDeviceKey] { vault.deviceKeys.filter { $0.id == vault.deviceID } + otherDevices }
+  var devices: [VaultDeviceKey] { deviceVault.deviceKeys.filter { $0.id == vault.deviceID } + otherDevices }
 
-  var thisDevice: VaultDeviceKey? { vault.deviceKeys.first { $0.id == vault.deviceID } }
+  var thisDevice: VaultDeviceKey? { deviceVault.deviceKeys.first { $0.id == vault.deviceID } }
 
-  var otherDevices: [VaultDeviceKey] { vault.deviceKeys.filter { $0.id != vault.deviceID } }
+  var otherDevices: [VaultDeviceKey] { deviceVault.deviceKeys.filter { $0.id != vault.deviceID } }
 
   /// The name of the device that wrote a change.
   func deviceName(_ id: String) -> String {
-    vault.deviceKeys.first { $0.id == id }?.deviceName ?? (id == vault.deviceID ? KitDevice.name : "Another device")
+    deviceVault.deviceKeys.first { $0.id == id }?.deviceName ?? (id == vault.deviceID ? KitDevice.name : "Another device")
   }
 
   /// "iCloud · 3 devices", the sidebar's status.

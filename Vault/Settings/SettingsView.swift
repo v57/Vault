@@ -1,6 +1,7 @@
 import ComponentKit
 import SwiftUI
 import VaultKit
+import VaultUI
 
 #if os(macOS)
   import UpdateKit
@@ -38,10 +39,14 @@ struct SettingsView: View {
       SettingsPane("Recovery Key", systemImage: "key", hue: .orange, value: app.recovery.isOn ? "On" : "Off") { RecoveryKeyPane() }
       SettingsPane("AutoFill", systemImage: "rectangle.and.pencil.and.ellipsis", hue: .gray, value: "Off") { AutoFillPane() }
       SettingsPane("Hub", systemImage: "point.3.connected.trianglepath.dotted", hue: .purple, value: hubValue) { HubPane() }
+      // The accounts every v57 app shares; not in demo runs, which never open the user's vaults.
+      if !app.isDemo {
+        SettingsPane("Accounts", systemImage: "person.2", hue: .indigo, section: "v57") { VaultAccountsSettings() }
+      }
       #if os(macOS)
-        SettingsPane("Updates", systemImage: "arrow.down.circle", hue: .gray) { UpdatesPane(updater: updater) }
+        SettingsPane("Updates", systemImage: "arrow.down.circle", hue: .gray, section: "v57") { UpdatesPane(updater: updater) }
       #else
-        SettingsPane("About", systemImage: "info.circle", hue: .gray) { AboutPane() }
+        SettingsPane("About", systemImage: "info.circle", hue: .gray, section: "v57") { AboutPane() }
       #endif
     }
     .frame(minWidth: idiom == .mac ? 760 : nil, minHeight: idiom == .mac ? 600 : nil)

@@ -201,11 +201,12 @@ with a fake mailbox (`HubSyncTests`) and live against hub-pro and hub-vault (`Hu
 ## The Vault app
 
 `Vault/` is a Mac and iPad app on VaultKit and VaultFiles (`Vault.xcodeproj`, bundle `dev.v57.vault`; build it against
-the checkouts next to this one with `Vault-Local.xcworkspace`). It imports only SwiftUI, ComponentKit, VaultKit and
-VaultFiles, plus UpdateKit on the Mac. It shows the records every v57 app already shares (logins, cards, notes, SSH
-hosts, databases, projects, devices) and the newer pieces: encrypted folders with timed decryption for other apps,
-people and safety codes, remotes, and the user's own Hubs (`VaultHub`: connect per device, the devices with presence
-and SSH, approvals with the safety code, revoke). What VaultKit doesn't do yet is drawn against protocols in `Vault/Engine/`
+the checkouts next to this one with `Vault-Local.xcworkspace`). It imports only SwiftUI, ComponentKit, VaultKit,
+VaultFiles, VaultHub and VaultUI, plus UpdateKit on the Mac. Each window shows one account (`VaultAccountScope`, the
+picker first in the sidebar, Settings ▸ Accounts to make, rename and delete them); `--demo` has none. It shows the
+records every v57 app already shares (logins, cards, notes, SSH hosts, databases, projects, devices) and the newer
+pieces: encrypted folders with timed decryption for other apps, people and safety codes, remotes, and the user's own
+Hubs (`VaultHub`: connect per device, the devices with presence and SSH, approvals with the safety code, revoke). What VaultKit doesn't do yet is drawn against protocols in `Vault/Engine/`
 (`FolderSyncEngine`, `RemoteService` backends, `RecoveryService`; `HubEngine` is live, with a demo), each saying plainly what isn't there yet.
 
 `--demo` opens a demo vault in a temporary folder: in-memory keys, secrets and identity, real encrypted folders, and

@@ -1,9 +1,11 @@
 import ComponentKit
 import SwiftUI
 import VaultKit
+import VaultUI
 
-/// The sidebar: Items (the record kinds the store holds), Folders (encrypted or synced), Locations (this device and
-/// every remote) and Keys (devices, people, the recovery key), with search, iCloud's state and New in the bottom bar.
+/// The sidebar: the window's account, Items (the record kinds the store holds), Folders (encrypted or synced),
+/// Locations (this device and every remote) and Keys (devices, people, the recovery key), with search, iCloud's state
+/// and New in the bottom bar.
 struct SidebarView: View {
   @Binding var columnVisibility: NavigationSplitViewVisibility
   @Environment(AppModel.self) private var app
@@ -17,6 +19,8 @@ struct SidebarView: View {
       selection: $app.selection, searchText: $search, searchPrompt: "Search Vault",
       columnVisibility: idiom.isTouch ? $columnVisibility : nil
     ) {
+      // The window's account; nothing while Personal is the only one.
+      VaultAccountPicker(meta: "\(app.itemCount) items")
       itemsSection
       FoldersSection()
       LocationsSection()

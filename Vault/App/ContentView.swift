@@ -63,12 +63,10 @@ struct ContentView: View {
     .onOpenURL { url in app.sharing.open(url) }
     .onChange(of: scenePhase) { _, phase in
       // Leaving the screen: ask for a background turn to check remotes (iPhone and iPad; nothing on the Mac).
-      if phase == .background, !app.isDemo { app.scheduleBackgroundRefresh() }
+      if phase == .background, !app.isDemo { AppModel.scheduleBackgroundRefresh() }
     }
-    .task(id: [AnyHashable(app.vault.logins), AnyHashable(app.vault.passkeys)]) {
-      // What the system offers in password and passkey fields (only once Vault is turned on in AutoFill settings).
-      if !app.isDemo { await VaultAutoFill.publish(app.vault.logins, passkeys: app.vault.passkeys) }
-    }
+    // The menu commands act on the focused window's account.
+    .focusedSceneValue(\.appModel, app)
     .onAppear {
       // `--select` on iPhone opens that screen over the root list.
       if LaunchOptions.value("--select") != nil { compactColumn = .detail }
