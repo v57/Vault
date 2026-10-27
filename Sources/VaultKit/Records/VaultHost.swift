@@ -20,9 +20,9 @@ public struct VaultHost: VaultRecord, Hashable {
     case none
     /// Unlocks the login keychain first with the user's password (`VaultSecrets.password(for:)` of the host).
     case loginKeychain
-    /// Unlocks a keychain set up on the Mac for this, holding only its signing identities, whose password stays
-    /// on the Mac.
-    case signingKeychain
+    /// Runs the build in the desktop session of the user logged in on the Mac (a launchd job), whose login keychain
+    /// is unlocked: no password, and the build outlives the SSH connection.
+    case desktopSession
   }
 
   public var id: String
@@ -117,7 +117,10 @@ public struct VaultHost: VaultRecord, Hashable {
     jumpHostID = read.string("jumpHostID")
     order = read.int("order", default: 0)
     source = read.string("source")
-    buildSigning = read.string("buildSigning").flatMap(BuildSigning.init)
+    buildSigning = read.string("buildSigning").flatMap {
+      // "signingKeychain", the mode desktopSession replaced
+      BuildSigning(rawValue: $0 == "signingKeychain" ? "desktopSession" : $0)
+    }
     if let hubID = read.string("hub.id"), let deviceID = read.string("hub.device") {
       hub = HubRoute(
         hubID: hubID, deviceID: deviceID, deviceName: read.string("hub.deviceName", default: ""),

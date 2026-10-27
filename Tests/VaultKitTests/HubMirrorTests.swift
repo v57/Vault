@@ -51,14 +51,14 @@ struct HubMirrorTests {
     try store.mirrorHubDevices([studio()], hubID: "hub1")
     var host = try #require(try store.records(VaultHost.self).first)
     #expect(host.buildSigning == nil)
-    host.buildSigning = .signingKeychain
+    host.buildSigning = .desktopSession
     try store.save(host)
 
     // The device moves to a new address: the host follows, and keeps how builds there sign.
     try store.mirrorHubDevices([studio(address: "100.96.0.7")], hubID: "hub1")
     host = try #require(try store.records(VaultHost.self).first)
     #expect(host.hostname == "100.96.0.7")
-    #expect(host.buildSigning == .signingKeychain)
+    #expect(host.buildSigning == .desktopSession)
   }
 
   @Test func renamesFollowTheHubUntilTheUserRenames() throws {
