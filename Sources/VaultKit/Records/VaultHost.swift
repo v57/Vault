@@ -13,6 +13,18 @@ public struct VaultHost: VaultRecord, Hashable {
     case importedKey
   }
 
+  /// How builds started on this Mac over SSH sign their products (Code's remote Build and Test). An SSH session
+  /// can't use the login keychain, which stays locked there while it's unlocked on the Mac's screen.
+  public enum BuildSigning: String, Sendable, CaseIterable {
+    /// No signing: the build checks the code compiles and tests run, but makes no app to copy and run elsewhere.
+    case none
+    /// Unlocks the login keychain first with the user's password (`VaultSecrets.password(for:)` of the host).
+    case loginKeychain
+    /// Unlocks a keychain set up on the Mac for this, holding only its signing identities, whose password stays
+    /// on the Mac.
+    case signingKeychain
+  }
+
   public var id: String
   public var name: String
   public var hostname: String
@@ -30,6 +42,8 @@ public struct VaultHost: VaultRecord, Hashable {
   /// A device on one of the user's Hubs (`VaultHub`), reached at its Hub Network address: `hostname` is the
   /// overlay address, `hostKey` the SSH host key the device signed. Nil for a host the user added.
   public var hub: HubRoute?
+  /// How builds started there over SSH sign; nil until the user picks (builds don't sign).
+  public var buildSigning: BuildSigning?
 
   /// How a host on a Hub is reached and trusted, kept current from the Hub's device directory.
   public struct HubRoute: Sendable, Hashable {
@@ -73,7 +87,7 @@ public struct VaultHost: VaultRecord, Hashable {
   public init(
     id: String = UUID().uuidString, name: String = "", hostname: String, port: Int = 22, user: String = "",
     auth: Auth = .deviceKey, keyID: String? = nil, savePassword: Bool = true, jumpHostID: String? = nil,
-    order: Int = 0, source: String? = nil, hub: HubRoute? = nil
+    order: Int = 0, source: String? = nil, hub: HubRoute? = nil, buildSigning: BuildSigning? = nil
   ) {
     self.id = id
     self.name = name
@@ -87,6 +101,7 @@ public struct VaultHost: VaultRecord, Hashable {
     self.order = order
     self.source = source
     self.hub = hub
+    self.buildSigning = buildSigning
   }
 
   public init(id: String, values: [String: JSONValue]) {
@@ -102,6 +117,7 @@ public struct VaultHost: VaultRecord, Hashable {
     jumpHostID = read.string("jumpHostID")
     order = read.int("order", default: 0)
     source = read.string("source")
+    buildSigning = read.string("buildSigning").flatMap(BuildSigning.init)
     if let hubID = read.string("hub.id"), let deviceID = read.string("hub.device") {
       hub = HubRoute(
         hubID: hubID, deviceID: deviceID, deviceName: read.string("hub.deviceName", default: ""),
@@ -115,6 +131,7 @@ public struct VaultHost: VaultRecord, Hashable {
       "name": .string(name), "hostname": .string(hostname), "port": .init(port), "user": .string(user),
       "auth": .string(auth.rawValue), "keyID": .init(keyID), "savePassword": .bool(savePassword),
       "jumpHostID": .init(jumpHostID), "order": .init(order), "source": .init(source),
+      "buildSigning": .init(buildSigning?.rawValue),
       "hub.id": .init(hub?.hubID), "hub.device": .init(hub?.deviceID), "hub.deviceName": .init(hub?.deviceName),
       "hub.platform": .init(hub?.platform), "hub.hostKey": .init(hub?.hostKey), // Whole hours, written as an integer: that's how the store reads it back, so an unchanged value isn't a change.
       "hub.lastSeen": hub?.lastSeen.map { .int(Int64($0.timeIntervalSince1970)) } ?? .null,
