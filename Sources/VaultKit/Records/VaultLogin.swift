@@ -219,11 +219,12 @@ extension VaultStore {
     return true
   }
 
-  /// Deletes a login and its password and one-time code.
+  /// Deletes a login, its password and one-time code, and its passkeys.
   public func deleteLogin(id: String) throws {
     try delete(id: id)
     try VaultSecrets.setPassword(nil, for: id)
     try VaultSecrets.setSecret(nil, named: VaultLogin.oneTimeCodeSecret(id))
+    for passkey in try records(VaultPasskey.self) where passkey.login == id { try deletePasskey(id: passkey.id) }
   }
 
   /// Saves a card's number (nil or empty deletes it) and sets `last4`, and `brand` when it was empty.

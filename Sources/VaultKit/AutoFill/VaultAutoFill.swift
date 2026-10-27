@@ -54,22 +54,37 @@ public enum VaultAutoFill {
   }
 
   #if canImport(AuthenticationServices) && (os(macOS) || os(iOS))
-    /// Replaces what the system offers in password fields with these logins (each by its site and username; the
-    /// password itself stays in the keychain until the person picks one). Does nothing unless Vault is turned on
-    /// in the system's AutoFill settings.
-    public static func publish(_ logins: [VaultLogin]) async {
+    /// Replaces what the system offers in password fields with these logins and passkeys (each by its site and
+    /// username; the password or private key stays in the keychain until the person picks one). Does nothing
+    /// unless Vault is turned on in the system's AutoFill settings.
+    public static func publish(_ logins: [VaultLogin], passkeys: [VaultPasskey] = []) async {
       let store = ASCredentialIdentityStore.shared
       guard await store.state().isEnabled else { return }
-      let identities: [ASPasswordCredentialIdentity] = logins.compactMap { login in
+      var identities: [any ASCredentialIdentity] = logins.compactMap { login in
         guard let domain = login.domain, !login.username.isEmpty else { return nil }
         return ASPasswordCredentialIdentity(
           serviceIdentifier: ASCredentialServiceIdentifier(identifier: domain, type: .domain), user: login.username,
           recordIdentifier: login.id)
       }
-      try? await store.replaceCredentialIdentities(with: identities)
+      identities += passkeys.map(identity)
+      try? await store.replaceCredentialIdentities(identities)
+    }
+
+    /// Adds a new passkey to what the system offers, without waiting for the next `publish`.
+    public static func publish(_ passkey: VaultPasskey) async {
+      let store = ASCredentialIdentityStore.shared
+      guard await store.state().isEnabled else { return }
+      try? await store.saveCredentialIdentities([identity(passkey)])
+    }
+
+    private static func identity(_ passkey: VaultPasskey) -> ASPasskeyCredentialIdentity {
+      ASPasskeyCredentialIdentity(
+        relyingPartyIdentifier: passkey.relyingParty, userName: passkey.userName, credentialID: passkey.credentialID,
+        userHandle: passkey.userHandle, recordIdentifier: passkey.id)
     }
   #else
     /// Elsewhere the platform's own autofill service reads the vault; nothing to publish.
-    public static func publish(_ logins: [VaultLogin]) async {}
+    public static func publish(_ logins: [VaultLogin], passkeys: [VaultPasskey] = []) async {}
+    public static func publish(_ passkey: VaultPasskey) async {}
   #endif
 }

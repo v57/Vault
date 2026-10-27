@@ -179,6 +179,11 @@ enum DemoVault {
       try air.save(id: admin.id, kind: VaultLogin.kind, changes: ["username": .string("aiko")])
     }
 
+    // GitHub and Figma sign in with passkeys too.
+    for (relyingParty, username) in [("github.com", "aiko-tanaka"), ("figma.com", "design@atlas.example.com")] {
+      _ = try store.createPasskey(relyingParty: relyingParty, userName: username, userHandle: Data(username.utf8), userVerified: true, now: day(9, 14))
+    }
+
     // Cards.
     for (title, holder, last4, expiry, brand) in [
       ("Atlas company card", "Aiko Tanaka", "4417", "08/28", "Visa"), ("Personal", "Aiko Tanaka", "9012", "03/27", "Mastercard"),

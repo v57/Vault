@@ -22,6 +22,8 @@ public final class Vault {
   public private(set) var knownHosts: [VaultKnownHost] = []
   /// Logins, by title.
   public private(set) var logins: [VaultLogin] = []
+  /// Passkeys, by site (each belongs to a login).
+  public private(set) var passkeys: [VaultPasskey] = []
   public private(set) var cards: [VaultCard] = []
   /// Encrypted and synced folders.
   public private(set) var folders: [VaultFolder] = []
@@ -119,6 +121,7 @@ public final class Vault {
       logins = try store.records(VaultLogin.self).sorted {
         $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
       }
+      passkeys = try store.records(VaultPasskey.self).sorted { ($0.relyingParty, $0.userName) < ($1.relyingParty, $1.userName) }
       folders = try store.records(VaultFolder.self).sorted {
         ($0.order, $0.name.localizedLowercase) < ($1.order, $1.name.localizedLowercase)
       }
@@ -189,6 +192,11 @@ public final class Vault {
 
   public func host(id: String?) -> VaultHost? {
     id.flatMap { id in hosts.first { $0.id == id } }
+  }
+
+  /// A login's passkeys.
+  public func passkeys(forLogin id: String) -> [VaultPasskey] {
+    passkeys.filter { $0.login == id }
   }
 
   public func hub(id: String?) -> VaultHubServer? {

@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Vault's credential provider: the system starts it when a password field asks (not a helper). -->
+	<!-- Vault's credential provider: the system starts it when a password, code or passkey field asks (not a helper). -->
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionAttributes</key>
@@ -12,6 +12,8 @@
 				<key>ProvidesPasswords</key>
 				<true/>
 				<key>ProvidesOneTimeCodes</key>
+				<true/>
+				<key>ProvidesPasskeys</key>
 				<true/>
 			</dict>
 		</dict>

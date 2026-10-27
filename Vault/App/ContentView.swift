@@ -65,9 +65,9 @@ struct ContentView: View {
       // Leaving the screen: ask for a background turn to check remotes (iPhone and iPad; nothing on the Mac).
       if phase == .background, !app.isDemo { app.scheduleBackgroundRefresh() }
     }
-    .task(id: app.vault.logins) {
-      // What the system offers in password fields (only once Vault is turned on in AutoFill settings).
-      if !app.isDemo { await VaultAutoFill.publish(app.vault.logins) }
+    .task(id: [AnyHashable(app.vault.logins), AnyHashable(app.vault.passkeys)]) {
+      // What the system offers in password and passkey fields (only once Vault is turned on in AutoFill settings).
+      if !app.isDemo { await VaultAutoFill.publish(app.vault.logins, passkeys: app.vault.passkeys) }
     }
     .onAppear {
       // `--select` on iPhone opens that screen over the root list.

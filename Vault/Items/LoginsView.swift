@@ -154,6 +154,9 @@ private struct LoginRow: View {
         if login.hasOneTimeCode {
           Image(systemName: "clock").accessibilityLabel("One-time code")
         }
+        if !app.vault.passkeys(forLogin: login.id).isEmpty {
+          Image(systemName: "person.badge.key").accessibilityLabel("Passkey")
+        }
       }
       .font(.system(size: 10))
       .foregroundStyle(.kitTertiary)
@@ -167,6 +170,7 @@ struct LoginInspector: View {
   @Environment(AppModel.self) private var app
   @Environment(\.pushedDetail) private var pushed
   @State private var copies = 0
+  @State private var removing: VaultPasskey?
 
   var body: some View {
     if !pushed { header }
@@ -204,6 +208,17 @@ struct LoginInspector: View {
     KitSection("Sign-in", meta: ["iCloud Keychain", "v57 apps only"], systemImage: "key.horizontal") {
       InspectorRow("Username", value: login.username)
       InspectorRow("Password") { KitSecretValue { login.password } }
+      ForEach(app.vault.passkeys(forLogin: login.id)) { passkey in
+        InspectorRow("Passkey") {
+          HStack(spacing: 6) {
+            Text(passkey.created.map { "\(passkey.relyingParty) · \(RelativeTime.day($0))" } ?? passkey.relyingParty)
+              .lineLimit(1)
+            Spacer(minLength: 0)
+            Button("Remove Passkey", systemImage: "trash") { removing = passkey }
+              .buttonStyle(.kitIcon).labelStyle(.iconOnly)
+          }
+        }
+      }
       if let code = login.oneTimeCode {
         InspectorRow(pushed ? "Code" : "One-time code") {
           KitOneTimeCode(period: TimeInterval(code.period)) { code.code(at: $0) }
@@ -214,6 +229,14 @@ struct LoginInspector: View {
           Button(domain) { KitDesktop.open(url) }.buttonStyle(.plain).foregroundStyle(.kitLink)
         }
       }
+    }
+    .kitConfirmation(
+      "Remove the passkey for \(removing?.relyingParty ?? "")?",
+      isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+      message: "You won’t be able to sign in to the site with it on any device. The login and its password stay.",
+      confirm: "Remove"
+    ) {
+      if let id = removing?.id { app.vault.perform { try $0.deletePasskey(id: id) } }
     }
     let links = LinkedItems(app: app).resolve(login.links)
     if !links.isEmpty {

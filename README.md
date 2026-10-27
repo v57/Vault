@@ -204,6 +204,8 @@ sample data only for folder sync and remote listings. It never touches the user'
 | `Sharing/` | `PersonalIdentity` (X25519 + Ed25519, one per person, `VaultPersonalIdentity`), `PublicIdentity` (`v57id:`), `SafetyCode`, `KeyWrap` (a key sealed to a person), `VaultPerson`, `VaultInvite` (`v57vault://invite`) |
 | `Sync/` | `SyncCoordinator` (the sync rules, testable), `CloudSync` (the `CKSyncEngine` adapter) |
 | `Passwords/` | `OneTimeCode` (TOTP/HOTP, `otpauth://` URLs), `Base32`, `PasswordGenerator`, `PasswordStrength` |
+| `Passkeys/` | `VaultPasskey` (a site's P-256 key in `VaultSecrets`, joined to the login for the same account), `WebAuthn` (authenticator data, "none" attestation, ES256 signatures) |
+| `AutoFill/` | `VaultAutoFill`: which logins fit a site, and publishing logins and passkeys to the system's list for the `VaultAutoFill` extension (passwords, one-time codes, passkeys) |
 | `Notes/` | `NotesMirror`, `EncryptedNote`, `NoteConflicts`, `NoteBaseCache`, `TextMerge` |
 | `VaultFiles/Format/` | `EncryptedFile` (chunked file format, `EncryptedFileReader` for ranges), `NameCipher` and `DiskName` (encrypted names, long-name sidecars), `FolderSubkeys` |
 | `VaultFiles/Folder/` | `FolderKey` (wrapped by the vault key), `EncryptedFolder` |
