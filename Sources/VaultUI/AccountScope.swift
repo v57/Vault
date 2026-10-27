@@ -34,10 +34,12 @@ public struct VaultAccountWindow: Sendable {
 /// }
 /// ```
 ///
-/// The content is rebuilt (`.id`) for each account, so state made from the vault starts over. An account that is
-/// deleted, or whose store can't open, falls back to Personal.
+/// The content is rebuilt (`.id`) for each account, so state made from the vault starts over. A window holding work
+/// that must outlive a switch (an unsaved document, a running job) passes `rebuildsContent: false` and follows
+/// `@Environment(\.vault)` itself. An account that is deleted, or whose store can't open, falls back to Personal.
 public struct VaultAccountScope<Content: View>: View {
   @Binding var selection: String
+  var rebuildsContent: Bool
   var manage: (@MainActor @Sendable () -> Void)?
   var openInNewWindow: (@MainActor @Sendable (String) -> Void)?
   var content: (Vault) -> Content
@@ -46,43 +48,38 @@ public struct VaultAccountScope<Content: View>: View {
   @State private var creating = false
 
   public init(
-    selection: Binding<String>, manage: (@MainActor @Sendable () -> Void)? = nil,
+    selection: Binding<String>, rebuildsContent: Bool = true, manage: (@MainActor @Sendable () -> Void)? = nil,
     openInNewWindow: (@MainActor @Sendable (String) -> Void)? = nil, @ViewBuilder content: @escaping (Vault) -> Content
   ) {
     _selection = selection
+    self.rebuildsContent = rebuildsContent
     self.manage = manage
     self.openInNewWindow = openInNewWindow
     self.content = content
   }
 
   /// Personal is there from the first frame; an account's vault opens in `open()`, which writes `Vaults` state and
-  /// so can't run during the body.
-  private var vault: Vault? {
+  /// so can't run during the body. Until it has (a frame), the content keeps the vault it had, so nothing blinks.
+  private var vault: Vault {
     if selection == VaultAccount.personal.id { return vaults.personal }
-    return opened?.accountID == selection ? opened : nil
+    return opened ?? vaults.personal
   }
 
   public var body: some View {
-    Group {
-      if let vault {
-        content(vault)
-          .id(vault.accountID)
-          .environment(\.vault, vault)
-      } else {
-        Color.clear
+    content(vault)
+      .id(rebuildsContent ? vault.accountID : "")
+      .environment(\.vault, vault)
+      .environment(
+        \.vaultAccountWindow,
+        VaultAccountWindow(
+          selection: $selection, newAccount: { [$creating] in $creating.wrappedValue = true }, manage: manage,
+          openInNewWindow: openInNewWindow)
+      )
+      .kitSheet(isPresented: $creating) {
+        VaultAccountSheet(account: nil) { selection = $0.id }
       }
-    }
-    .environment(
-      \.vaultAccountWindow,
-      VaultAccountWindow(
-        selection: $selection, newAccount: { [$creating] in $creating.wrappedValue = true }, manage: manage,
-        openInNewWindow: openInNewWindow)
-    )
-    .kitSheet(isPresented: $creating) {
-      VaultAccountSheet(account: nil) { selection = $0.id }
-    }
-    .onChange(of: selection, initial: true) { open() }
-    .onChange(of: vaults.accounts) { open() }
+      .onChange(of: selection, initial: true) { open() }
+      .onChange(of: vaults.accounts) { open() }
   }
 
   private func open() {
