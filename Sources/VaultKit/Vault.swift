@@ -73,7 +73,7 @@ public final class Vault {
     }
     reload(force: true)
     #if DEBUG && os(macOS)
-      listenForDumpRequests()
+      if isPersonal { listenForDumpRequests() }
     #endif
   }
 

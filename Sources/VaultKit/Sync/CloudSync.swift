@@ -28,6 +28,8 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   private let lock = NSLock()
   /// The stores whose writes this engine queues, by zone.
   private var attached: [String: VaultStore] = [:]
+  /// The engine started without saved state: every zone is made again (saving an existing zone changes nothing).
+  private var isFreshEngine = false
   private var accountsToken: UUID?
   private var engine: CKSyncEngine?
   private var observers: [NSObjectProtocol] = []
@@ -193,32 +195,33 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     configuration.subscriptionID = subscriptionID
     let engine = CKSyncEngine(configuration)
     self.engine = engine
+    isFreshEngine = saved == nil
     lock.unlock()
 
     accountsToken = zones.accounts.observe { [weak self] event in
       switch event {
-      case .opened(let id, _): self?.attach(SyncZones.zoneName(forAccount: id), freshEngine: false)
+      case .opened(let id, _): self?.attach(SyncZones.zoneName(forAccount: id))
       case .removed(let id):
         self?.detach(SyncZones.zoneName(forAccount: id))
         self?.queueZoneDeletions()
       }
     }
-    for zone in zones.activeZones() { attach(zone, freshEngine: saved == nil) }
+    for zone in zones.activeZones() { attach(zone) }
     queueOutbox()
   }
 
   /// Starts carrying a zone: makes it on the server unless this app did already, queues the store's own writes, and
   /// deletes CloudKit's copies of old tombstones.
-  private func attach(_ zone: String, freshEngine: Bool) {
+  private func attach(_ zone: String) {
     guard let engine = currentEngine, let store = zones.coordinator(forZone: zone)?.store else { return }
-    let isNew = lock.withLock {
-      guard attached[zone] !== store else { return false }
+    let (isNew, isFresh) = lock.withLock {
+      guard attached[zone] !== store else { return (false, isFreshEngine) }
       attached[zone] = store
-      return true
+      return (true, isFreshEngine)
     }
     guard isNew else { return }
     let zoneID = CKRecordZone.ID(zoneName: zone)
-    if freshEngine || (try? store.engineState(name + ".zone")) == nil {
+    if isFresh || (try? store.engineState(name + ".zone")) == nil {
       engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
     }
     store.sendsOwnWrites = isHealthy != false
@@ -276,7 +279,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   private func queueOutbox() {
     guard isHealthy != false, currentEngine != nil else { return }
     for zone in zones.activeZones() {
-      attach(zone, freshEngine: false)
+      attach(zone)
       if let coordinator = zones.coordinator(forZone: zone) { queue(coordinator.idsToSend(), in: zone) }
     }
     queueZoneDeletions()

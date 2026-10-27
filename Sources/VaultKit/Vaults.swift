@@ -42,7 +42,10 @@ public final class Vaults {
   /// was deleted.
   public func vault(for account: VaultAccount) -> Vault? {
     if account.isPersonal { return personal }
-    if let vault = opened[account.id] { return vault }
+    if let vault = opened[account.id] {
+      if vault.sync == nil { vault.sync = personal.sync }
+      return vault
+    }
     guard let stores else { return nil }
     do {
       let vault = Vault(store: try stores.store(forAccount: account.id), accountID: account.id)
