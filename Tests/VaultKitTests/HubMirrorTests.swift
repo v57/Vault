@@ -46,6 +46,29 @@ struct HubMirrorTests {
     #expect(try store.mirrorHubDevices([studio(), phone, me], hubID: "hub1", thisDevice: "me").isEmpty)
   }
 
+  @Test func aMachineListedTwiceIsOneHost() throws {
+    let store = try store()
+    // The Hub app reinstalled: a new device took over the address, and the Hub still lists the old one.
+    var old = studio()
+    old.id = "0ld"
+    old.isOnline = false
+    old.lastSeen = Date(timeIntervalSince1970: 1_790_000_000)
+    try store.mirrorHubDevices([old, studio()], hubID: "hub1")
+    var hosts = try store.records(VaultHost.self)
+    #expect(hosts.count == 1)
+    #expect(hosts.first?.hub?.deviceID == studio().id)
+
+    // Both offline: the last seen stays, and a host the old device had is removed.
+    var new = studio()
+    new.isOnline = false
+    try store.mirrorHubDevices([new, old], hubID: "hub1")
+    try store.save(VaultHost(id: try store.hubHostID(hubID: "hub1", deviceID: "0ld"), hostname: "100.96.0.4", source: "hub",
+      hub: .init(hubID: "hub1", deviceID: "0ld", deviceName: "Mac Studio")))
+    try store.mirrorHubDevices([old, new], hubID: "hub1")
+    hosts = try store.records(VaultHost.self)
+    #expect(hosts.map(\.hub?.deviceID) == [studio().id])
+  }
+
   @Test func buildSigningOutlivesTheHubsUpdates() throws {
     let store = try store()
     try store.mirrorHubDevices([studio()], hubID: "hub1")
@@ -133,6 +156,21 @@ struct HubMirrorTests {
     #expect(there.host?.hostname == "100.96.0.4")
     #expect(there.sshCommand == #"ssh -t -p 22 100.96.0.4 'cd '\''/Users/b/Code/Atlas'\'' && exec "$SHELL" -l'"#)
     #expect(places.first { $0.device == "pad" }?.sshCommand == nil)
+  }
+
+  @MainActor
+  @Test func thisMacOnTheHubIsThisDevice() throws {
+    let store = try store()
+    try store.mirrorHubDevices([studio()], hubID: "hub1")
+    let host = try #require(try store.records(VaultHost.self).first)
+    let vault = Vault(store: store)
+    #expect(vault.isThisDevice(host, addresses: ["127.0.0.1", "100.96.0.4"]))
+    #expect(!vault.isThisDevice(host, addresses: ["127.0.0.1", "100.96.0.2"]))
+    // A host the user added at the same address is theirs to keep.
+    #expect(!vault.isThisDevice(VaultHost(hostname: "100.96.0.4"), addresses: ["100.96.0.4"]))
+    #if !os(Windows)
+      #expect(VaultDevice.addresses.isSuperset(of: ["127.0.0.1", "::1"]))
+    #endif
   }
 
   /// The hub's own machine adds it at 127.0.0.1 and another device at its LAN address: two records with one key

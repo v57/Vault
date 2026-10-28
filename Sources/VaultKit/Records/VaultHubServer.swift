@@ -196,7 +196,7 @@ extension VaultStore {
     var changes = HubMirrorChanges()
     let existing = try records(VaultHost.self).filter { $0.hub?.hubID == hubID }
     var kept = Set<String>()
-    for device in devices where device.isSSHTarget && device.id != thisDevice {
+    for device in Self.onePerAddress(devices.filter { $0.isSSHTarget && $0.id != thisDevice }) {
       guard let ssh = device.ssh, let address = device.address else { continue }
       let id = try hubHostID(hubID: hubID, deviceID: device.id)
       kept.insert(id)
@@ -249,6 +249,25 @@ extension VaultStore {
       try knownFingerprint(host: host.hostname, port: host.port) == fingerprint
     else { return }
     try delete(id: try knownHostID(host: host.hostname, port: host.port))
+  }
+
+  /// One device per Hub Network address: a reinstalled or second copy of the Hub app on a machine is a new device
+  /// that takes over the old one's address, and the Hub keeps listing the old one. Keeps the online one, else the
+  /// last seen, else the lowest id, so every device mirroring the directory picks the same.
+  static func onePerAddress(_ devices: [VaultHubDevice]) -> [VaultHubDevice] {
+    func isBetter(_ a: VaultHubDevice, than b: VaultHubDevice) -> Bool {
+      if a.isOnline != b.isOnline { return a.isOnline }
+      let (seenA, seenB) = (a.lastSeen ?? .distantPast, b.lastSeen ?? .distantPast)
+      if seenA != seenB { return seenA > seenB }
+      return a.id < b.id
+    }
+    var best: [String: VaultHubDevice] = [:]
+    for device in devices {
+      let address = device.address ?? ""
+      if let other = best[address], !isBetter(device, than: other) { continue }
+      best[address] = device
+    }
+    return devices.filter { best[$0.address ?? ""]?.id == $0.id }
   }
 
   static func toTheHour(_ date: Date) -> Date {
