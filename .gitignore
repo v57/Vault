@@ -26,3 +26,6 @@ AGENTS.md
 .commandcode/
 .hermes/
 KANBAN*.md
+
+# Package pins: the other v57 repositories follow GitHub's main until release, so nothing pins them
+/Vault.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
