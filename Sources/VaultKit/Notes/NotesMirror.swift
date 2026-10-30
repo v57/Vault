@@ -32,6 +32,14 @@ public final class NotesMirror: @unchecked Sendable {
   private var pending: DispatchWorkItem?
   private var observer: VaultChangeObserver?
   private var presenter: MirrorPresenter?
+  private let lockURL: URL
+  /// The lock file while this mirror holds it (`holdsLock()`).
+  private var lockDescriptor: Int32 = -1
+  #if os(Windows)
+    /// The state directories whose mirror runs, where no file lock is taken.
+    nonisolated(unsafe) private static var running: Set<String> = []
+    private static let runningLock = NSLock()
+  #endif
 
   /// The last problem, for the UI.
   public var lastError: String? { lock.withLock { error } }
@@ -74,12 +82,13 @@ public final class NotesMirror: @unchecked Sendable {
     self.keys = keys
     bases = NoteBaseCache(directory: stateDirectory.appendingPathComponent("NoteBases", isDirectory: true), keys: keys)
     indexURL = stateDirectory.appendingPathComponent("NotesMirror.json")
-    let saved = (try? Data(contentsOf: indexURL)).flatMap { try? JSONDecoder().decode(Index.self, from: $0) }
-    // An index of another folder says nothing about this one: start over (nothing is deleted then).
-    index =
-      saved?.folder == self.folder.path ? saved! : Index(folder: self.folder.path, entries: [:])
+    lockURL = stateDirectory.appendingPathComponent("NotesMirror.lock")
+    index = Index(folder: self.folder.path, entries: [:])
     try? FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+    loadIndex()
   }
+
+  deinit { releaseLock() }
 
   /// Runs a pass now and follows both sides from then on: the folder (any app's change) and the vault (another
   /// app's or device's change).
@@ -94,12 +103,14 @@ public final class NotesMirror: @unchecked Sendable {
     scheduleReconcile(after: 0)
   }
 
+  /// Stops following the folder, and lets another mirror of it take over.
   public func stop() {
     #if canImport(ObjectiveC)
       if let presenter { NSFileCoordinator.removeFilePresenter(presenter) }
     #endif
     presenter = nil
     observer = nil
+    queue.sync { releaseLock() }
   }
 
   /// Runs a pass shortly (changes come in bursts).
@@ -138,7 +149,7 @@ public final class NotesMirror: @unchecked Sendable {
 
   private func reconcile() -> Report {
     var report = Report()
-    guard FileManager.default.fileExists(atPath: folder.path) else { return report }
+    guard FileManager.default.fileExists(atPath: folder.path), holdsLock() else { return report }
     let files = scan()
     guard let notes = try? store.items(kind: VaultNote.kind), let others = try? store.items(kind: VaultNoteFile.kind)
     else { return report }
@@ -370,8 +381,50 @@ public final class NotesMirror: @unchecked Sendable {
     URL(fileURLWithPath: "/vault-note/" + id)
   }
 
+  private func loadIndex() {
+    let saved = (try? Data(contentsOf: indexURL)).flatMap { try? JSONDecoder().decode(Index.self, from: $0) }
+    // An index of another folder says nothing about this one: start over (nothing is deleted then).
+    index = saved?.folder == folder.path ? saved! : Index(folder: folder.path, entries: [:])
+  }
+
   private func saveIndex() {
     if let data = try? JSONEncoder().encode(index) { try? data.write(to: indexURL, options: .atomic) }
+  }
+
+  // MARK: - One mirror at a time
+
+  /// Whether this mirror runs the passes, taking the state directory's lock when it is free. Only one mirror of a
+  /// state directory runs at a time (another window's, or another copy of the app's): two would each take a file the
+  /// other just gave an id, and lost when the editor replaced the file, for a new note, and write it back beside
+  /// itself as "Untitled 2". The mirror that takes over starts from the index the other one saved.
+  private func holdsLock() -> Bool {
+    guard lockDescriptor < 0 else { return true }
+    #if os(Windows)
+      let taken = Self.runningLock.withLock { Self.running.insert(lockURL.path).inserted }
+      guard taken else { return false }
+      lockDescriptor = 0
+    #else
+      let descriptor = open(lockURL.path, O_RDWR | O_CREAT, 0o644)
+      guard descriptor >= 0 else { return true }
+      guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+        close(descriptor)
+        return false
+      }
+      lockDescriptor = descriptor
+    #endif
+    loadIndex()
+    return true
+  }
+
+  private func releaseLock() {
+    guard lockDescriptor >= 0 else { return }
+    #if os(Windows)
+      _ = Self.runningLock.withLock { Self.running.remove(lockURL.path) }
+    #else
+      flock(lockDescriptor, LOCK_UN)
+      close(lockDescriptor)
+    #endif
+    lockDescriptor = -1
   }
 
   #if canImport(ObjectiveC)

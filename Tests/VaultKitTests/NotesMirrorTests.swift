@@ -110,6 +110,29 @@ struct NotesMirrorTests {
     #expect(NotesMirror.id(of: folder.appendingPathComponent("Note.md")) == id)
   }
 
+  @Test func oneMirrorOfAFolderRunsAtATime() throws {
+    // Two windows (or two copies of the app) mirror the same folder with the same state.
+    let (first, store, folder) = try make()
+    let state = folder.deletingLastPathComponent().appendingPathComponent("state")
+    let second = NotesMirror(folder: folder, store: store, keys: keys, stateDirectory: state)
+    try write("v1", "Untitled.md", in: folder)
+    first.reconcileNow()
+    let id = try #require(try notes(store).first?.id)
+    // The editor saves by replacing the file: its id goes with the old one.
+    try FileManager.default.removeItem(at: folder.appendingPathComponent("Untitled.md"))
+    try write("v2", "Untitled.md", in: folder)
+    // The other mirror waits instead of taking the file for a new note.
+    #expect(second.reconcileNow() == NotesMirror.Report())
+    #expect(try notes(store).map(\.id) == [id])
+
+    // Once the first stops, the second takes over from where it left off.
+    first.stop()
+    second.reconcileNow()
+    #expect(try notes(store).map(\.id) == [id])
+    #expect(try notes(store).first?.text == "v2")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { !$0.hasPrefix(".") } == ["Untitled.md"])
+  }
+
   @Test func deletionsGoBothWays() throws {
     let (mirror, store, folder) = try make()
     try write("a", "A.md", in: folder)
@@ -168,7 +191,8 @@ struct NotesMirrorTests {
     let (mirror, store, folder) = try make()
     try write("kept", "Kept.md", in: folder)
     mirror.reconcileNow()
-    // The user picks another notes folder: a new mirror with a new index.
+    // The user picks another notes folder: the mirror stops, and a new one starts with a new index.
+    mirror.stop()
     let other = folder.deletingLastPathComponent().appendingPathComponent("Moved")
     let moved = NotesMirror(folder: other, store: store, keys: keys, stateDirectory: folder.deletingLastPathComponent().appendingPathComponent("state"))
     moved.usesTrash = false
