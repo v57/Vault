@@ -97,7 +97,9 @@ address. `suggestedProfile(for:gitHub:)` prefills the Your Name sheet from Perso
 (`GitGlobalIdentity`, read from the files, no git process), the GitHub sign-in the caller passes, and the Mac user's
 full name. VaultUI's `VaultProfileSheet` (Your Name) asks for them, shown by the first app that needs them, and Settings
 ▸ Accounts (`VaultAccountsSettings`) has a Your Name row per account. Apps hand the profile to the tools they run,
-never to the user's files: the terminal and agents keep their own setup.
+never to the user's files: the terminal and agents keep their own setup. An app that can also write them somewhere
+asks first: `VaultProfileOption` adds a switch (off) to the sheet, or a confirmation when the profile is already saved
+(`VaultProfileRequest.answer(for:option:)`; Git's "Use in Terminal too").
 
 **Project tree.** Projects sit in groups that nest (`VaultProjectGroup`), so every app's sidebar can show the same
 arrangement on every device. A project's place is its `groupID` and `order`, a group's its `parentID` and `order`;

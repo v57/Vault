@@ -36,7 +36,7 @@ struct ProfileRequestTests {
 
     let saved = VaultProfile(account: "personal", name: "Ada", email: "ada@example.com")
     vaults.save(saved)
-    request.finish(saved)
+    request.finish(VaultProfileAnswer(profile: saved, option: false))
     request.finish(nil)  // the sheet's dismissal after Save: already answered
     #expect(await asking.value == saved)
     #expect(request.pending == nil)
@@ -51,5 +51,32 @@ struct ProfileRequestTests {
     request.finish(nil)
     #expect(await asking.value == nil)
     #expect(vaults.profile(for: .personal).isComplete == false)
+  }
+
+  let terminal = VaultProfileOption(
+    title: "Use in Terminal too", help: "Writes them to ~/.gitconfig.", systemImage: "terminal",
+    accept: "Use in Terminal", decline: "Only in Git")
+
+  @Test func theSheetShowsTheOptionAndPassesItsAnswer() async {
+    let request = VaultProfileRequest()
+    let asking = Task { await request.answer(for: .personal, vaults: vaults, option: terminal) }
+    while request.pending == nil { await Task.yield() }
+    #expect(request.pending?.saved == nil)  // the Your Name sheet, with the switch
+    let saved = VaultProfile(account: "personal", name: "Ada", email: "ada@example.com")
+    request.finish(VaultProfileAnswer(profile: saved, option: true))
+    #expect(await asking.value == VaultProfileAnswer(profile: saved, option: true))
+  }
+
+  @Test func aSavedProfileAsksOnlyTheOption() async {
+    let saved = VaultProfile(account: "personal", name: "Ada", email: "ada@example.com")
+    vaults.save(saved)
+    let request = VaultProfileRequest()
+    #expect(await request.answer(for: .personal, vaults: vaults, option: nil) == VaultProfileAnswer(profile: saved, option: false))
+
+    let asking = Task { await request.answer(for: .personal, vaults: vaults, option: terminal) }
+    while request.pending == nil { await Task.yield() }
+    #expect(request.pending?.saved == saved)  // the confirmation
+    request.finish(nil)  // dismissed: a no, the profile still comes back
+    #expect(await asking.value == VaultProfileAnswer(profile: saved, option: false))
   }
 }

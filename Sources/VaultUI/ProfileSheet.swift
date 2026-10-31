@@ -10,10 +10,12 @@ public struct VaultProfileSheet: View {
   var account: VaultAccount
   var vaults: Vaults
   var reason: String?
-  var done: (VaultProfile) -> Void
+  var option: VaultProfileOption?
+  var done: (VaultProfile, Bool) -> Void
   @Environment(\.kitDismiss) private var dismiss
   @State private var name: String
   @State private var email: String
+  @State private var optionOn = false
 
   /// `gitHub`: the account's GitHub sign-in, when the app has one (its name, and its email if the token may read it),
   /// for the prefill; `reason`: why the app asks now, under the sheet's title; `done` gets what was saved.
@@ -21,9 +23,19 @@ public struct VaultProfileSheet: View {
     account: VaultAccount, vaults: Vaults = .shared, gitHub: (name: String?, email: String?)? = nil,
     reason: String? = nil, done: @escaping (VaultProfile) -> Void = { _ in }
   ) {
+    self.init(account: account, vaults: vaults, gitHub: gitHub, reason: reason, option: nil) { profile, _ in done(profile) }
+  }
+
+  /// With `option`, a switch under the name and email, off until the user turns it on; `done` also gets whether it
+  /// was on.
+  public init(
+    account: VaultAccount, vaults: Vaults = .shared, gitHub: (name: String?, email: String?)? = nil,
+    reason: String? = nil, option: VaultProfileOption?, done: @escaping (VaultProfile, Bool) -> Void
+  ) {
     self.account = account
     self.vaults = vaults
     self.reason = reason
+    self.option = option
     self.done = done
     let suggested = vaults.suggestedProfile(for: account, gitHub: gitHub)
     _name = State(initialValue: suggested.name)
@@ -63,6 +75,13 @@ public struct VaultProfileSheet: View {
           "Email", help: "For git, GitHub matches it to your account", systemImage: "envelope", hue: account.hue,
           error: emailError, field: emailField)
       }
+      if let option {
+        FormCard {
+          FormRow(option.title, help: option.help, systemImage: option.systemImage, hue: .gray) {
+            Toggle(option.title, isOn: $optionOn).toggleStyle(.kitSwitch).kitLabelsHidden()
+          }
+        }
+      }
     } footer: {
       Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
       Button("Save") { save() }
@@ -72,8 +91,7 @@ public struct VaultProfileSheet: View {
     }
   }
 
-  static let uses =
-    "Your commits, your keys on servers and your Hub show them. They stay in your vault: the terminal's git settings don't change."
+  static let uses = "Your commits, your keys on servers and your Hub show them. They stay in your vault."
 
   private var emailField: some View {
     let field = TextField("ada@example.com", text: $email).autocorrectionDisabled()
@@ -88,7 +106,7 @@ public struct VaultProfileSheet: View {
     let profile = profile
     guard profile.isComplete, emailError == nil else { return }
     vaults.save(profile)
-    done(profile)
+    done(profile, option != nil && optionOn)
     dismiss()
   }
 }

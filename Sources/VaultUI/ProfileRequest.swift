@@ -23,7 +23,10 @@ public final class VaultProfileRequest {
     var vaults: Vaults
     var reason: String?
     var gitHub: (name: String?, email: String?)?
-    var answer: CheckedContinuation<VaultProfile?, Never>
+    var option: VaultProfileOption?
+    /// The saved profile when only `option` is asked about (the confirmation, not the Your Name sheet).
+    var saved: VaultProfile?
+    var answer: CheckedContinuation<VaultProfileAnswer?, Never>
   }
 
   var pending: Pending?
@@ -37,29 +40,106 @@ public final class VaultProfileRequest {
     for account: VaultAccount, vaults: Vaults = .shared, reason: String? = nil,
     gitHub: (name: String?, email: String?)? = nil
   ) async -> VaultProfile? {
+    await answer(for: account, vaults: vaults, reason: reason, gitHub: gitHub, option: nil)?.profile
+  }
+
+  /// The profile, as `profile(for:reason:gitHub:)` gets it, and the user's answer to `option`: the Your Name sheet
+  /// shows it as a switch (off); with a saved profile, a confirmation asks it instead. Only cancelling the Your Name
+  /// sheet answers nil; declining the confirmation, or dismissing it, answers false.
+  public func answer(
+    for account: VaultAccount, vaults: Vaults = .shared, reason: String? = nil,
+    gitHub: (name: String?, email: String?)? = nil, option: VaultProfileOption?
+  ) async -> VaultProfileAnswer? {
     let saved = vaults.profile(for: account)
-    if saved.isComplete { return saved }
+    if saved.isComplete, option == nil { return VaultProfileAnswer(profile: saved, option: false) }
     guard pending == nil else { return nil }
     return await withCheckedContinuation { answer in
-      pending = Pending(account: account, vaults: vaults, reason: reason, gitHub: gitHub, answer: answer)
+      pending = Pending(
+        account: account, vaults: vaults, reason: reason, gitHub: gitHub, option: option,
+        saved: saved.isComplete ? saved : nil, answer: answer)
     }
   }
 
-  /// Ends the request with what was saved (nil: cancelled). Runs once per sheet.
-  func finish(_ profile: VaultProfile?) {
+  /// Ends the request (nil: cancelled). Runs once per sheet.
+  func finish(_ answer: VaultProfileAnswer?) {
     guard let pending else { return }
     self.pending = nil
-    pending.answer.resume(returning: profile)
+    // The confirmation's dismissal is a no; only the Your Name sheet can be cancelled.
+    pending.answer.resume(returning: answer ?? pending.saved.map { VaultProfileAnswer(profile: $0, option: false) })
   }
 }
 
+/// A choice an app offers along with the name and email, e.g. Git's "Use in Terminal too": off unless the user says so.
+public struct VaultProfileOption: Sendable, Hashable {
+  public var title: String
+  /// What turning it on does.
+  public var help: String
+  public var systemImage: String
+  /// The confirmation's buttons, when the profile is already saved.
+  public var accept: String
+  public var decline: String
+
+  public init(title: String, help: String, systemImage: String, accept: String, decline: String) {
+    self.title = title
+    self.help = help
+    self.systemImage = systemImage
+    self.accept = accept
+    self.decline = decline
+  }
+}
+
+/// What `VaultProfileRequest.answer(for:option:)` got: the profile, and whether the user turned the option on.
+public struct VaultProfileAnswer: Sendable, Hashable {
+  public var profile: VaultProfile
+  public var option: Bool
+}
+
 extension View {
-  /// Shows the Your Name sheet when `request` asks (`VaultProfileRequest.profile(for:reason:)`).
+  /// Shows the Your Name sheet, or the option's confirmation, when `request` asks
+  /// (`VaultProfileRequest.profile(for:reason:)`, `answer(for:option:)`).
   public func vaultProfileRequests(_ request: VaultProfileRequest) -> some View {
     kitSheet(item: Binding { request.pending } set: { if $0 == nil { request.finish(nil) } }) { pending in
-      VaultProfileSheet(
-        account: pending.account, vaults: pending.vaults, gitHub: pending.gitHub, reason: pending.reason
-      ) { request.finish($0) }
+      if let saved = pending.saved, let option = pending.option {
+        VaultProfileOptionSheet(profile: saved, account: pending.account, option: option) {
+          request.finish(VaultProfileAnswer(profile: saved, option: $0))
+        }
+      } else {
+        VaultProfileSheet(
+          account: pending.account, vaults: pending.vaults, gitHub: pending.gitHub, reason: pending.reason,
+          option: pending.option
+        ) { request.finish(VaultProfileAnswer(profile: $0, option: $1)) }
+      }
     }
+  }
+}
+
+/// Asks an option about a profile that's already saved: "Use in Terminal too?" for Ada Lovelace <ada@example.com>.
+struct VaultProfileOptionSheet: View {
+  var profile: VaultProfile
+  var account: VaultAccount
+  var option: VaultProfileOption
+  var done: (Bool) -> Void
+  @Environment(\.kitDismiss) private var dismiss
+
+  var body: some View {
+    KitSheet(title: "\(option.title)?", meta: profile.signature, width: 440) {
+      Avatar(name: profile.name, kind: .person, hue: account.hue, size: 32)
+    } content: {
+      Text(option.help)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    } footer: {
+      Button(option.decline) { answer(false) }
+        .keyboardShortcut(.cancelAction)
+      Button(option.accept) { answer(true) }
+        .buttonStyle(.kitPrimary)
+        .keyboardShortcut(.defaultAction)
+    }
+  }
+
+  private func answer(_ on: Bool) {
+    done(on)
+    dismiss()
   }
 }
