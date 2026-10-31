@@ -45,6 +45,24 @@ public struct VaultProfile: VaultRecord, Hashable {
   /// `Name <email>`, as git and OpenSSH key comments write a person; nil until both are set.
   public var signature: String? { isComplete ? "\(name) <\(email)>" : nil }
 
+  /// git's author and committer for its commits (`GIT_AUTHOR_NAME`, `GIT_COMMITTER_EMAIL`, …), empty until both are
+  /// set. A repository's own `user.name` and `user.email` should win: pass it only to repositories without them.
+  public var gitEnvironment: [String: String] {
+    guard isComplete else { return [:] }
+    return [
+      "GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email, "GIT_COMMITTER_NAME": name, "GIT_COMMITTER_EMAIL": email,
+    ]
+  }
+
+  /// The comment of a device's key line in `authorized_keys`: `Name <email> (Device)`, so a server's admin sees whose
+  /// key it is; the name alone, then the device alone, while the profile is incomplete.
+  public func keyComment(device: String) -> String {
+    let device = device.trimmingCharacters(in: .whitespacesAndNewlines)
+    let person = signature ?? (name.isEmpty ? nil : name)
+    guard let person else { return device }
+    return device.isEmpty ? person : "\(person) (\(device))"
+  }
+
   /// The name and email trimmed of surrounding spaces and newlines, as the sheet saves them.
   public var trimmed: VaultProfile {
     VaultProfile(

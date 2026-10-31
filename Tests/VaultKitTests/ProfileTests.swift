@@ -149,6 +149,20 @@ struct ProfileTests {
     #expect(GitGlobalIdentity.parse(config) == GitGlobalIdentity(name: nil, email: "second@example.com"))
   }
 
+  @Test func gitEnvironmentAndKeyComment() {
+    let ada = VaultProfile(account: "personal", name: "Ada Lovelace", email: "ada@example.com")
+    #expect(
+      ada.gitEnvironment == [
+        "GIT_AUTHOR_NAME": "Ada Lovelace", "GIT_AUTHOR_EMAIL": "ada@example.com",
+        "GIT_COMMITTER_NAME": "Ada Lovelace", "GIT_COMMITTER_EMAIL": "ada@example.com",
+      ])
+    #expect(VaultProfile(account: "personal", name: "Ada").gitEnvironment.isEmpty)
+    #expect(ada.keyComment(device: "Ada's MacBook Pro") == "Ada Lovelace <ada@example.com> (Ada's MacBook Pro)")
+    #expect(VaultProfile(account: "personal", name: "Ada").keyComment(device: "Mac") == "Ada (Mac)")
+    #expect(VaultProfile(account: "personal").keyComment(device: "Mac") == "Mac")
+    #expect(ada.keyComment(device: " ") == "Ada Lovelace <ada@example.com>")
+  }
+
   @Test func oldBuildsKeepFieldsTheyDontKnow() throws {
     let mac = try device("mac")
     try mac.personal.save(id: "profile.personal", kind: VaultProfile.kind, changes: ["name": .string("Ada"), "pronouns": .string("she")])

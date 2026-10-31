@@ -4,14 +4,8 @@ import VaultKit
 
 /// Your Name: the name and email an account goes by on commits, on servers' `authorized_keys` and on the user's Hub
 /// (`VaultProfile`). The first app that needs them shows it, prefilled from what the device already has
-/// (`Vaults.suggestedProfile(for:gitHub:)`); Settings ▸ Accounts edits them. Present it with `.kitSheet`.
-///
-/// ```swift
-/// if !Vaults.shared.profile(for: account).isComplete { askingName = true }
-/// .kitSheet(isPresented: $askingName) {
-///   VaultProfileSheet(account: account, reason: "Git signs this commit with them.") { commit(as: $0) }
-/// }
-/// ```
+/// (`Vaults.suggestedProfile(for:gitHub:)`); Settings ▸ Accounts edits them. Apps ask through
+/// `VaultProfileRequest`, which shows it only while the profile is incomplete; to edit one, present it with `.kitSheet`.
 public struct VaultProfileSheet: View {
   var account: VaultAccount
   var vaults: Vaults
