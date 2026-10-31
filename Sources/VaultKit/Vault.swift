@@ -38,6 +38,8 @@ public final class Vault {
   public private(set) var accounts: [VaultAccount] = []
   /// The Apple developer teams this account works with.
   public private(set) var appleTeams: [VaultAppleTeam] = []
+  /// Each account's name and email (in Personal only; `Vaults.profile(for:)` reads them).
+  public private(set) var profiles: [VaultProfile] = []
   /// Which account this is (`VaultAccount.personal` for Personal).
   public let accountID: String
   public var isPersonal: Bool { accountID == VaultAccount.personal.id }
@@ -156,6 +158,7 @@ public final class Vault {
         $0.name.localizedStandardCompare($1.name) == .orderedAscending
       }
       appleTeams = try store.records(VaultAppleTeam.self).sorted { ($0.name, $0.teamID) < ($1.name, $1.teamID) }
+      profiles = try store.records(VaultProfile.self)
     } catch {
       self.error = error.localizedDescription
     }

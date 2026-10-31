@@ -75,7 +75,7 @@ public final class Vaults {
   }
 
   /// Deletes an account everywhere: its mailbox on each Hub this device syncs records through (`hubs`: the Hub's
-  /// `hub-vault` service and this device's id on it), its record in Personal, its records' passwords and other secrets
+  /// `hub-vault` service and this device's id on it), its record and profile in Personal, its records' passwords and other secrets
   /// (iCloud Keychain removes them on every device), its store here and its CloudKit zone (the sync engine deletes it once the record is gone, here
   /// or on the first device with sync that sees the tombstone). Nothing of Personal changes but the record. Other
   /// devices remove their store when the tombstone or the zone's deletion arrives.
@@ -98,6 +98,7 @@ public final class Vaults {
       }
     }
     try personal.store?.delete(account)
+    if let profile = personal.profiles.first(where: { $0.account == account.id }) { try personal.store?.delete(profile) }
     opened[account.id] = nil
     try stores.remove(account: account.id, secrets: true)
     personal.reload()
