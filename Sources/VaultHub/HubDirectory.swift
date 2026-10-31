@@ -32,6 +32,7 @@ public final class HubDirectory {
       for hub in vault.hubs where (try? store.item(id: hub.id))?.values["_identity"] == nil { try store.save(hub) }
     }
     refresh()
+    observeDeviceName()
   }
 
   public func stop() {
@@ -142,6 +143,20 @@ public final class HubDirectory {
     let loaded = (device: try HubKeyStore.deviceKey(), client: try HubKeyStore.clientKey())
     keys = loaded
     return loaded
+  }
+
+  /// Connects again when the user renames this device (`VaultDevice.name`): each connection's certificate carries
+  /// the name, and the Hub takes it from there.
+  private func observeDeviceName() {
+    withObservationTracking { _ = VaultDevice.name } onChange: { [weak self] in
+      Task { @MainActor in
+        guard let self, self.isStarted else { return }
+        self.connections.values.forEach { $0.stop() }
+        self.connections = [:]
+        self.refresh()
+        self.observeDeviceName()
+      }
+    }
   }
 
   /// Refreshes when another app or device changes the Hub records.

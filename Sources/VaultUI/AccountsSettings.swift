@@ -2,8 +2,9 @@ import ComponentKit
 import SwiftUI
 import VaultKit
 
-/// Settings ▸ Accounts, the same in every app: a card per account (Personal first) with the name and email the user
-/// goes by in it, its Apple developer teams, and New Account…, Edit… and Delete…. Put it in a `SettingsPane`.
+/// Settings ▸ Accounts, the same in every app: this device's name, then a card per account (Personal first) with the
+/// name and email the user goes by in it, its Apple developer teams, and New Account…, Edit… and Delete…. Put it in a
+/// `SettingsPane`.
 ///
 /// ```swift
 /// SettingsPane("Accounts", systemImage: "person.2", hue: .indigo, section: "v57") { VaultAccountsSettings() }
@@ -15,6 +16,7 @@ public struct VaultAccountsSettings: View {
   @State private var deleting: VaultAccount?
   @State private var addingTeamTo: VaultAccount?
   @State private var naming: VaultAccount?
+  @State private var renamingDevice = false
   /// The accounts' vaults, opened outside the body (opening one writes `Vaults` state).
   @State private var opened: [String: Vault] = [:]
 
@@ -23,6 +25,14 @@ public struct VaultAccountsSettings: View {
   }
 
   public var body: some View {
+    FormCard("This \(KitDevice.name)") {
+      FormRow(
+        VaultDevice.name, help: "Its name on your Hub, its SSH key and the servers that let it in",
+        systemImage: KitDevice.systemImage, hue: .gray
+      ) {
+        Button("Rename…") { renamingDevice = true }.buttonStyle(.kit)
+      }
+    }
     ForEach(vaults.allAccounts) { account in
       FormCard(
         account.isPersonal ? "Personal" : account.name,
@@ -63,6 +73,7 @@ public struct VaultAccountsSettings: View {
       .kitSheet(isPresented: $creating) { VaultAccountSheet(account: nil) }
       .kitSheet(item: $editing) { VaultAccountSheet(account: $0) }
       .kitSheet(item: $naming) { VaultProfileSheet(account: $0, vaults: vaults) }
+      .kitSheet(isPresented: $renamingDevice) { VaultDeviceNameSheet(vault: vaults.personal) }
       .kitSheet(item: $addingTeamTo) { account in
         VaultAppleTeamSheet(vault: opened[account.id])
       }

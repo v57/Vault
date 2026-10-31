@@ -33,8 +33,7 @@ public struct VaultAuthorizedKeys: Sendable {
     guard let material = Self.keyMaterial(of: key.publicKey) else { throw AuthorizedKeysError.notAKey }
     var lines = try lines()
     guard !lines.contains(where: { Self.keyMaterial(of: $0) == material }) else { return }
-    let name = key.deviceName.replacingOccurrences(of: "\n", with: " ")
-    lines.append("\(material) \(Self.marker)\(key.id) \(name)")
+    lines.append(Self.line(material: material, for: key))
     try write(lines)
   }
 
@@ -56,19 +55,34 @@ public struct VaultAuthorizedKeys: Sendable {
   }
 
   /// Takes out Vault's lines for devices that are gone from `keys` or have another key now (a new key is allowed
-  /// again by hand, never by following the vault). Returns whether it changed the file.
+  /// again by hand, never by following the vault), and renames the rest's comment to the device's name now.
+  /// Returns whether it changed the file.
   @discardableResult
   public func removeStale(keeping keys: [VaultDeviceKey]) throws -> Bool {
-    let current = Dictionary(keys.map { ($0.id, Self.keyMaterial(of: $0.publicKey)) }, uniquingKeysWith: { first, _ in first })
+    let current = Dictionary(keys.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     let lines = try lines()
-    let kept = lines.filter { line in
-      guard let device = Self.device(of: line) else { return true }
-      guard let material = current[device] ?? nil else { return false }
-      return Self.keyMaterial(of: line) == material
+    let kept = lines.compactMap { line -> String? in
+      guard let device = Self.device(of: line) else { return line }
+      guard let key = current[device], let material = Self.keyMaterial(of: key.publicKey),
+        Self.keyMaterial(of: line) == material
+      else { return nil }
+      return Self.renamed(line, to: key.deviceName)
     }
-    guard kept.count != lines.count else { return false }
+    guard kept != lines else { return false }
     try write(kept)
     return true
+  }
+
+  /// Vault's line for a device: its key, the marker and its name.
+  static func line(material: String, for key: VaultDeviceKey) -> String {
+    "\(material) \(marker)\(key.id) \(key.deviceName.replacingOccurrences(of: "\n", with: " "))"
+  }
+
+  /// A line Vault added with `name` after its marker; what comes before (options, the key) stays.
+  static func renamed(_ line: String, to name: String) -> String {
+    guard let marker = line.range(of: " \(marker)") else { return line }
+    let end = line[marker.upperBound...].firstIndex(of: " ") ?? line.endIndex
+    return "\(line[..<end]) \(name.replacingOccurrences(of: "\n", with: " "))"
   }
 
   // MARK: The file

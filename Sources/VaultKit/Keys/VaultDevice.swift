@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 #if canImport(UIKit)
   import UIKit
@@ -34,8 +35,20 @@ public enum VaultDevice {
     }
   }()
 
-  /// The name people gave the device ("Dmitry's MacBook Pro").
-  @MainActor public static var name: String {
+  /// The device's name everywhere v57 shows it (the Hub, its SSH key's comment, `authorized_keys` lines, the hosts
+  /// other devices see): the one the user gave it in the vault (`VaultStore.renameDevice`), else the system's.
+  /// Observable: a view that shows it redraws when it changes.
+  @MainActor public static var name: String { DeviceName.shared.custom ?? systemName }
+
+  /// The name the user gave this device in the vault (`VaultDeviceKey.customName`), nil while it goes by the system's.
+  /// The Personal vault sets it when it loads.
+  @MainActor public internal(set) static var customName: String? {
+    get { DeviceName.shared.custom }
+    set { if DeviceName.shared.custom != newValue { DeviceName.shared.custom = newValue } }
+  }
+
+  /// The name the system gives the device ("Dmitry's MacBook Pro").
+  @MainActor public static var systemName: String {
     #if os(macOS)
       Host.current().localizedName ?? "Mac"
     #elseif canImport(UIKit)
@@ -68,4 +81,11 @@ public enum VaultDevice {
       return []
     #endif
   }
+}
+
+/// Where `VaultDevice.customName` lives, observable.
+@MainActor @Observable
+final class DeviceName {
+  static let shared = DeviceName()
+  var custom: String?
 }

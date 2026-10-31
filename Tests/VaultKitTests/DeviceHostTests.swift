@@ -131,3 +131,58 @@ struct DeviceHostTests {
     #expect(VaultAuthorizedKeys.keyMaterial(of: "# comment") == nil)
   }
 }
+
+/// Renaming a device: the record, this device's name, and the `authorized_keys` lines Vault wrote.
+@MainActor
+struct DeviceNameTests {
+  let keys = MemoryKeyProvider()
+
+  init() { VaultSecrets.useInMemoryStore() }
+
+  func store(_ device: String = "mac") throws -> VaultStore {
+    try VaultStore(directory: temporaryDirectory(), keys: keys, deviceID: device, notifier: nil, owner: device)
+  }
+
+  @Test func renamingADeviceKeepsItUntilItsCleared() throws {
+    let store = try store()
+    #expect(throws: VaultDeviceError.self) { try store.renameDevice("phone", to: "Pocket") }
+    try store.save(VaultDeviceKey(id: "phone", deviceName: "iPhone", publicKey: DeviceHostTests.phoneKey, platform: "iOS"))
+
+    try store.renameDevice("phone", to: "  Pocket\n")
+    var phone = try #require(try store.record(VaultDeviceKey.self, id: "phone"))
+    #expect(phone.customName == "Pocket")
+    #expect(phone.deviceName == "Pocket")
+
+    // Back to the system's name: the device publishes it again; until then the old one shows.
+    try store.renameDevice("phone", to: " ")
+    phone = try #require(try store.record(VaultDeviceKey.self, id: "phone"))
+    #expect(phone.customName == nil)
+    #expect(phone.deviceName == "Pocket")
+  }
+
+  @Test func theVaultGivesThisDeviceItsName() throws {
+    let store = try store()
+    let material = try #require(VaultAuthorizedKeys.keyMaterial(of: DeviceHostTests.phoneKey))
+    try store.save(
+      VaultDeviceKey(id: "mac", deviceName: "Studio", customName: "Studio", publicKey: "\(material) Studio", platform: "macOS"))
+    defer { VaultDevice.customName = nil }
+    _ = Vault(store: store)
+    #expect(VaultDevice.customName == "Studio")
+    #expect(VaultDevice.name == "Studio")
+  }
+
+  @Test func authorizedKeysFollowARename() throws {
+    let keys = VaultAuthorizedKeys(url: temporaryDirectory().appendingPathComponent("authorized_keys"))
+    var phone = VaultDeviceKey(id: "phone", deviceName: "iPhone", publicKey: DeviceHostTests.phoneKey, platform: "iOS")
+    try keys.allow(phone)
+    let material = try #require(VaultAuthorizedKeys.keyMaterial(of: phone.publicKey))
+    // Options someone added stay.
+    try keys.write([#"no-pty "# + (try keys.lines()[0])])
+    #expect(try !keys.removeStale(keeping: [phone]))
+
+    phone.deviceName = "Pocket"
+    #expect(try keys.removeStale(keeping: [phone]))
+    #expect(try keys.lines() == ["no-pty \(material) v57-device=phone Pocket"])
+    #expect(try keys.allowedDevices(among: [phone]) == ["phone"])
+  }
+}

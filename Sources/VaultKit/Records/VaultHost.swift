@@ -268,14 +268,21 @@ public struct VaultDeviceKey: VaultRecord, Hashable {
   /// The device id.
   public var id: String
   public var deviceName: String
+  /// The name the user gave the device (`VaultStore.renameDevice`), nil while it goes by its system's; the device
+  /// itself then publishes it as `deviceName` too.
+  public var customName: String?
   /// The `authorized_keys` line.
   public var publicKey: String
   public var platform: String
   public var updated: Date?
 
-  public init(id: String, deviceName: String, publicKey: String, platform: String, updated: Date? = .now) {
+  public init(
+    id: String, deviceName: String, customName: String? = nil, publicKey: String, platform: String,
+    updated: Date? = .now
+  ) {
     self.id = id
     self.deviceName = deviceName
+    self.customName = customName
     self.publicKey = publicKey
     self.platform = platform
     self.updated = updated
@@ -285,13 +292,17 @@ public struct VaultDeviceKey: VaultRecord, Hashable {
     let read = FieldReader(values)
     self.id = id
     deviceName = read.string("deviceName", default: "")
+    customName = read.string("customName").flatMap { $0.isEmpty ? nil : $0 }
     publicKey = read.string("publicKey", default: "")
     platform = read.string("platform", default: "")
     updated = read.date("updated")
   }
 
   public var values: [String: JSONValue] {
-    ["deviceName": .string(deviceName), "publicKey": .string(publicKey), "platform": .string(platform), "updated": .init(updated)]
+    [
+      "deviceName": .string(deviceName), "customName": .init(customName), "publicKey": .string(publicKey),
+      "platform": .string(platform), "updated": .init(updated),
+    ]
   }
 
   public var fingerprint: String? { VaultIdentity.fingerprint(keyLine: publicKey) }
@@ -310,11 +321,33 @@ extension VaultStore {
     #else
       let platform = "iOS"
     #endif
-    if let existing = try record(VaultDeviceKey.self, id: deviceID),
-      existing.publicKey == line, existing.deviceName == name
-    {
-      return
+    let existing = try record(VaultDeviceKey.self, id: deviceID)
+    if let existing, existing.publicKey == line, existing.deviceName == name { return }
+    try save(
+      VaultDeviceKey(
+        id: deviceID, deviceName: name, customName: existing?.customName, publicKey: line, platform: platform))
+  }
+
+  /// Names a device, this one or another (nil or blank: back to the system's name). Every app on that device then
+  /// goes by it (`VaultDevice.name`): its key's comment, the Hub, `authorized_keys` lines Vault wrote, the host other
+  /// devices see. The device republishes its key with the name when it loads the vault (`Vault.reload`).
+  public func renameDevice(_ id: String, to name: String?) throws {
+    let name = name?.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
+    let custom = name?.isEmpty == false ? name : nil
+    guard var key = try record(VaultDeviceKey.self, id: id) else { throw VaultDeviceError.unknownDevice }
+    guard key.customName != custom else { return }
+    key.customName = custom
+    if let custom { key.deviceName = custom }
+    try save(key)
+  }
+}
+
+public enum VaultDeviceError: LocalizedError {
+  case unknownDevice
+
+  public var errorDescription: String? {
+    switch self {
+    case .unknownDevice: "This device hasn't published its key yet."
     }
-    try save(VaultDeviceKey(id: deviceID, deviceName: name, publicKey: line, platform: platform))
   }
 }

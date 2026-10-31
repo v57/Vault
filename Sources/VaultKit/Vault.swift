@@ -163,6 +163,15 @@ public final class Vault {
       self.error = error.localizedDescription
     }
     lookForIcons()
+    if let own = deviceKeys.first(where: { $0.id == store.deviceID }), own.platform != "custom" {
+      let wasRenamed = VaultDevice.customName != nil
+      VaultDevice.customName = own.customName
+      // Renamed (here or on another device), or back to the system's name: publish the key with the name.
+      let name = VaultDevice.name
+      if own.customName != nil || wasRenamed, own.deviceName != name || !own.publicKey.hasSuffix(" \(name)") {
+        Task { @MainActor [weak self] in self?.perform { try $0.publishDeviceKey() } }
+      }
+    }
     #if os(macOS)
       // At launch, and when a device's key arrives, changes or goes: keep this Mac's authorized_keys and host current.
       if deviceKeys != oldDeviceKeys, isPersonal, thisDeviceHost != nil {
@@ -191,6 +200,15 @@ public final class Vault {
       self.error = error.localizedDescription
     }
     reload()
+  }
+
+  /// Names a device (`VaultStore.renameDevice`); this one publishes its key first if it hasn't yet. Failures go to
+  /// `error`.
+  public func renameDevice(_ id: String, to name: String?) {
+    perform { store in
+      if id == store.deviceID, try store.record(VaultDeviceKey.self, id: id) == nil { try store.publishDeviceKey() }
+      try store.renameDevice(id, to: name)
+    }
   }
 
   /// This device's id.

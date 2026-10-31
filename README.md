@@ -101,6 +101,13 @@ never to the user's files: the terminal and agents keep their own setup. An app 
 asks first: `VaultProfileOption` adds a switch (off) to the sheet, or a confirmation when the profile is already saved
 (`VaultProfileRequest.answer(for:option:)`; Git's "Use in Terminal too").
 
+**Device names.** `VaultDevice.name` is how every app names this device: on the Hub (each connection's certificate;
+`HubDirectory` connects again after a rename), on its SSH key's comment, on the `authorized_keys` lines Vault writes
+(`removeStale` renames them) and on the host other devices see. It is the name the user gave it
+(`VaultDeviceKey.customName`, set with `Vault.renameDevice`, from any device; `VaultDeviceNameSheet` in Settings ▸
+Accounts and the Vault app's Devices), else the system's. The Personal vault hands the device its name when it loads
+and republishes its key with it.
+
 **Project tree.** Projects sit in groups that nest (`VaultProjectGroup`), so every app's sidebar can show the same
 arrangement on every device. A project's place is its `groupID` and `order`, a group's its `parentID` and `order`;
 groups and projects share one order. `VaultProjectTree` builds the tree from the records alone, the same way

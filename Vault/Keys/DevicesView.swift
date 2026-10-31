@@ -2,6 +2,7 @@ import ComponentKit
 import SwiftUI
 import VaultHub
 import VaultKit
+import VaultUI
 
 /// Board 07: this device's key (it never leaves the Secure Enclave), your other devices (their vault keys arrive
 /// through iCloud Keychain), your identity for sharing, and the people you share with; the selected person's
@@ -11,6 +12,8 @@ struct DevicesView: View {
   @State private var search = ""
   @State private var identityError: String?
   @State private var pushed: String?
+  /// The device being renamed (this one too).
+  @State private var renaming: VaultDeviceKey?
   @Environment(\.kitIdiom) private var idiom
 
   var body: some View {
@@ -27,6 +30,13 @@ struct DevicesView: View {
             meta: idiom == .phone ? [ThisDevice.system, "Secure Enclave"] : ["This \(ThisDevice.word)", ThisDevice.system, "Secure Enclave"],
             systemImage: DeviceGlyph.systemImage(device)
           ) {
+            InspectorRow("Name", copyText: device.deviceName) {
+              HStack {
+                Text(device.deviceName).lineLimit(1)
+                Spacer()
+                if !app.isDemo { Button("Rename…") { renaming = device }.buttonStyle(.kit).controlSize(.small) }
+              }
+            }
             InspectorRow("SSH key", copyText: device.publicKey) {
               Text(idiom == .phone ? ShortKey.fingerprint(device.fingerprint) : "ecdsa-sha2-nistp256 \(ShortKey.fingerprint(device.fingerprint))")
                 .kitFont(.mono).lineLimit(1)
@@ -46,6 +56,9 @@ struct DevicesView: View {
               RowTile(systemImage: DeviceGlyph.systemImage(device))
             } trailing: {
               Chip("Up to date", hue: .green).controlSize(.small)
+            }
+            .contextMenu {
+              if !app.isDemo { Button("Rename…") { renaming = device } }
             }
           }
           ForEach(app.hubs.hubs.filter { $0.status == .connected }) { hub in
@@ -106,6 +119,7 @@ struct DevicesView: View {
     .phoneBottomBar(prompt: "Search", search: $search) {
       Button("Add Device", systemImage: "qrcode") { app.sheet = .addDevice }
     }
+    .kitSheet(item: $renaming) { device in VaultDeviceNameSheet(vault: app.deviceVault, device: device) }
     .onAppear { if idiom == .phone, LaunchOptions.pushes { pushed = app.selectedPerson } }
     .navigationDestination(item: $pushed) { id in
       if let person = people.first(where: { $0.id == id }) {
