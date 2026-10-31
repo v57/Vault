@@ -95,8 +95,9 @@ since a store's ids are unique across kinds), so every app sees every account's.
 organization's account Personal's name when it has none, never its email: a client's commits go out with the client's
 address. `suggestedProfile(for:gitHub:)` prefills the Your Name sheet from Personal's, git's global configuration
 (`GitGlobalIdentity`, read from the files, no git process), the GitHub sign-in the caller passes, and the Mac user's
-full name. Apps hand the profile to the tools they run, never to the user's files: the terminal and agents keep their
-own setup.
+full name. VaultUI's `VaultProfileSheet` (Your Name) asks for them, shown by the first app that needs them, and Settings
+▸ Accounts (`VaultAccountsSettings`) has a Your Name row per account. Apps hand the profile to the tools they run,
+never to the user's files: the terminal and agents keep their own setup.
 
 **Project tree.** Projects sit in groups that nest (`VaultProjectGroup`), so every app's sidebar can show the same
 arrangement on every device. A project's place is its `groupID` and `order`, a group's its `parentID` and `order`;

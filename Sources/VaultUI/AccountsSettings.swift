@@ -2,22 +2,25 @@ import ComponentKit
 import SwiftUI
 import VaultKit
 
-/// Settings ▸ Accounts, the same in every app: a card per account (Personal first) with its Apple developer teams,
-/// and New Account…, Edit… and Delete…. Put it in a `SettingsPane`.
+/// Settings ▸ Accounts, the same in every app: a card per account (Personal first) with the name and email the user
+/// goes by in it, its Apple developer teams, and New Account…, Edit… and Delete…. Put it in a `SettingsPane`.
 ///
 /// ```swift
 /// SettingsPane("Accounts", systemImage: "person.2", hue: .indigo, section: "v57") { VaultAccountsSettings() }
 /// ```
 public struct VaultAccountsSettings: View {
-  @State private var vaults = Vaults.shared
+  @State private var vaults: Vaults
   @State private var creating = false
   @State private var editing: VaultAccount?
   @State private var deleting: VaultAccount?
   @State private var addingTeamTo: VaultAccount?
+  @State private var naming: VaultAccount?
   /// The accounts' vaults, opened outside the body (opening one writes `Vaults` state).
   @State private var opened: [String: Vault] = [:]
 
-  public init() {}
+  public init(vaults: Vaults = .shared) {
+    _vaults = State(initialValue: vaults)
+  }
 
   public var body: some View {
     ForEach(vaults.allAccounts) { account in
@@ -28,6 +31,7 @@ public struct VaultAccountsSettings: View {
           : nil
       ) {
         accountRow(account)
+        profileRow(account)
         if let vault = opened[account.id] {
           ForEach(vault.appleTeams) { team in
             FormRow(team.name.isEmpty ? team.teamID : team.name, help: "Apple team \(team.teamID)",
@@ -58,6 +62,7 @@ public struct VaultAccountsSettings: View {
       }
       .kitSheet(isPresented: $creating) { VaultAccountSheet(account: nil) }
       .kitSheet(item: $editing) { VaultAccountSheet(account: $0) }
+      .kitSheet(item: $naming) { VaultProfileSheet(account: $0, vaults: vaults) }
       .kitSheet(item: $addingTeamTo) { account in
         VaultAppleTeamSheet(vault: opened[account.id])
       }
@@ -87,6 +92,16 @@ public struct VaultAccountsSettings: View {
           Button("Delete…", role: .destructive) { deleting = account }.buttonStyle(.kit)
         }
       }
+    }
+  }
+
+  private func profileRow(_ account: VaultAccount) -> some View {
+    let profile = vaults.profile(for: account)
+    let help =
+      profile.signature
+      ?? (profile.name.isEmpty ? "Not set: the first app that needs them asks" : "\(profile.name), no email yet")
+    return FormRow("Your Name", help: help, systemImage: "person.text.rectangle", hue: .gray) {
+      Button(profile.isComplete ? "Edit…" : "Set…") { naming = account }.buttonStyle(.kit)
     }
   }
 }
