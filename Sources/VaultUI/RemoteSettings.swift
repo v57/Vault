@@ -5,7 +5,7 @@
   import VaultKit
 
   /// Settings ▸ Remote, the same in every Mac app: whether the user's other devices can reach this Mac over SSH (it
-  /// publishes itself as a host, so Git and Code on iPhone and iPad find its projects and run them here), which of
+  /// publishes itself as a host, so the v57 apps on the user's other devices find its projects and work on them here), which of
   /// them can sign in, and the other keys in `~/.ssh/authorized_keys` (added by hand or by another tool), with Add
   /// Key… for a pasted one and Remove… for each. Until Remote Login is on, letting devices in is locked and the pane
   /// says what it would bring; once it's on, it offers to turn password login off. Put it in a `SettingsPane`.
@@ -49,7 +49,7 @@
       FormCard(
         "This Mac",
         footer: loginIsOn
-          ? "Your iPhone and iPad find this Mac’s projects and work on them here over SSH, without a Hub. "
+          ? "Your other devices find this Mac’s projects and work on them here over SSH, without a Hub. "
             + "Each device signs in with its own key, once you allow it below." : nil
       ) {
         if remoteLoginIsOn == false {
@@ -86,16 +86,20 @@
       if remoteLoginIsOn == false {
         FormCard(
           "With Remote Login On",
-          footer: "Each device signs in with its own key, and only once you allow it here. Nothing else changes."
+          footer: "From the v57 apps on your other devices. Each device signs in with its own key, and only once you "
+            + "allow it here. Nothing else changes."
         ) {
+          // What the v57 apps on the user's other devices (Mac, iPhone, iPad, Windows, Linux) do with this Mac.
           FormRow(
-            "Git on iPhone and iPad", help: "Changes, staging, commits and pushes in this Mac’s repositories",
+            "Git", help: "Changes, staging, commits and pushes in this Mac’s repositories",
             systemImage: "arrow.triangle.branch", hue: .orange)
+          FormRow("Code", help: "Build, Test and Run this Mac’s projects", systemImage: "hammer", hue: .blue)
+          FormRow("Shell", help: "A terminal on this Mac, without a password", systemImage: "terminal", hue: .gray)
           FormRow(
-            "Code on iPhone and iPad", help: "Build, Test and Run this Mac’s projects", systemImage: "hammer",
-            hue: .blue)
-          FormRow("Player", help: "Plays the videos on this Mac on your other devices", systemImage: "play.rectangle", hue: .red)
-          FormRow("Get", help: "Starts downloads on this Mac from your other devices", systemImage: "arrow.down.circle", hue: .green)
+            "Database", help: "The databases on this Mac, through an SSH tunnel", systemImage: "cylinder.split.1x2",
+            hue: .purple)
+          FormRow("Player", help: "Plays the videos on this Mac", systemImage: "play.rectangle", hue: .red)
+          FormRow("Get", help: "Starts downloads on this Mac", systemImage: "arrow.down.circle", hue: .green)
         }
       }
       if loginIsOn, host != nil {
