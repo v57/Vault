@@ -73,6 +73,64 @@ public struct VaultAuthorizedKeys: Sendable {
     return true
   }
 
+  // MARK: Any key
+
+  /// A key in the file, as Settings lists it: a device's (`device`) or one added by hand or by another tool.
+  public struct Entry: Identifiable, Hashable, Sendable {
+    /// "ssh-ed25519 AAAA…": the key's type and blob, which say which key it is.
+    public let material: String
+    /// The first line with the key, as it is in the file.
+    public let line: String
+    /// What comes after the key ("name@laptop"), without Vault's marker; nil when there's nothing.
+    public let comment: String?
+    /// The device a line Vault added is for.
+    public let device: String?
+
+    public var id: String { material }
+  }
+
+  /// The keys in the file, in its order; a key that's there twice is listed once.
+  public func entries() throws -> [Entry] {
+    var seen = Set<String>()
+    return try lines().compactMap { line in
+      guard let material = Self.keyMaterial(of: line), seen.insert(material).inserted else { return nil }
+      return Entry(material: material, line: line, comment: Self.comment(of: line), device: Self.device(of: line))
+    }
+  }
+
+  /// Adds one public key line ("ssh-ed25519 AAAA… name@laptop"), unless its key is there already.
+  public func add(line: String) throws {
+    let line = line.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard Self.isKeyLine(line), let material = Self.keyMaterial(of: line) else { throw AuthorizedKeysError.notAKeyLine }
+    var lines = try lines()
+    guard !lines.contains(where: { Self.keyMaterial(of: $0) == material }) else { return }
+    lines.append(line)
+    try write(lines)
+  }
+
+  /// Takes out every line with the key `material` ("ssh-ed25519 AAAA…").
+  public func remove(material: String) throws {
+    let lines = try lines()
+    let kept = lines.filter { Self.keyMaterial(of: $0) != material }
+    if kept.count != lines.count { try write(kept) }
+  }
+
+  /// Whether `line` is one public key line: a key type and a base64 blob, any options before and a comment after.
+  public static func isKeyLine(_ line: String) -> Bool {
+    let line = line.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !line.contains("\n"), let material = keyMaterial(of: line) else { return false }
+    let blob = material.split(separator: " ")[1]
+    return Data(base64Encoded: String(blob)) != nil
+  }
+
+  /// What comes after a line's key, without Vault's marker.
+  static func comment(of line: String) -> String? {
+    let words = line.split(separator: " ", omittingEmptySubsequences: true)
+    guard let index = words.firstIndex(where: isKeyType), index + 2 < words.count else { return nil }
+    let comment = words[(index + 2)...].filter { !$0.hasPrefix(marker) }.joined(separator: " ")
+    return comment.isEmpty ? nil : comment
+  }
+
   /// Vault's line for a device: its key, the marker and its name.
   static func line(material: String, for key: VaultDeviceKey) -> String {
     "\(material) \(marker)\(key.id) \(key.deviceName.replacingOccurrences(of: "\n", with: " "))"
@@ -111,7 +169,7 @@ public struct VaultAuthorizedKeys: Sendable {
   // MARK: Lines
 
   /// "ecdsa-sha2-nistp256 AAAA…": the key's type and blob, after any options, without the comment.
-  static func keyMaterial(of line: String) -> String? {
+  public static func keyMaterial(of line: String) -> String? {
     let line = line.trimmingCharacters(in: .whitespaces)
     guard !line.isEmpty, !line.hasPrefix("#") else { return nil }
     let words = line.split(separator: " ", omittingEmptySubsequences: true)
@@ -132,7 +190,13 @@ public struct VaultAuthorizedKeys: Sendable {
 
   public enum AuthorizedKeysError: LocalizedError {
     case notAKey
+    case notAKeyLine
 
-    public var errorDescription: String? { "The device’s key isn’t an SSH public key." }
+    public var errorDescription: String? {
+      switch self {
+      case .notAKey: "The device’s key isn’t an SSH public key."
+      case .notAKeyLine: "That isn’t one SSH public key line, like the contents of ~/.ssh/id_ed25519.pub."
+      }
+    }
   }
 }

@@ -124,6 +124,24 @@ struct DeviceHostTests {
     #expect(try keys.lines().isEmpty)
   }
 
+  @Test func anyKeyCanBeListedAddedAndRemoved() throws {
+    let keys = VaultAuthorizedKeys(url: temporaryDirectory().appendingPathComponent("authorized_keys"))
+    let phone = VaultDeviceKey(id: "phone", deviceName: "iPhone", publicKey: Self.phoneKey, platform: "iOS")
+    try keys.allow(phone)
+    let laptop = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl me@laptop"
+    try keys.add(line: laptop + "\n")
+    try keys.add(line: laptop)
+    #expect(throws: VaultAuthorizedKeys.AuthorizedKeysError.self) { try keys.add(line: "not a key") }
+    #expect(!VaultAuthorizedKeys.isKeyLine("ssh-ed25519 not*base64"))
+
+    let entries = try keys.entries()
+    #expect(entries.map(\.device) == ["phone", nil])
+    #expect(entries.map(\.comment) == ["iPhone", "me@laptop"])
+
+    try keys.remove(material: entries[1].material)
+    #expect(try keys.entries().map(\.device) == ["phone"])
+  }
+
   @Test func keyMaterialSkipsOptions() {
     let line = #"from="10.0.0.0/8",no-pty ecdsa-sha2-nistp256 AAAA v57-device=abc My Phone"#
     #expect(VaultAuthorizedKeys.keyMaterial(of: line) == "ecdsa-sha2-nistp256 AAAA")
