@@ -16,18 +16,31 @@ public struct VaultImportSheet: View {
   let offer: VaultImportOffer
   let vault: Vault
   let app: String?
+  let alternative: Alternative?
   let onAdd: ([URL]) -> Void
   @Environment(\.kitDismiss) private var dismiss
   @State private var picked: Set<URL>
 
-  /// `app` names the app showing it, for the explanation; `onAdd` gets what was added (after the vault has it).
+  /// Another way to take the drop, a button beside Not Now (Code's "Open as One Project").
+  public struct Alternative {
+    let title: String
+    let action: () -> Void
+    public init(_ title: String, action: @escaping () -> Void) {
+      self.title = title
+      self.action = action
+    }
+  }
+
+  /// `app` names the app showing it, for the explanation; `alternative` is another way to take the drop; `onAdd`
+  /// gets what was added (after the vault has it).
   public init(
     _ offer: VaultImportOffer, vault: Vault = Vaults.shared.personal, app: String? = nil,
-    onAdd: @escaping ([URL]) -> Void = { _ in }
+    alternative: Alternative? = nil, onAdd: @escaping ([URL]) -> Void = { _ in }
   ) {
     self.offer = offer
     self.vault = vault
     self.app = app
+    self.alternative = alternative
     self.onAdd = onAdd
     let folders = offer.folders.filter { $0.looksLikeProject || $0.contents.contains(.notes) }.map(\.url)
     _picked = State(initialValue: Set(offer.repositories + folders + offer.databases.map(\.url)))
@@ -66,6 +79,12 @@ public struct VaultImportSheet: View {
         .buttonStyle(.kitPlain)
       }
       Spacer()
+      if let alternative {
+        Button(alternative.title) {
+          dismiss()
+          alternative.action()
+        }
+      }
       Button("Not Now") { dismiss() }
         .keyboardShortcut(.cancelAction)
       Button(picked.isEmpty || all.count == 1 ? "Add" : "Add \(picked.count)") { add() }
