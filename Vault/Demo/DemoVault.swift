@@ -73,11 +73,15 @@ enum DemoVault {
     let bastion = VaultHost(name: "bastion", hostname: "bastion.atlas.example.com", port: 2222, user: "aiko", order: 2, source: "shell")
     let staging = VaultHost(name: "staging", hostname: "staging.atlas.example.com", user: "deploy", jumpHostID: bastion.id, order: 3, source: "shell")
     let replica = VaultHost(name: "db-replica", hostname: "10.0.4.12", user: "postgres", auth: .password, jumpHostID: bastion.id, order: 4)
-    let studio = VaultHost(name: "studio-mac", hostname: "studio-mac.local", user: "aiko", order: 5, source: "shell")
+    let studio = VaultHost(name: "studio-mac", hostname: "studio-mac.local", fallbacks: ["192.168.1.20"], user: "aiko", order: 5, source: "shell")
     let build = VaultHost(name: "build-linux", hostname: "192.168.1.40", user: "ci", auth: .importedKey, order: 6, source: "dev-vm")
     let nas = VaultHost(name: "nas", hostname: "nas.local", user: "admin", auth: .password, order: 7)
     let pi = VaultHost(name: "Raspberry Pi", hostname: "pi.local", user: "pi", auth: .password, order: 8)
-    for host in [web1, web2, bastion, staging, replica, studio, build, nas, pi] { try store.save(host) }
+    // The MacBook Air published itself (its Bonjour name); the user reaches it by its Tailscale name first.
+    let airHost = VaultHost(
+      name: "MacBook Air", hostname: "macbook-air.tail4e2f.ts.net", user: "aiko", order: 9, source: "device",
+      device: VaultHost.DeviceRoute(deviceID: airDevice, address: "MacBook-Air.local"))
+    for host in [web1, web2, bastion, staging, replica, studio, build, nas, pi, airHost] { try store.save(host) }
     try VaultSecrets.setPassword("replica-reader-2026", for: replica.id)
     try VaultSecrets.setPassword("nas-admin-Lm2x", for: nas.id)
     try store.trust(fingerprint: "SHA256:Xk2PbQ8vUe5nT1aZcR7mJ4wY9dLf3hG6sK0oPq2r9Qa", host: web1.hostname, port: 22, keyType: "ed25519")

@@ -136,6 +136,7 @@ struct SheetContent: View {
   var body: some View {
     switch sheet {
     case .newItem(let kind): NewItemSheet(kind: kind)
+    case .editHost(let id): EditHostSheet(hostID: id)
     case .addRemote: AddRemoteSheet()
     case .decrypt(let id): DecryptSheet(folderID: id)
     case .share(let id): ShareSheet(folderID: id)

@@ -364,16 +364,33 @@ private struct NoteForm: View {
   }
 }
 
-private struct HostForm: View {
+/// A host's fields, for a new host or (with `editing`) a saved one: name, address, its fallback addresses (and, for one
+/// of the user's devices, the ones the vault tries anyway), user, port, sign-in.
+struct HostForm: View {
+  var editing: VaultHost?
   var onSave: () -> Void
   @Environment(AppModel.self) private var app
-  @State private var name = ""
-  @State private var hostname = ""
-  @State private var user = ""
-  @State private var port = "22"
-  @State private var useDeviceKey = true
+  @State private var name: String
+  @State private var hostname: String
+  /// The fallback addresses, a row each (`VaultHost.fallbacks`).
+  @State private var fallbacks: [FallbackAddress]
+  @State private var user: String
+  @State private var port: String
+  @State private var useDeviceKey: Bool
+
+  init(editing: VaultHost? = nil, onSave: @escaping () -> Void) {
+    self.editing = editing
+    self.onSave = onSave
+    _name = State(initialValue: editing?.name ?? "")
+    _hostname = State(initialValue: editing?.hostname ?? "")
+    _fallbacks = State(initialValue: FallbackAddresses.rows(editing?.fallbacks ?? []))
+    _user = State(initialValue: editing?.user ?? "")
+    _port = State(initialValue: editing.map { "\($0.port)" } ?? "22")
+    _useDeviceKey = State(initialValue: editing.map { $0.auth == .deviceKey } ?? true)
+  }
 
   var body: some View {
+    let host = edited
     VStack(spacing: 12) {
       FieldRow {
         LabeledField("Name") { TextField("atlas-web-1", text: $name).kitField() }
@@ -383,14 +400,47 @@ private struct HostForm: View {
         LabeledField("User") { TextField("deploy", text: $user).kitField() }
         LabeledField("Port") { TextField("22", text: $port).kitField(mono: true) }
       }
+      FallbackAddressesField(rows: $fallbacks, host: host)
     }
     Toggle("Sign in with each device’s own key (Secure Enclave)", isOn: $useDeviceKey).toggleStyle(.kitCheckbox)
-    SheetFooterButtons(saveTitle: "Save", canSave: !hostname.isEmpty, status: "Shell and Database see it at once") {
-      let host = VaultHost(name: name, hostname: hostname, port: Int(port) ?? 22, user: user, auth: useDeviceKey ? .deviceKey : .password, order: app.vault.hosts.count, source: "vault")
+    SheetFooterButtons(saveTitle: "Save", canSave: !host.hostname.isEmpty, status: "Shell and Database see it at once") {
       app.vault.save(host)
       app.selectedHost = host.id
       app.selection = .hosts
       onSave()
+    }
+  }
+
+  /// The host as typed: the saved one with the fields written over it, or a new one.
+  private var edited: VaultHost {
+    var host = editing ?? VaultHost(hostname: "", order: app.vault.hosts.count, source: "vault")
+    host.name = name.trimmingCharacters(in: .whitespaces)
+    host.hostname = hostname.trimmingCharacters(in: .whitespaces)
+    host.fallbacks = FallbackAddresses.addresses(fallbacks, host: host.hostname)
+    host.user = user.trimmingCharacters(in: .whitespaces)
+    host.port = Int(port) ?? 22
+    // A key imported into one app stays unless the device key is picked.
+    if useDeviceKey { host.auth = .deviceKey } else if host.auth == .deviceKey { host.auth = .password }
+    return host
+  }
+}
+
+/// Edit SSH Host: the host's fields in `HostForm`, saved in place.
+struct EditHostSheet: View {
+  let hostID: String
+  @Environment(AppModel.self) private var app
+  @Environment(\.kitDismiss) private var dismiss
+
+  var body: some View {
+    let host = app.vault.host(id: hostID)
+    KitSheet(
+      title: "Edit SSH Host", meta: host?.displayName ?? "This host was deleted", systemImage: "server.rack", width: 660
+    ) {
+      if let host {
+        HostForm(editing: host, onSave: { dismiss() })
+      } else {
+        EmptyState(systemImage: "server.rack", title: "No Host", message: "Another device deleted it.")
+      }
     }
   }
 }

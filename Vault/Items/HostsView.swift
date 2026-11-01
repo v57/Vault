@@ -154,6 +154,13 @@ struct HostInspector: View {
     }
     KitSection("Connection", meta: ["port \(host.port)", host.jumpHostID == nil ? "no jump host" : "through \(vault.host(id: host.jumpHostID)?.displayName ?? "a jump host")"], systemImage: "server.rack") {
       InspectorRow("Host") { Text(host.hostname).kitFont(.mono).lineLimit(1).truncationMode(.middle) }
+      // The other addresses, in the order they're tried: the user's, then the ways to one of the user's devices.
+      let fallbacks = vault.personalVault.fallbackAddresses(of: host)
+      if !fallbacks.isEmpty {
+        InspectorRow("Fallbacks", copyText: fallbacks.joined(separator: "\n")) {
+          Text(fallbacks.joined(separator: ", ")).kitFont(.mono).lineLimit(2).truncationMode(.middle)
+        }
+      }
       InspectorRow("User", value: host.user)
       InspectorRow("Port", value: "\(host.port)")
       InspectorRow("Jump host", value: vault.host(id: host.jumpHostID)?.displayName ?? "None", copyable: false)
@@ -212,7 +219,7 @@ struct HostInspector: View {
     if !pushed {
       ActionBar {
         Button("Copy SSH Command") { KitPasteboard.copy(HostPage.command(host)) }
-        Button("Edit") { app.sheet = .newItem(.host) }
+        Button("Edit") { app.sheet = .editHost(host.id) }
       }
     }
   }
@@ -284,7 +291,7 @@ struct HostPage: View {
     PushedDetail(title: host.displayName, meta: ["SSH host", host.user], systemImage: "server.rack") {
       HostInspector(host: host)
     } trailing: {
-      Button("Edit") { app.sheet = .newItem(.host) }.buttonStyle(.kit)
+      Button("Edit") { app.sheet = .editHost(host.id) }.buttonStyle(.kit)
     } actions: {
       Button("Copy SSH Command", systemImage: "terminal") {
         KitPasteboard.copy(Self.command(host))

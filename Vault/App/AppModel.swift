@@ -42,6 +42,8 @@ nonisolated enum SidebarItem: Hashable, Sendable {
 /// A sheet over the main window.
 enum AppSheet: Identifiable, Hashable {
   case newItem(NewItemKind)
+  /// Edit SSH Host for the host with this id.
+  case editHost(String)
   case addRemote
   case decrypt(String)
   case share(String)
@@ -192,6 +194,7 @@ final class AppModel {
     }
     switch LaunchOptions.value("--sheet") {
     case "new-login": sheet = .newItem(.login)
+    case "edit-host": if let id = selectedHost { sheet = .editHost(id) }
     case "add-remote": sheet = .addRemote
     case "decrypt": if case .folder(let id) = selection { sheet = .decrypt(id) }
     case "share": if case .folder(let id) = selection { sheet = .share(id) }
