@@ -73,15 +73,17 @@ extension Vault {
   /// Every address that reaches a host's machine, in the order to try them: its hostname and the fallbacks the user
   /// added, then, for one of the user's own devices, its other ways there: the name the Mac published (its Bonjour
   /// name, on the same network) and its Hub Network address. Any of them can be out of reach (another network, the
-  /// Hub off), which is why there are several. The ways to the user's devices are Personal's.
+  /// Hub off), which is why there are several. The Macs that published themselves are Personal's; the Hub hosts are
+  /// this vault's and Personal's.
   public func addresses(of host: VaultHost) -> [String] {
     let personal = personalVault
     var addresses = [host.hostname] + host.fallbacks
-    if let device = host.device?.deviceID ?? personal.vaultDevice(of: host) {
+    func deviceID(of host: VaultHost) -> String? { vaultDevice(of: host) ?? personal.vaultDevice(of: host) }
+    if let device = deviceID(of: host) {
       for other in personal.deviceHosts where other.device?.deviceID == device {
         addresses += [other.hostname] + other.fallbacks + [other.device?.address ?? ""]
       }
-      for other in personal.hubHosts where personal.vaultDevice(of: other) == device {
+      for other in hubHosts + (isPersonal ? [] : personal.hubHosts) where deviceID(of: other) == device {
         addresses += [other.hostname] + other.fallbacks
       }
     }

@@ -260,16 +260,21 @@ public final class Vault {
   /// The Macs that published themselves, reached over SSH without a Hub.
   public var deviceHosts: [VaultHost] { hosts.filter(\.isDevice) }
 
-  /// One host for each of the user's other devices, Personal's: via Hub when it's on one, else the Mac it published
-  /// (Settings ▸ Remote); `addresses(of:)` gives either one the other's addresses too.
+  /// One host for each of the user's other devices: via this vault's Hubs when it's on one, else the Mac it published
+  /// (Settings ▸ Remote, Personal's); `addresses(of:)` gives either one the other's addresses too.
   public var otherDeviceHosts: [VaultHost] {
-    let personal = personalVault
     var seen = Set<String>()
-    return (personal.hubHosts + personal.deviceHosts).filter { host in
-      guard !personal.isThisDevice(host) else { return false }
-      guard let device = personal.vaultDevice(of: host) else { return true }
+    return (hubHosts + personalVault.deviceHosts).filter { host in
+      guard !isThisDevice(host) else { return false }
+      guard let device = vaultDevice(of: host) else { return true }
       return seen.insert(device).inserted
     }
+  }
+
+  /// The store that holds the host keys trusted for a host: Personal's for a Mac that published itself, else this
+  /// vault's.
+  public func trustStore(for host: VaultHost) -> VaultStore? {
+    host.isDevice ? personalVault.store : store
   }
 
   /// This Mac as the others reach it, when it lets them in (`VaultStore.publishDeviceHost`).
