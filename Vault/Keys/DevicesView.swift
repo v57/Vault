@@ -287,65 +287,25 @@ private struct HubDevicesRow: View {
 }
 
 #if os(macOS)
-  /// SSH from your devices: this Mac publishes itself as a host, so your iPhone and iPad find its projects and run
-  /// Code's Build and Test here without a Hub, and lets in each device you allow (its key in `authorized_keys`).
+  /// SSH from your devices: whether this Mac lets them in, and a way to Settings ▸ Remote, where every v57 app sets
+  /// it (VaultUI's `VaultRemoteSettings`: the devices that can sign in, Remote Login, password login, other keys).
   private struct ThisMacSSHSection: View {
     @Environment(AppModel.self) private var app
-    @State private var remoteLoginIsOn = true
-    @State private var allowed: Set<String> = []
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-      let vault = app.vault
-      let host = vault.thisDeviceHost
+      let host = app.vault.thisDeviceHost
       KitSection(
-        "SSH from your devices", meta: host.map { [$0.hostname, $0.user, "\(allowed.count) allowed"] } ?? ["off"],
-        systemImage: "terminal", hue: .teal
+        "SSH from your devices", meta: host.map { [$0.hostname, $0.user] } ?? ["off"], systemImage: "terminal",
+        hue: .teal
       ) {
-        if !remoteLoginIsOn {
-          Text("Remote Login is off. Turn it on in System Settings → General → Sharing, so your devices can sign in.")
-            .kitFont(.caption).foregroundStyle(Hue.orange.text).padding(8)
+        LinkRow(
+          title: "Remote Settings",
+          subtitle: "Let your iPhone and iPad in, pick which can sign in, and the other keys", systemImage: "network"
+        ) {
+          UserDefaults.standard.set("Remote", forKey: "settings.pane")
+          openSettings()
         }
-        if host != nil {
-          ForEach(app.otherDevices) { device in
-            SidebarRow(device.deviceName, subtitle: "key \(ShortKey.fingerprint(device.fingerprint))") {
-              RowTile(systemImage: DeviceGlyph.systemImage(device))
-            } trailing: {
-              Toggle(
-                "Can sign in",
-                isOn: Binding(
-                  get: { allowed.contains(device.id) },
-                  set: { isOn in
-                    vault.setAllowed(isOn, device: device)
-                    allowed = vault.allowedDevices()
-                  })
-              )
-              .toggleStyle(.kitSwitch).kitLabelsHidden()
-            }
-          }
-          if app.otherDevices.isEmpty {
-            Text("No other devices yet. They show up here once a v57 app runs on them.").kitFont(.caption).padding(8)
-          }
-        } else {
-          Text(
-            "Your iPhone and iPad find this Mac’s projects and run Build and Test here over SSH, without a Hub. Each device signs in with its own key, once you allow it."
-          )
-          .kitFont(.caption).padding(8)
-        }
-        if let error = vault.error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text).padding(.horizontal, 8) }
-      } accessory: {
-        if host == nil {
-          Button("Turn On") { vault.shareThisMac() }.buttonStyle(.kit).controlSize(.small)
-        } else {
-          Button("Turn Off") {
-            vault.stopSharingThisMac()
-            allowed = []
-          }
-          .buttonStyle(.kit).controlSize(.small)
-        }
-      }
-      .task {
-        allowed = vault.allowedDevices()
-        remoteLoginIsOn = await Task.detached { VaultThisMac.remoteLoginIsOn() }.value
       }
     }
   }

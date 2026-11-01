@@ -44,6 +44,12 @@ struct SettingsView: View {
         SettingsPane("Accounts", systemImage: "person.2", hue: .indigo, section: "v57") { VaultAccountsSettings() }
       }
       #if os(macOS)
+        // Your iPhone and iPad sign in to this Mac over SSH; it writes the real ~/.ssh, so never in the demo.
+        if !app.isDemo {
+          SettingsPane("Remote", systemImage: "network", hue: .teal, section: "v57") { VaultRemoteSettings() }
+        }
+      #endif
+      #if os(macOS)
         SettingsPane("Updates", systemImage: "arrow.down.circle", hue: .gray, section: "v57") { UpdatesPane(updater: updater) }
       #else
         SettingsPane("About", systemImage: "info.circle", hue: .gray, section: "v57") { AboutPane() }
