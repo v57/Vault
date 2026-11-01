@@ -65,7 +65,8 @@ public enum VaultProjectsSort: String, CaseIterable, Identifiable, Sendable {
 /// ```
 ///
 /// Pass a tree already narrowed to what the app lists (`tree.filter { … }`), and put it in a `KitSidebar`: the list
-/// and the project's section stick at the top as they scroll by.
+/// and the project's section stick at the top as they scroll by. Without `content:` it is the list alone, for an app
+/// that opens the picked project elsewhere (Git on iPhone and iPad).
 public struct VaultProjectsSection<Content: View, Menu: View>: View {
   let tree: VaultProjectTree
   @Binding var selection: String?
@@ -93,6 +94,10 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   @AppStorage private var sort: VaultProjectsSort
   /// The folded list is open (`.folding`).
   @AppStorage private var isListOpen: Bool
+  @Environment(\.kitIdiom) private var idiom
+
+  /// A row's tile: the Mac's small one, the touch rows' 32pt.
+  private var rowIconSize: CGFloat { idiom.isTouch ? 32 : 18 }
 
   /// The section over `tree`, `selection` the picked project's id. `key` names where the user's layout and order are
   /// kept (`<key>Layout`, `<key>Sort`).
@@ -218,6 +223,18 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
 
   public var body: some View {
     let picked = selection.flatMap { tree.node(id: $0)?.project }
+    if opensElsewhere {
+      list(picked)
+    } else {
+      layoutBody(picked)
+    }
+  }
+
+  /// Without content the app opens the picked project somewhere else (a pushed screen, the split view's detail):
+  /// the list alone, and no layouts to pick from.
+  private var opensElsewhere: Bool { Content.self == EmptyView.self }
+
+  @ViewBuilder private func layoutBody(_ picked: VaultProject?) -> some View {
     switch layout {
     case .separate:
       list(picked)
@@ -232,7 +249,8 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
 
   private func list(_ picked: VaultProject?) -> some View {
     let count = tree.projects().count
-    let items = Item.items(sorted(tree.roots), picked: layout == .inline ? picked?.id : nil, sort: sorted)
+    let items = Item.items(
+      sorted(tree.roots), picked: layout == .inline && !opensElsewhere ? picked?.id : nil, sort: sorted)
     var section = KitSection(
       title, meta: [count == 1 ? "1 project" : "\(count) projects"] + meta, systemImage: "square.stack.3d.up",
       hue: .indigo
@@ -260,7 +278,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     }
     // A picked project folds the list away again (`.folding`).
     .onChange(of: selection) { _, new in
-      if layout == .folding, new != nil { withKitAnimation { isListOpen = false } }
+      if layout == .folding, !opensElsewhere, new != nil { withKitAnimation { isListOpen = false } }
     }
     .kitSticky()
   }
@@ -288,10 +306,12 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   }
 
   @ViewBuilder private var headerMenu: some View {
-    KitMenuSection("Show the Project") {
-      KitMenuOptions(
-        selection: Binding(get: { layout }, set: { new in withKitAnimation { layout = new } }),
-        options: VaultProjectsLayout.allCases.map { ($0.title, $0) })
+    if !opensElsewhere {
+      KitMenuSection("Show the Project") {
+        KitMenuOptions(
+          selection: Binding(get: { layout }, set: { new in withKitAnimation { layout = new } }),
+          options: VaultProjectsLayout.allCases.map { ($0.title, $0) })
+      }
     }
     KitMenuSection("Sort By") {
       KitMenuOptions(
@@ -313,7 +333,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
 
   private func projectRow(_ project: VaultProject) -> some View {
     SidebarRow(project.name, subtitle: rowSubtitle?(project)) {
-      projectIcon(project, size: 18)
+      projectIcon(project, size: rowIconSize)
     } trailing: {
       trailing?(project)
     }
@@ -344,7 +364,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     ) {
       Avatar(
         name: group.name, kind: .thing, systemImage: isCollapsed ? "folder" : "folder.fill",
-        hue: StableHue.pick(group.name), size: 18)
+        hue: StableHue.pick(group.name), size: rowIconSize)
     } trailing: {
       if isCollapsed { groupTrailing?(group, projects) }
     }
@@ -401,6 +421,29 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   static func place(_ path: String) -> String {
     let home = NSHomeDirectory()
     return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
+  }
+}
+
+extension VaultProjectsSection where Content == EmptyView {
+  /// The list alone, for an app that opens the picked project somewhere else: iPhone pushes it, iPad shows it beside
+  /// the sidebar. Its header's menu has the order, not the layouts.
+  public init(
+    _ tree: VaultProjectTree, selection: Binding<String?>, sort: VaultProjectsSort = .arranged,
+    key: String = "Projects", collapsedGroups: Binding<Set<String>>, @ViewBuilder menu: @escaping () -> Menu
+  ) {
+    self.init(
+      tree, selection: selection, sort: sort, key: key, collapsedGroups: collapsedGroups, content: { _ in EmptyView() },
+      menu: menu)
+  }
+}
+
+extension VaultProjectsSection where Content == EmptyView, Menu == EmptyView {
+  /// The list alone, with no items of the app's own in its header's menu.
+  public init(
+    _ tree: VaultProjectTree, selection: Binding<String?>, sort: VaultProjectsSort = .arranged,
+    key: String = "Projects", collapsedGroups: Binding<Set<String>>
+  ) {
+    self.init(tree, selection: selection, sort: sort, key: key, collapsedGroups: collapsedGroups) { EmptyView() }
   }
 }
 
