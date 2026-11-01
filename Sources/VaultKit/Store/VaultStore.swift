@@ -101,11 +101,17 @@ public final class VaultStore: @unchecked Sendable {
   /// The account whose records the store holds (`VaultAccount`); nil for Personal.
   public let accountID: String?
 
+  /// The keychain's keys, or keys of the process's own while the secrets are in memory (tests, demo and in-memory
+  /// runs): those never touch the keychain.
+  public static func defaultKeys() -> VaultKeyProvider {
+    VaultSecrets.isInMemory ? MemoryKeyProvider() : KeychainKeyProvider()
+  }
+
   public init(
     directory: URL = VaultConfiguration.defaultDirectory(),
     fileName: String = VaultStore.fileName,
     accountID: String? = nil,
-    keys: VaultKeyProvider = KeychainKeyProvider(),
+    keys: VaultKeyProvider = VaultStore.defaultKeys(),
     deviceID: String = VaultDevice.id,
     notifier: VaultChangeNotifier? = SystemChangeNotifier(),
     owner: String = VaultStore.processOwner
