@@ -18,6 +18,7 @@ public struct VaultImportSheet: View {
   let app: String?
   let alternative: Alternative?
   let onAdd: ([URL]) -> Void
+  let decide: (([URL]) -> Void)?
   @Environment(\.kitDismiss) private var dismiss
   @State private var picked: Set<URL>
 
@@ -32,16 +33,18 @@ public struct VaultImportSheet: View {
   }
 
   /// `app` names the app showing it, for the explanation; `alternative` is another way to take the drop; `onAdd`
-  /// gets what was added (after the vault has it).
+  /// gets what was added (after the vault has it). With `decide`, Add saves nothing: `decide` gets what was ticked,
+  /// for an app that saves it along with its own (Git, its repositories and the groups for both, in one go).
   public init(
     _ offer: VaultImportOffer, vault: Vault = Vaults.shared.personal, app: String? = nil,
-    alternative: Alternative? = nil, onAdd: @escaping ([URL]) -> Void = { _ in }
+    alternative: Alternative? = nil, decide: (([URL]) -> Void)? = nil, onAdd: @escaping ([URL]) -> Void = { _ in }
   ) {
     self.offer = offer
     self.vault = vault
     self.app = app
     self.alternative = alternative
     self.onAdd = onAdd
+    self.decide = decide
     let folders = offer.folders.filter { $0.looksLikeProject || $0.contents.contains(.notes) }.map(\.url)
     _picked = State(initialValue: Set(offer.repositories + folders + offer.databases.map(\.url)))
   }
@@ -141,6 +144,11 @@ public struct VaultImportSheet: View {
   private func add() {
     let projects = (offer.repositories + offer.folders.map(\.url)).filter(picked.contains)
     let databases = offer.databases.filter { picked.contains($0.url) }
+    if let decide {
+      decide(projects + databases.map(\.url))
+      dismiss()
+      return
+    }
     let roots = offer.roots.map(\.standardizedFileURL.path)
     vault.perform { store in
       let paths = projects.map(\.standardizedFileURL.path)
