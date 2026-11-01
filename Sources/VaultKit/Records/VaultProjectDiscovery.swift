@@ -1,9 +1,10 @@
 import Foundation
 
-/// What a dropped or picked folder holds, for adding it as projects: the git repositories in it, and the folders
-/// beside them that hold none, which an app offers instead of skipping them silently (with what is in each, so it
-/// can say which apps would use it). Git and Dev import through it; `VaultStore.arrangeProjects` then lays the
-/// projects out in the tree as the folders are.
+/// What a dropped or picked folder holds, for adding it to the vault: the git repositories in it, the folders beside
+/// them that hold none (with what is in each, so an app can say which apps would use it) and the SQLite and DuckDB
+/// files in it. Every app imports drops through it: what it doesn't take itself, VaultUI's `VaultImportSheet` offers.
+/// `VaultStore.arrangeProjects` lays the projects out in the tree as the folders are, `addDatabaseFile` saves a
+/// database as a connection Database and Shell list.
 ///
 /// A repository is a directory with a `.git` entry (a directory, or a file for worktrees and submodules). The walk
 /// never descends into one, so nested packages and submodules aren't listed separately. It skips hidden folders,
@@ -32,6 +33,21 @@ public enum VaultProjectDiscovery {
     public var repositories: [URL]
     /// The folders without a repository that sit beside one, in path order.
     public var skipped: [Skipped]
+    /// The database files outside the repositories, in path order (the dropped file itself when it is one).
+    public var databases: [DatabaseFile]
+  }
+
+  /// A SQLite or DuckDB file, told by its header (not its name: a `Thumbs.db` is no database).
+  public struct DatabaseFile: Sendable, Hashable, Identifiable {
+    public let url: URL
+    /// `VaultDatabase.Engine.sqlite` or `.duckdb`.
+    public let engine: String
+    public var id: URL { url }
+
+    public init(url: URL, engine: String) {
+      self.url = url
+      self.engine = engine
+    }
   }
 
   /// A folder the scan didn't add: it holds no repository, but one beside it does.
@@ -69,18 +85,39 @@ public enum VaultProjectDiscovery {
     public static let database = Contents(rawValue: 1 << 4)
   }
 
-  /// The repositories in `root` and the folders it skipped. A repository itself is the one result; a folder with
-  /// none anywhere in it is the one folder skipped.
+  /// The repositories in `root`, the folders it skipped and the databases in it. A repository itself is the one
+  /// result; a folder with none anywhere in it is the one folder skipped; a database file is the one database.
   public static func scan(_ root: URL) -> Result {
     let root = root.standardizedFileURL
-    if isRepository(root) { return Result(root: root, repositories: [root], skipped: []) }
-    var repositories: [URL] = []
-    var skipped: [Skipped] = []
-    if !walk(root, depth: 0, repositories: &repositories, skipped: &skipped) {
-      skipped = [Skipped(url: root, contents: contents(of: root), looksLikeProject: looksLikeProject(root))]
+    var isDirectory: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+      let database = databaseFile(root)
+      return Result(root: root, repositories: [], skipped: [], databases: database.map { [$0] } ?? [])
+    }
+    if isRepository(root) { return Result(root: root, repositories: [root], skipped: [], databases: []) }
+    var walked = Walk()
+    if !walk(root, depth: 0, into: &walked) {
+      walked.skipped = [Skipped(url: root, contents: contents(of: root), looksLikeProject: looksLikeProject(root))]
     }
     return Result(
-      root: root, repositories: repositories.sorted(by: pathOrder), skipped: skipped.sorted { pathOrder($0.url, $1.url) })
+      root: root, repositories: walked.repositories.sorted(by: pathOrder),
+      skipped: walked.skipped.sorted { pathOrder($0.url, $1.url) },
+      databases: walked.databases.sorted { pathOrder($0.url, $1.url) })
+  }
+
+  /// The database a file is, from its header: SQLite's "SQLite format 3", DuckDB's "DUCK" at byte 8.
+  public static func databaseFile(_ url: URL) -> DatabaseFile? {
+    let ext = url.pathExtension.lowercased()
+    guard databaseExtensions.contains(ext), let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+    defer { try? handle.close() }
+    guard let header = try? handle.read(upToCount: 16), header.count == 16 else { return nil }
+    if header.starts(with: Array("SQLite format 3".utf8) + [0]) {
+      return DatabaseFile(url: url.standardizedFileURL, engine: VaultDatabase.Engine.sqlite)
+    }
+    if Array(header[8..<12]) == Array("DUCK".utf8) {
+      return DatabaseFile(url: url.standardizedFileURL, engine: VaultDatabase.Engine.duckdb)
+    }
+    return nil
   }
 
   /// Scans each folder off the calling actor, in the order given.
@@ -107,51 +144,64 @@ public enum VaultProjectDiscovery {
   /// Walks `directory` (not itself a repository) and answers whether a repository is somewhere below it. Children
   /// without one are reported as skipped only when a sibling has one: a subtree with no repository at all is the
   /// parent's to report, as one entry rather than every folder inside it.
-  private static func walk(
-    _ directory: URL, depth: Int, repositories: inout [URL], skipped: inout [Skipped]
-  ) -> Bool {
+  private struct Walk {
+    var repositories: [URL] = []
+    var skipped: [Skipped] = []
+    var databases: [DatabaseFile] = []
+  }
+
+  private static func walk(_ directory: URL, depth: Int, into walked: inout Walk) -> Bool {
     guard depth < maxDepth else { return false }
     var withRepository = false
     var without: [URL] = []
-    var nested: [Skipped] = []
-    for child in childDirectories(of: directory) {
+    let (folders, files) = children(of: directory)
+    walked.databases += files.compactMap(databaseFile)
+    let skipped = walked.skipped
+    walked.skipped = []
+    for child in folders {
       if isRepository(child) {
-        repositories.append(child)
+        walked.repositories.append(child)
         withRepository = true
-      } else if walk(child, depth: depth + 1, repositories: &repositories, skipped: &nested) {
+      } else if walk(child, depth: depth + 1, into: &walked) {
         withRepository = true
       } else {
         without.append(child)
       }
     }
-    skipped += nested
+    // What the folders inside skipped, then this folder's own.
+    walked.skipped = skipped + walked.skipped
     if withRepository {
-      skipped += without.map {
+      walked.skipped += without.map {
         Skipped(url: $0, contents: contents(of: $0), looksLikeProject: looksLikeProject($0))
       }
     }
     return withRepository
   }
 
-  /// Visible, real directories: no hidden ones, no symlinks (they can leave the tree or loop), no packages,
-  /// nothing in `ignoredNames`.
-  private static func childDirectories(of directory: URL) -> [URL] {
+  /// Visible, real directories (no hidden ones, no symlinks: they can leave the tree or loop, no packages,
+  /// nothing in `ignoredNames`), and the files that may be databases.
+  private static func children(of directory: URL) -> (folders: [URL], files: [URL]) {
     let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey]
     guard
       let children = try? FileManager.default.contentsOfDirectory(
         at: directory, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])
-    else { return [] }
-    return children.compactMap { url in
-      guard let values = try? url.resourceValues(forKeys: Set(keys)),
-        values.isDirectory == true,
-        values.isSymbolicLink != true,
-        values.isPackage != true,
-        // Dot folders are hidden by convention (Windows hides by attribute only).
-        !url.lastPathComponent.hasPrefix("."),
-        !ignoredNames.contains(url.lastPathComponent)
-      else { return nil }
-      return url.standardizedFileURL
+    else { return ([], []) }
+    var folders: [URL] = []
+    var files: [URL] = []
+    for url in children {
+      // Dot folders are hidden by convention (Windows hides by attribute only).
+      guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isSymbolicLink != true,
+        !url.lastPathComponent.hasPrefix(".")
+      else { continue }
+      if values.isDirectory == true {
+        if values.isPackage != true, !ignoredNames.contains(url.lastPathComponent) {
+          folders.append(url.standardizedFileURL)
+        }
+      } else if databaseExtensions.contains(url.pathExtension.lowercased()) {
+        files.append(url)
+      }
     }
+    return (folders, files)
   }
 
   // MARK: Contents
@@ -164,7 +214,7 @@ public enum VaultProjectDiscovery {
   static let sourceExtensions: Set<String> = [
     "swift", "m", "h", "c", "cc", "cpp", "rs", "go", "py", "js", "ts", "tsx", "jsx", "java", "kt", "rb", "cs", "sh",
   ]
-  static let databaseExtensions: Set<String> = ["sqlite", "sqlite3", "db", "duckdb"]
+  static let databaseExtensions: Set<String> = ["sqlite", "sqlite3", "db", "db3", "duckdb", "ddb"]
 
   /// A manifest, an Xcode project or workspace, or a String Catalog at the top.
   private static func looksLikeProject(_ directory: URL) -> Bool {

@@ -144,4 +144,39 @@ struct ProjectImportTests {
     }
     #expect(found == ["a", "group/b", "wt"])
   }
+
+  @Test func discoveryFindsDatabasesByTheirHeader() throws {
+    let root = temporaryDirectory().appendingPathComponent("data")
+    let fileManager = FileManager.default
+    try fileManager.createDirectory(at: root.appendingPathComponent("app/.git"), withIntermediateDirectories: true)
+    try fileManager.createDirectory(at: root.appendingPathComponent("dumps"), withIntermediateDirectories: true)
+    var sqlite = Data("SQLite format 3".utf8) + [0]
+    sqlite += Data(count: 100)
+    try sqlite.write(to: root.appendingPathComponent("dumps/orders.sqlite"))
+    var duck = Data(count: 8) + Data("DUCK".utf8)
+    duck += Data(count: 100)
+    try duck.write(to: root.appendingPathComponent("dumps/events.duckdb"))
+    try Data("not a database at all".utf8).write(to: root.appendingPathComponent("dumps/Thumbs.db"))
+    // Inside a repository: the repository's, not offered.
+    try sqlite.write(to: root.appendingPathComponent("app/fixture.sqlite"))
+
+    let result = VaultProjectDiscovery.scan(root)
+    #expect(result.databases.map(\.url.lastPathComponent) == ["events.duckdb", "orders.sqlite"])
+    #expect(result.databases.map(\.engine) == [VaultDatabase.Engine.duckdb, VaultDatabase.Engine.sqlite])
+    let file = VaultProjectDiscovery.scan(root.appendingPathComponent("dumps/orders.sqlite"))
+    #expect(file.databases.count == 1 && file.repositories.isEmpty && file.skipped.isEmpty)
+
+    let store = try store()
+    let offer = try #require(VaultImportOffer([result], store: store))
+    #expect(offer.repositories.map(\.lastPathComponent) == ["app"])
+    #expect(offer.databases.count == 2)
+    // The dumps folder holds databases only: they are offered, not it.
+    #expect(offer.folders.isEmpty)
+    let saved = try store.addDatabaseFile(offer.databases[1])
+    #expect(saved.name == "orders" && saved.engine == VaultDatabase.Engine.sqlite)
+    #expect(try store.addDatabaseFile(offer.databases[1]).id == saved.id)
+    try store.addProject(path: offer.repositories[0].path)
+    let rest = try #require(VaultImportOffer([result], store: store))
+    #expect(rest.repositories.isEmpty && rest.databases.map(\.url.lastPathComponent) == ["events.duckdb"])
+  }
 }
