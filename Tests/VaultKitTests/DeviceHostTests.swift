@@ -88,6 +88,8 @@ struct DeviceHostTests {
     let project = try #require(vault.projects.first)
     let place = try #require(vault.otherPlaces(of: project).first)
     #expect(place.fallbackAddresses == ["192.168.1.20", "Studio.local"])
+    #expect(vault.otherDeviceHosts.map(\.id) == [saved.id])
+    #expect(Vault(store: mac).otherDeviceHosts.isEmpty)
   }
 
   @Test @MainActor func eachDeviceKeepsItsRepositorysStatusInTheProject() throws {

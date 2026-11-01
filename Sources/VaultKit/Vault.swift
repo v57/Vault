@@ -260,6 +260,18 @@ public final class Vault {
   /// The Macs that published themselves, reached over SSH without a Hub.
   public var deviceHosts: [VaultHost] { hosts.filter(\.isDevice) }
 
+  /// One host for each of the user's other devices, Personal's: via Hub when it's on one, else the Mac it published
+  /// (Settings ▸ Remote); `addresses(of:)` gives either one the other's addresses too.
+  public var otherDeviceHosts: [VaultHost] {
+    let personal = personalVault
+    var seen = Set<String>()
+    return (personal.hubHosts + personal.deviceHosts).filter { host in
+      guard !personal.isThisDevice(host) else { return false }
+      guard let device = personal.vaultDevice(of: host) else { return true }
+      return seen.insert(device).inserted
+    }
+  }
+
   /// This Mac as the others reach it, when it lets them in (`VaultStore.publishDeviceHost`).
   public var thisDeviceHost: VaultHost? { deviceHosts.first { $0.device?.deviceID == deviceID } }
 
