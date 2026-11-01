@@ -8,7 +8,8 @@ import Foundation
 ///
 /// A repository is a directory with a `.git` entry (a directory, or a file for worktrees and submodules). The walk
 /// never descends into one, so nested packages and submodules aren't listed separately. It skips hidden folders,
-/// symlinks, packages (`.app`, `.xcodeproj`) and dependency and build folders, and stops `maxDepth` levels down.
+/// symlinks, packages (`.app`, `.xcodeproj`) and dependency and build folders (`ignoredNames`), stops `maxDepth`
+/// levels down and after `maxFolders` folders, so a drop of a big tree (or of `~`) stays quick.
 ///
 /// ```swift
 /// let found = await VaultProjectDiscovery.scan(droppedFolders)
@@ -20,10 +21,16 @@ public enum VaultProjectDiscovery {
   /// keeps a drop of `~` from walking the disk.
   public static let maxDepth = 6
 
-  /// Folders never descended into or offered: build output and dependency caches.
+  /// How many folders one scan looks into at most.
+  public static let maxFolders = 20_000
+
+  /// Folders never descended into or offered: dependencies, build output and caches of the common toolchains (npm,
+  /// CocoaPods, Carthage, SwiftPM's `SourcePackages`, Cargo's `target`, Python's environments, Elixir's `deps`,
+  /// .NET's `obj`, Unity's `Library`), and Xcode's.
   public static let ignoredNames: Set<String> = [
-    "node_modules", "DerivedData", "build", "Build", "Pods", "Carthage", "vendor", "target", "dist",
-    "__pycache__", "venv",
+    "node_modules", "bower_components", "jspm_packages", "DerivedData", "SourcePackages", "build", "Build", "out",
+    "dist", "target", "Pods", "Carthage", "vendor", "__pycache__", "venv", "env", "site-packages", "deps", "_build",
+    "obj", "coverage", "elm-stuff", "Library", "Temp",
   ]
 
   public struct Result: Sendable, Equatable {
@@ -148,10 +155,13 @@ public enum VaultProjectDiscovery {
     var repositories: [URL] = []
     var skipped: [Skipped] = []
     var databases: [DatabaseFile] = []
+    /// Folders looked into so far, up to `maxFolders`.
+    var folders = 0
   }
 
   private static func walk(_ directory: URL, depth: Int, into walked: inout Walk) -> Bool {
-    guard depth < maxDepth else { return false }
+    guard depth < maxDepth, walked.folders < maxFolders else { return false }
+    walked.folders += 1
     var withRepository = false
     var without: [URL] = []
     let (folders, files) = children(of: directory)

@@ -150,7 +150,8 @@ struct ProjectImportTests {
     let fileManager = FileManager.default
     for path in [
       "a/.git", "group/b/.git", "group/b/nested/.git", "node_modules/c/.git", ".hidden/d/.git",
-      "deep/1/2/3/4/5/6/7/.git", "wt",
+      "deep/1/2/3/4/5/6/7/.git", "wt", "app/Pods/e/.git", "lib/SourcePackages/checkouts/f/.git", "py/venv/g/.git",
+      "game/Library/h/.git",
     ] {
       try fileManager.createDirectory(at: root.appendingPathComponent(path), withIntermediateDirectories: true)
     }
