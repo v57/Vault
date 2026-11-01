@@ -84,8 +84,8 @@ struct ProjectsView: View {
         KitSection("Projects", meta: ["\(projects.count) projects", "\(vault.localProjects.count) on this device"], systemImage: "folder", hue: .brown) {
           ForEach(projects) { project in
             SidebarRow(value: project.id, project.name, subtitle: project.localPath.map(Self.tilde) ?? "Not on this device") {
-              if let icon = project.icon.flatMap(Image.init(data:)) {
-                Avatar(name: project.name, image: icon, kind: .thing, size: KitMetrics.rowTile(.pad) - 4)
+              if let icon = project.icon {
+                Avatar(name: project.name, imageData: icon, kind: .thing, size: KitMetrics.rowTile(.pad) - 4)
               } else {
                 LetterTile(name: project.name, size: KitMetrics.rowTile(.pad) - 4)
               }

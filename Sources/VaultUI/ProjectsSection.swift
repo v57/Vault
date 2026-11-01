@@ -79,7 +79,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   var trailing: ((VaultProject) -> AnyView)?
   var rowSubtitle: ((VaultProject) -> String?)?
   var rowProgress: ((VaultProject) -> Double?)?
-  var icon: ((VaultProject) -> Image?)?
+  var icon: ((VaultProject) -> Data?)?
   var groupTrailing: ((VaultProjectGroup, [VaultProject]) -> AnyView)?
   var accessory: (() -> AnyView)?
   var emptyState: AnyView?
@@ -154,10 +154,11 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     return section
   }
 
-  /// The app's own icon for a project the vault keeps none for (one it found itself).
-  public func icon(_ image: @escaping (VaultProject) -> Image?) -> Self {
+  /// The app's own icon for a project the vault keeps none for (one it found itself), as PNG or JPEG bytes: the row
+  /// decodes them off the main thread.
+  public func icon(_ data: @escaping (VaultProject) -> Data?) -> Self {
     var section = self
-    section.icon = image
+    section.icon = data
     return section
   }
 
@@ -391,8 +392,9 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
 
   private func projectIcon(_ project: VaultProject, size: CGFloat) -> some View {
     Group {
-      if let image = project.icon.flatMap(Image.init(data:)) ?? icon?(project) {
-        Avatar(name: project.name, image: image, kind: .thing, size: size)
+      // Decoded off the main thread; the drawn tile stands in until then.
+      if let data = project.icon ?? icon?(project) {
+        Avatar(name: project.name, imageData: data, kind: .thing, size: size)
       } else {
         Avatar(name: project.name, kind: .thing, size: size)
       }
