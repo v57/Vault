@@ -11,7 +11,9 @@ extension VaultStore {
   ///   folder, one in the same place with its name (and note) and no path here, which takes the path. Others like
   ///   it there are merged into it.
   /// - Projects outside every root are grouped by the folder they are in (two or more, or a group that folder made).
-  /// - Only projects at the top level move: one another app or device put in a group stays there. New groups, and
+  /// - Only projects at the top level, or in a group another device's folders made (it has a path there and none
+  ///   here), move: the same checkout dropped here goes where this device's folders put it. One someone put in a
+  ///   group by hand stays there; a group left empty goes. New groups, and
   ///   projects in none, go into `destination` (nil: the top level) before `before`, or at the end; with neither
   ///   given, projects already at the top level stay where they are.
   ///
@@ -39,6 +41,8 @@ private struct ProjectArranger {
   var projects: [String: String] = [:]
   /// This device's group folders → group ids.
   var groups: [String: String] = [:]
+  /// The groups projects were moved out of, removed at the end when that left them empty.
+  var left: Set<String> = []
 
   init(store: VaultStore, destination: String?, before: String?) throws {
     self.store = store
@@ -69,9 +73,8 @@ private struct ProjectArranger {
   }
 
   mutating func arrange(_ paths: [String], roots: [String]) throws {
-    let paths = paths.map(Self.clean).filter { path in
-      projects[path].map { tree.parent(of: $0) == nil } ?? false
-    }
+    let paths = paths.map(Self.clean).filter { path in projects[path].map(movable) ?? false }
+    defer { try? store.removeEmptyProjectGroups(left) }
     let roots = Set(roots.map(Self.clean)).sorted { $0.count > $1.count }
     var members: [String: [String]] = [:]
     var leftover: [String] = []
@@ -93,6 +96,7 @@ private struct ProjectArranger {
     for root in members.keys.sorted(by: { $0.count < $1.count }) {
       loose += try arrange(root: root, members: members[root] ?? [])
     }
+    // Ones in another device's group leave it only for a group here.
     let ids = loose.compactMap { projects[$0] }.filter { tree.parent(of: $0) == nil }
     guard !ids.isEmpty, destination != nil || before != nil else { return }
     let names = ids.map { tree.node(id: $0)?.name ?? $0 }
@@ -194,7 +198,7 @@ private struct ProjectArranger {
     for item in items {
       switch item {
       case .project(let path):
-        if let id = projects[path], tree.parent(of: id) == nil { moving.append(item) }
+        if let id = projects[path], movable(id), tree.parent(of: id) != groupID { moving.append(item) }
       case .folder:
         moving.append(item)
       }
@@ -202,12 +206,21 @@ private struct ProjectArranger {
     for item in sortedItems(moving) {
       switch item {
       case .project(let path):
-        try store.moveProjects([projects[path]!], into: groupID)
+        let id = projects[path]!
+        if let parent = tree.parent(of: id) { left.insert(parent) }
+        try store.moveProjects([id], into: groupID)
       case .folder(let child):
         try materialize(child, existing: groups[child.path], in: groupID, isRoot: false)
       }
     }
     tree = try store.projectTree()
+  }
+
+  /// At the top level, or in a group another device's folders made: this device's folders place it.
+  private func movable(_ id: String) -> Bool {
+    guard let parent = tree.parent(of: id) else { return true }
+    guard let group = tree.group(id: parent) else { return false }
+    return !group.paths.isEmpty && group.paths[device] == nil
   }
 
   private func sortedItems(_ items: [Item]) -> [Item] {

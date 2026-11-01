@@ -77,6 +77,23 @@ struct ProjectImportTests {
     #expect(try outline(store) == "Mine[Code], v57[Git, Shell]")
   }
 
+  @Test func theSameCheckoutLeavesAnotherDevicesGroup() throws {
+    let store = try store()
+    // hub-web in another Mac's Hub group; this Mac has a clone of it in v57/Website/reference.
+    let hub = VaultProjectGroup(name: "Hub", note: "Hub", paths: ["ipad": "/hub/Hub"])
+    try store.save(hub)
+    let remote = "https://github.com/v57/hub-web.git"
+    try store.save(
+      VaultProject(
+        id: VaultProject.newID(remoteURL: remote, path: "/hub/Hub/hub-web", in: store), name: "hub-web",
+        remoteURL: remote, groupID: hub.id, paths: ["ipad": "/hub/Hub/hub-web"]))
+    try store.addProject(path: "/dev/v57/Website/reference/hub-web", remoteURL: remote)
+    for path in ["/dev/v57/Code", "/dev/v57/Website/site"] { try store.addProject(path: path) }
+    try store.arrangeProjects(
+      ["/dev/v57/Code", "/dev/v57/Website/site", "/dev/v57/Website/reference/hub-web"], roots: ["/dev/v57"])
+    #expect(try outline(store) == "v57[Code, Website[hub-web, site]]")
+  }
+
   @Test func withoutRootsSiblingsGroupByFolder() throws {
     let store = try store()
     for path in ["/a/x/one", "/a/x/two", "/b/three"] { try store.addProject(path: path) }
