@@ -61,6 +61,7 @@ public enum VaultProjectsSort: String, CaseIterable, Identifiable, Sendable {
 /// }
 /// .trailing { project in Count(project.changes) }      // a project row's trailing views
 /// .removable { ids in removed.formUnion(ids) }          // Remove from List, Remove All Projects from List
+/// .accessory { Button("Add Project…", systemImage: "plus") { … } }   // the list header's buttons
 /// ```
 ///
 /// Pass a tree already narrowed to what the app lists (`tree.filter { … }`), and put it in a `KitSidebar`: the list
@@ -75,6 +76,12 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   var meta: [String] = []
   var recent: ((VaultProject) -> Date?)?
   var trailing: ((VaultProject) -> AnyView)?
+  var rowSubtitle: ((VaultProject) -> String?)?
+  var rowProgress: ((VaultProject) -> Double?)?
+  var icon: ((VaultProject) -> Image?)?
+  var groupTrailing: ((VaultProjectGroup, [VaultProject]) -> AnyView)?
+  var accessory: (() -> AnyView)?
+  var emptyState: AnyView?
   var projectMeta: ((VaultProject) -> [String])?
   var projectAccessory: ((VaultProject) -> AnyView)?
   var rowMenu: ((VaultProject) -> AnyView)?
@@ -127,6 +134,49 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     return section
   }
 
+  /// A project row's line under its name (a job's step: "Building · 2 min left"); `nil` shows none.
+  public func rowSubtitle(_ subtitle: @escaping (VaultProject) -> String?) -> Self {
+    var section = self
+    section.rowSubtitle = subtitle
+    return section
+  }
+
+  /// A project row's progress bar, of work running on it (`nil`: none).
+  public func rowProgress(_ progress: @escaping (VaultProject) -> Double?) -> Self {
+    var section = self
+    section.rowProgress = progress
+    return section
+  }
+
+  /// The app's own icon for a project the vault keeps none for (one it found itself).
+  public func icon(_ image: @escaping (VaultProject) -> Image?) -> Self {
+    var section = self
+    section.icon = image
+    return section
+  }
+
+  /// A closed group's trailing views, from the projects in it: the sum of their counts, standing in for the rows
+  /// it hides.
+  public func groupTrailing<V: View>(@ViewBuilder _ views: @escaping (VaultProjectGroup, [VaultProject]) -> V) -> Self {
+    var section = self
+    section.groupTrailing = { AnyView(views($0, $1)) }
+    return section
+  }
+
+  /// The list header's trailing buttons: Add Project.
+  public func accessory<V: View>(@ViewBuilder _ views: @escaping () -> V) -> Self {
+    var section = self
+    section.accessory = { AnyView(views()) }
+    return section
+  }
+
+  /// What the list shows while it has no projects: where to add one, or that nothing matches a search.
+  public func emptyState<V: View>(@ViewBuilder _ content: () -> V) -> Self {
+    var section = self
+    section.emptyState = AnyView(content())
+    return section
+  }
+
   /// A project row's context menu, after Show in Finder.
   public func rowMenu<V: View>(@ViewBuilder _ items: @escaping (VaultProject) -> V) -> Self {
     var section = self
@@ -145,7 +195,8 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   }
 
   /// Lets the user take projects off this app's list (they stay in the vault): Remove from List on each row, Remove
-  /// All Projects from List in the header's menu, after a confirmation. `remove` gets the projects' ids.
+  /// Group from List on each group, Remove All Projects from List in the header's menu, after a confirmation.
+  /// `remove` gets the projects' ids.
   public func removable(_ remove: @escaping ([String]) -> Void) -> Self {
     var section = self
     section.remove = remove
@@ -179,7 +230,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   private func list(_ picked: VaultProject?) -> some View {
     let count = tree.projects().count
     let items = Item.items(sorted(tree.roots), picked: layout == .inline ? picked?.id : nil, sort: sorted)
-    return KitSection(
+    var section = KitSection(
       title, meta: [count == 1 ? "1 project" : "\(count) projects"] + meta, systemImage: "square.stack.3d.up",
       hue: .indigo
     ) {
@@ -190,8 +241,12 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
         case .content(let project): contentRows(project)
         }
       }
+    } accessory: {
+      accessory?()
     }
     .headerMenu { headerMenu }
+    if let emptyState { section = section.emptyState { emptyState } }
+    return section
     .kitConfirmation(
       count == 1 ? "Remove 1 project from the list?" : "Remove all \(count) projects from the list?",
       isPresented: $confirmsRemoveAll,
@@ -252,11 +307,12 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   // MARK: Rows
 
   private func projectRow(_ project: VaultProject) -> some View {
-    SidebarRow(project.name) {
+    SidebarRow(project.name, subtitle: rowSubtitle?(project)) {
       projectIcon(project, size: 18)
     } trailing: {
       trailing?(project)
     }
+    .progress(rowProgress?(project), status: .working)
     .isCurrent(project.id == selection)
     .action { withKitAnimation { selection = project.id } }
     .kitHelp(project.name, meta: project.localPath.map(Self.place))
@@ -273,8 +329,10 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   }
 
   /// A group: a folder tile in a hue of its own, the name over its note or project count; a click opens or closes it.
+  /// Closed, it stands in for the picked project inside it as the current row.
   private func groupRow(_ group: VaultProjectGroup, count: Int) -> some View {
     let isCollapsed = collapsedGroups.contains(group.id)
+    let projects = tree.projects(in: group.id)
     return SidebarRow(
       group.name,
       subtitle: group.note.flatMap { $0.isEmpty ? nil : $0 } ?? (count == 1 ? "1 project" : "\(count) projects")
@@ -283,12 +341,19 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
         name: group.name, kind: .thing, systemImage: isCollapsed ? "folder" : "folder.fill",
         hue: StableHue.pick(group.name), size: 18)
     } trailing: {
-      EmptyView()
+      if isCollapsed { groupTrailing?(group, projects) }
     }
+    .isCurrent(isCollapsed && projects.contains { $0.id == selection })
     .kitHelp(group.name, meta: group.localPath.map(Self.place))
     .kitContextMenu {
       if let folder = group.localURL {
         Button("Show in \(KitDesktop.fileManagerName)", systemImage: "folder") { KitDesktop.reveal([folder]) }
+      }
+      if let remove {
+        if group.localURL != nil { Divider() }
+        Button("Remove Group from List", systemImage: "minus.circle") {
+          withAnimation(.kit) { remove(projects.map(\.id)) }
+        }
       }
     }
   }
@@ -301,7 +366,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
 
   private func projectIcon(_ project: VaultProject, size: CGFloat) -> some View {
     Group {
-      if let image = project.icon.flatMap(Image.init(data:)) {
+      if let image = project.icon.flatMap(Image.init(data:)) ?? icon?(project) {
         Avatar(name: project.name, image: image, kind: .thing, size: size)
       } else {
         Avatar(name: project.name, kind: .thing, size: size)
