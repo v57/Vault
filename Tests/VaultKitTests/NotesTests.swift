@@ -134,6 +134,13 @@ struct RecordTests {
     let clone = try mac.addProject(path: "/Users/a/Shell-fork", remoteURL: "git@github.com:v57/Shell.git")
     #expect(clone.id != a.id)
     #expect(try mac.records(VaultProject.self).count == 2)
+    // One in a folder of the same name (a reference copy) too, and the first keeps its folder.
+    let copy = try mac.addProject(path: "/Users/a/Reference/Shell", remoteURL: "git@github.com:v57/Shell.git")
+    #expect(copy.id != a.id)
+    let first = try mac.record(VaultProject.self, id: a.id)
+    #expect(first?.paths["mac"] == "/Users/a/Shell")
+    let count = try mac.records(VaultProject.self).count
+    #expect(count == 3)
   }
 
   @Test func addingTheSameFolderTwiceKeepsOneProject() throws {

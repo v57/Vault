@@ -28,6 +28,10 @@ public struct VaultProject: VaultRecord, Hashable {
   public var icon: Data?
   /// The hash of the file `icon` was made from, so it is made again only when that file changes.
   public var iconSource: String?
+  /// Set on a second clone of a repository on a device in a folder of the same name (a reference copy beside the
+  /// working one): "<device>:<path>" where it was added. It is the project's identity then, so the store doesn't
+  /// fold it into the first clone's project (see `identity`).
+  public var separateCopy: String?
   /// The app that added it (bundle id).
   public var addedBy: String?
   public var added: Date?
@@ -60,6 +64,7 @@ public struct VaultProject: VaultRecord, Hashable {
     kinds = Set(read.flags(prefixed: "kind").map(Kind.init(rawValue:)))
     icon = read.data("icon")
     iconSource = read.string("iconSource")
+    separateCopy = read.string("separateCopy")
     addedBy = read.string("addedBy")
     added = read.date("added")
   }
@@ -69,6 +74,7 @@ public struct VaultProject: VaultRecord, Hashable {
       "name": .string(name), "remoteURL": .init(remoteURL), "groupID": .init(groupID), "order": .init(order),
       "addedBy": .init(addedBy), "added": .init(added), "_identity": .init(identity),
       "icon": .init(icon?.base64EncodedString()), "iconSource": .init(iconSource),
+      "separateCopy": .init(separateCopy),
     ]
     values.set(paths, prefixed: "path")
     for kind in kinds { values["kind.\(kind.rawValue)"] = .bool(true) }
@@ -100,11 +106,13 @@ public struct VaultProject: VaultRecord, Hashable {
   public var localURL: URL? { localPath.map { URL(fileURLWithPath: $0, isDirectory: true) } }
 
   /// What makes two projects the same: the normalized remote URL and the folder name, so the same checkout
-  /// on two Macs is one project while two clones of one repository on a Mac stay two. Projects without a
+  /// on two Macs is one project while two clones of one repository on a Mac stay two (one in a folder of the same
+  /// name is a `separateCopy`, its own identity). Projects without a
   /// remote are only the same when they have the same id (`newID` derives it from the folder, so two apps
   /// adding one folder agree).
   public var identity: String? {
-    remoteURL.flatMap(Self.normalizedRemote).map { "remote:\($0)|\(name.lowercased())" }
+    if let separateCopy { return "copy:\(separateCopy)" }
+    return remoteURL.flatMap(Self.normalizedRemote).map { "remote:\($0)|\(name.lowercased())" }
   }
 
   /// `git@github.com:v57/Shell.git`, `https://github.com/v57/shell` and `ssh://git@github.com/v57/Shell`
@@ -127,12 +135,24 @@ public struct VaultProject: VaultRecord, Hashable {
   }
 
   /// The id for a new project: derived from its identity, so the same repository added on two devices gets
-  /// the same id and syncs as one.
+  /// the same id and syncs as one. A second clone in a folder of the same name on this device (a reference copy
+  /// beside the working one) is a project of its own, its id derived from its path: the remote's id has a folder
+  /// here already.
   public static func newID(remoteURL: String?, path: String, in store: VaultStore) -> String {
+    newIdentity(remoteURL: remoteURL, path: path, in: store).id
+  }
+
+  /// `newID`, and the `separateCopy` a second clone in a folder of the same name gets.
+  static func newIdentity(remoteURL: String?, path: String, in store: VaultStore) -> (id: String, separateCopy: String?) {
     let name = (path as NSString).lastPathComponent.lowercased()
-    let identity =
-      remoteURL.flatMap(normalizedRemote).map { "remote:\($0)|\(name)" } ?? "path:\(store.deviceID):\(path)"
-    return (try? store.derivedID("project|" + identity)) ?? UUID().uuidString
+    let byPath = "path:\(store.deviceID):\(path)"
+    let derive = { (identity: String) in (try? store.derivedID("project|" + identity)) ?? UUID().uuidString }
+    guard let remote = remoteURL.flatMap(normalizedRemote) else { return (derive(byPath), nil) }
+    let id = derive("remote:\(remote)|\(name)")
+    if let other = try? store.record(VaultProject.self, id: id), let here = other.paths[store.deviceID], here != path {
+      return (derive(byPath), "\(store.deviceID):\(path)")
+    }
+    return (id, nil)
   }
 }
 
@@ -161,9 +181,11 @@ extension VaultStore {
       try save(project)
       return project
     }
-    let project = VaultProject(
-      id: VaultProject.newID(remoteURL: remoteURL, path: path, in: self), name: name ?? folderName,
+    let identity = VaultProject.newIdentity(remoteURL: remoteURL, path: path, in: self)
+    var project = VaultProject(
+      id: identity.id, name: name ?? folderName,
       remoteURL: remoteURL, order: try endOrder(in: nil), paths: [deviceID: path], kinds: kinds ?? [])
+    project.separateCopy = identity.separateCopy
     try save(project)
     return project
   }
