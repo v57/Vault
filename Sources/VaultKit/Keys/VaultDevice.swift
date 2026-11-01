@@ -14,10 +14,13 @@ import Observation
 public enum VaultDevice {
   /// A random id made once per device, kept in the shared keychain group as a this-device-only item, so a
   /// backup restored onto another device doesn't bring it along. Clocks and project paths are tagged with it.
+  /// After `VaultSecrets.useInMemoryStore()` (a demo run or a test) it is a new one for the process, and the
+  /// keychain isn't read.
   public static let id: String = {
     #if DEBUG
       if let id = ProcessInfo.processInfo.environment["VAULT_DEVICE"] { return id }
     #endif
+    if VaultSecrets.isInMemory { return UUID().uuidString.lowercased() }
     let keychain = VaultKeychain()
     if let data = try? keychain.read("device-id", options: .thisDevice), let id = String(data: data, encoding: .utf8) {
       return id
