@@ -87,6 +87,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   var rowMenu: ((VaultProject) -> AnyView)?
   var contentSticky: KitStickyBottom = .title
   var remove: (([String]) -> Void)?
+  var asksBeforeRemovingAll = true
   @State private var confirmsRemoveAll = false
   @AppStorage private var layout: VaultProjectsLayout
   @AppStorage private var sort: VaultProjectsSort
@@ -196,10 +197,12 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
 
   /// Lets the user take projects off this app's list (they stay in the vault): Remove from List on each row, Remove
   /// Group from List on each group, Remove All Projects from List in the header's menu, after a confirmation.
-  /// `remove` gets the projects' ids.
-  public func removable(_ remove: @escaping ([String]) -> Void) -> Self {
+  /// `remove` gets the projects' ids. `confirmsRemoveAll: false` leaves asking to the app, for one that asks its own
+  /// question on every removal (what to keep).
+  public func removable(confirmsRemoveAll: Bool = true, _ remove: @escaping ([String]) -> Void) -> Self {
     var section = self
     section.remove = remove
+    section.asksBeforeRemovingAll = confirmsRemoveAll
     return section
   }
 
@@ -299,7 +302,9 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
       Divider()
       menu()
       if remove != nil {
-        Button("Remove All Projects from List", systemImage: "minus.circle") { confirmsRemoveAll = true }
+        Button("Remove All Projects from List", systemImage: "minus.circle") {
+          if asksBeforeRemovingAll { confirmsRemoveAll = true } else { remove?(tree.projects().map(\.id)) }
+        }
       }
     }
   }
