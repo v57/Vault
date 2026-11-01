@@ -28,6 +28,9 @@ public struct VaultHost: VaultRecord, Hashable {
   public var id: String
   public var name: String
   public var hostname: String
+  /// Other addresses of the same machine, tried in order when `hostname` doesn't answer (added by the user; the
+  /// ways to one of the user's own devices come on top: `Vault.addresses(of:)`).
+  public var fallbacks: [String]
   public var port: Int
   public var user: String
   public var auth: Auth
@@ -115,7 +118,8 @@ public struct VaultHost: VaultRecord, Hashable {
   }
 
   public init(
-    id: String = UUID().uuidString, name: String = "", hostname: String, port: Int = 22, user: String = "",
+    id: String = UUID().uuidString, name: String = "", hostname: String, fallbacks: [String] = [], port: Int = 22,
+    user: String = "",
     auth: Auth = .deviceKey, keyID: String? = nil, savePassword: Bool = true, jumpHostID: String? = nil,
     order: Int = 0, source: String? = nil, hub: HubRoute? = nil, device: DeviceRoute? = nil,
     buildSigning: BuildSigning? = nil
@@ -123,6 +127,7 @@ public struct VaultHost: VaultRecord, Hashable {
     self.id = id
     self.name = name
     self.hostname = hostname
+    self.fallbacks = fallbacks
     self.port = port
     self.user = user
     self.auth = auth
@@ -141,6 +146,7 @@ public struct VaultHost: VaultRecord, Hashable {
     self.id = id
     name = read.string("name", default: "")
     hostname = read.string("hostname", default: "")
+    fallbacks = read.string("fallbacks", default: "").split(separator: "\n").map(String.init)
     port = read.int("port", default: 22)
     user = read.string("user", default: "")
     auth = read.string("auth").flatMap(Auth.init) ?? .deviceKey
@@ -170,6 +176,7 @@ public struct VaultHost: VaultRecord, Hashable {
   public var values: [String: JSONValue] {
     [
       "name": .string(name), "hostname": .string(hostname), "port": .init(port), "user": .string(user),
+      "fallbacks": fallbacks.isEmpty ? .null : .string(fallbacks.joined(separator: "\n")),
       "auth": .string(auth.rawValue), "keyID": .init(keyID), "savePassword": .bool(savePassword),
       "jumpHostID": .init(jumpHostID), "order": .init(order), "source": .init(source),
       "buildSigning": .init(buildSigning?.rawValue),

@@ -70,6 +70,45 @@ struct DeviceHostTests {
     #expect(vault.vaultDevice(of: host) == "mac")
   }
 
+  @Test @MainActor func aMacsPlacesTryItsOtherAddresses() throws {
+    let mac = try store()
+    try mac.publishDeviceHost(name: "Studio", address: "Studio.local", user: "me", hostKey: Self.hostKey, allowed: [])
+    var host = try #require(try mac.records(VaultHost.self).first)
+    host.hostname = "studio.tail1234.ts.net"
+    host.fallbacks = ["192.168.1.20", "Studio.local"]
+    try mac.save(host)
+
+    let phone = try store("phone")
+    try phone.save(try #require(try mac.records(VaultHost.self).first))
+    try phone.save(VaultProject(id: "p1", name: "Code", paths: ["mac": "/Users/me/Code"]))
+    let vault = Vault(store: phone)
+    let saved = try #require(vault.deviceHosts.first)
+    #expect(saved.fallbacks == ["192.168.1.20", "Studio.local"])
+    #expect(vault.addresses(of: saved) == ["studio.tail1234.ts.net", "192.168.1.20", "Studio.local"])
+    let project = try #require(vault.projects.first)
+    let place = try #require(vault.otherPlaces(of: project).first)
+    #expect(place.fallbackAddresses == ["192.168.1.20", "Studio.local"])
+  }
+
+  @Test @MainActor func eachDeviceKeepsItsRepositorysStatusInTheProject() throws {
+    let mac = try store()
+    try mac.save(VaultProject(id: "p1", name: "Code", paths: ["mac": "/Users/me/Code", "laptop": "/Users/me/Code"]))
+    let vault = Vault(store: mac)
+    let status = VaultProject.Status(
+      branch: "main", changeCount: 2, ahead: 1, hasUpstream: true,
+      files: [.init(path: "a.swift", kind: "M", area: "unstaged"), .init(path: "b.swift", kind: "?", area: "unstaged")])
+    vault.setStatus(status, ofProjectAt: "/Users/me/Code")
+    #expect(vault.projects.first?.statuses == ["mac": status])
+
+    // Another device's status in the same project stays.
+    var record = try #require(try mac.record(VaultProject.self, id: "p1"))
+    record.statuses["laptop"] = VaultProject.Status(branch: "dev", changeCount: 0)
+    try mac.save(record)
+    vault.reload()
+    #expect(try mac.record(VaultProject.self, id: "p1")?.statuses.keys.sorted() == ["laptop", "mac"])
+    #expect(vault.projects.first?.statuses["mac"] == status)
+  }
+
   @Test @MainActor func anAccountsProjectsUsePersonalsHosts() throws {
     let phone = try FakeDevice("phone", personalKeys: keys)
     let mac = try store()

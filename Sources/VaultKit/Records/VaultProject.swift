@@ -10,7 +10,7 @@ import Foundation
 /// its picture is `icon` (see `VaultStore.refreshProjectIcons`).
 public struct VaultProject: VaultRecord, Hashable {
   public static let kind = "project"
-  public static let dynamicPrefixes = ["path.", "kind."]
+  public static let dynamicPrefixes = ["path.", "kind.", "status."]
 
   public var id: String
   public var name: String
@@ -24,6 +24,9 @@ public struct VaultProject: VaultRecord, Hashable {
   public var paths: [String: String]
   /// What the folder holds (see `Kind.detect`), kept current by `VaultStore.refreshProjectKinds`.
   public var kinds: Set<Kind>
+  /// Device id → how the repository there was when Git there last looked (`Status`), for the user's other devices
+  /// to show before they reach it. Each device writes its own field.
+  public var statuses: [String: Status]
   /// A small square PNG of the project's app icon, for every app's project rows (even where the folder isn't).
   public var icon: Data?
   /// The hash of the file `icon` was made from, so it is made again only when that file changes.
@@ -46,6 +49,7 @@ public struct VaultProject: VaultRecord, Hashable {
     self.groupID = groupID
     self.order = order
     self.paths = paths
+    statuses = [:]
     self.kinds = kinds
     self.icon = icon
     self.iconSource = iconSource
@@ -62,6 +66,7 @@ public struct VaultProject: VaultRecord, Hashable {
     order = read.int("order", default: 0)
     paths = read.strings(prefixed: "path")
     kinds = Set(read.flags(prefixed: "kind").map(Kind.init(rawValue:)))
+    statuses = read.strings(prefixed: "status").compactMapValues { Status(json: $0) }
     icon = read.data("icon")
     iconSource = read.string("iconSource")
     separateCopy = read.string("separateCopy")
@@ -78,6 +83,7 @@ public struct VaultProject: VaultRecord, Hashable {
     ]
     values.set(paths, prefixed: "path")
     for kind in kinds { values["kind.\(kind.rawValue)"] = .bool(true) }
+    values.set(statuses.compactMapValues(\.json), prefixed: "status")
     return values
   }
 

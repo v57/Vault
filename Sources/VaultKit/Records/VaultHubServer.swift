@@ -289,6 +289,9 @@ public struct VaultProjectPlace: Sendable, Hashable, Identifiable {
   /// The device as a host: via Hub when it's on one of the user's Hubs (and runs a v57 app connected to it), which
   /// reaches it from anywhere, else the host the device published (`VaultHost.device`).
   public var host: VaultHost?
+  /// The device's other addresses, to try when `host`'s hostname doesn't answer (`Vault.addresses(of:)`): what to
+  /// pass as `SSHServer.fallbackHosts`.
+  public var fallbackAddresses: [String] = []
 
   public var id: String { device }
 
@@ -322,7 +325,9 @@ extension Vault {
       let host =
         hubHosts.first { personal.vaultDevice(of: $0) == device } ?? deviceHosts.first { $0.device?.deviceID == device }
       let name = personal.deviceKeys.first { $0.id == device }?.deviceName ?? host?.hub?.deviceName ?? "Another device"
-      return VaultProjectPlace(device: device, deviceName: name, path: path, host: host)
+      return VaultProjectPlace(
+        device: device, deviceName: name, path: path, host: host,
+        fallbackAddresses: host.map(personal.fallbackAddresses(of:)) ?? [])
     }
     .sorted { $0.deviceName.localizedStandardCompare($1.deviceName) == .orderedAscending }
   }
