@@ -7,7 +7,8 @@
   /// Settings ▸ Remote, the same in every Mac app: whether the user's other devices can reach this Mac over SSH (it
   /// publishes itself as a host, so Git and Code on iPhone and iPad find its projects and run them here), which of
   /// them can sign in, and the other keys in `~/.ssh/authorized_keys` (added by hand or by another tool), with Add
-  /// Key… for a pasted one and Remove… for each. Put it in a `SettingsPane`.
+  /// Key… for a pasted one and Remove… for each. Until Remote Login is on, letting devices in is locked and the pane
+  /// says what it would bring; once it's on, it offers to turn password login off. Put it in a `SettingsPane`.
   ///
   /// ```swift
   /// SettingsPane("Remote", systemImage: "network", hue: .teal, section: "v57") { VaultRemoteSettings() }
@@ -17,7 +18,11 @@
     private let keys: VaultAuthorizedKeys
     @State private var entries: [VaultAuthorizedKeys.Entry] = []
     @State private var allowed: Set<String> = []
-    @State private var remoteLoginIsOn = true
+    /// Whether sshd answers here; nil until the first check. Checked every two seconds while the pane shows, so
+    /// turning it on in System Settings shows up here.
+    @State private var remoteLoginIsOn: Bool?
+    @State private var passwordLoginIsOn = true
+    @State private var changingPasswordLogin = false
     @State private var failure: String?
     @State private var addingKey = false
     @State private var removing: VaultAuthorizedKeys.Entry?
@@ -40,13 +45,28 @@
 
     public var body: some View {
       let host = vault.thisDeviceHost
+      let loginIsOn = remoteLoginIsOn ?? false
       FormCard(
         "This Mac",
-        footer: "Your iPhone and iPad find this Mac’s projects and work on them here over SSH, without a Hub. "
-          + "Each device signs in with its own key, once you allow it below."
+        footer: loginIsOn
+          ? "Your iPhone and iPad find this Mac’s projects and work on them here over SSH, without a Hub. "
+            + "Each device signs in with its own key, once you allow it below." : nil
       ) {
+        if remoteLoginIsOn == false {
+          FormRow(
+            "Remote Login Is Off",
+            help: "Turn it on in System Settings ▸ General ▸ Sharing; this page notices when it’s on.",
+            systemImage: "lock", hue: .orange
+          ) {
+            Button("Open Sharing…") {
+              if let url = URL(string: "x-apple.systempreferences:com.apple.Sharing-Settings.extension") { openURL(url) }
+            }
+            .buttonStyle(.kit)
+          }
+        }
         FormRow(
-          "Let Your Devices In", help: host.map { "\($0.user)@\($0.hostname)" } ?? "Off",
+          "Let Your Devices In",
+          help: !loginIsOn && host == nil ? "Needs Remote Login" : host.map { "\($0.user)@\($0.hostname)" } ?? "Off",
           systemImage: "network", hue: .teal
         ) {
           Toggle(
@@ -59,20 +79,26 @@
               })
           )
           .toggleStyle(.kitSwitch).labelsHidden()
-        }
-        if !remoteLoginIsOn {
-          FormRow(
-            "Remote Login Is Off", help: "System Settings ▸ General ▸ Sharing: your devices can’t sign in until it’s on",
-            systemImage: "exclamationmark.triangle", hue: .orange
-          ) {
-            Button("Open Sharing…") {
-              if let url = URL(string: "x-apple.systempreferences:com.apple.Sharing-Settings.extension") { openURL(url) }
-            }
-            .buttonStyle(.kit)
-          }
+          // Locked until sshd answers: turning it on would publish a Mac nobody can sign in to. Turning off stays.
+          .disabled(!loginIsOn && host == nil)
         }
       }
-      if host != nil {
+      if remoteLoginIsOn == false {
+        FormCard(
+          "With Remote Login On",
+          footer: "Each device signs in with its own key, and only once you allow it here. Nothing else changes."
+        ) {
+          FormRow(
+            "Git on iPhone and iPad", help: "Changes, staging, commits and pushes in this Mac’s repositories",
+            systemImage: "arrow.triangle.branch", hue: .orange)
+          FormRow(
+            "Code on iPhone and iPad", help: "Build, Test and Run this Mac’s projects", systemImage: "hammer",
+            hue: .blue)
+          FormRow("Player", help: "Plays the videos on this Mac on your other devices", systemImage: "play.rectangle", hue: .red)
+          FormRow("Get", help: "Starts downloads on this Mac from your other devices", systemImage: "arrow.down.circle", hue: .green)
+        }
+      }
+      if loginIsOn, host != nil {
         FormCard(
           "Your Devices",
           footer: devices.isEmpty ? "Your other devices show up here once a v57 app runs on them." : nil
@@ -91,6 +117,31 @@
                   })
               )
               .toggleStyle(.kitSwitch).labelsHidden()
+            }
+          }
+        }
+      }
+      if loginIsOn {
+        FormCard(
+          "Security",
+          footer: passwordLoginIsOn
+            ? "Your devices sign in with keys and don’t need it. Turning it off asks for an administrator’s password."
+            : nil
+        ) {
+          if passwordLoginIsOn {
+            FormRow(
+              "Password Login Is On",
+              help: "Anyone who knows the password of a user on this Mac can sign in over SSH",
+              systemImage: "exclamationmark.shield", hue: .orange
+            ) {
+              Button("Turn Off…") { setPasswordLogin(false) }.buttonStyle(.kit).disabled(changingPasswordLogin)
+            }
+          } else {
+            FormRow(
+              "Keys Only", help: "Password login is off: only keys, like your devices’, get in",
+              systemImage: "checkmark.shield", hue: .green
+            ) {
+              Button("Allow Passwords…") { setPasswordLogin(true) }.buttonStyle(.kit).disabled(changingPasswordLogin)
             }
           }
         }
@@ -114,7 +165,10 @@
       Color.clear.frame(height: 0)
         .task {
           reload()
-          remoteLoginIsOn = await Task.detached { VaultThisMac.remoteLoginIsOn() }.value
+          while !Task.isCancelled {
+            await check()
+            try? await Task.sleep(for: .seconds(2))
+          }
         }
         .kitSheet(isPresented: $addingKey) {
           VaultAddKeySheet { line in
@@ -137,6 +191,32 @@
           }
           reload()
         }
+    }
+
+    /// Whether Remote Login is on and passwords get in. Remote Login turning on publishes this Mac again, now with
+    /// the host key sshd made for it.
+    private func check() async {
+      let isOn = await Task.detached { VaultThisMac.remoteLoginIsOn() }.value
+      let wasOn = remoteLoginIsOn
+      withKitAnimation { remoteLoginIsOn = isOn }
+      if isOn, wasOn == false { vault.refreshThisMac() }
+      let passwords = VaultThisMac.passwordLoginIsOn()
+      if passwords != passwordLoginIsOn { withKitAnimation { passwordLoginIsOn = passwords } }
+    }
+
+    private func setPasswordLogin(_ isOn: Bool) {
+      changingPasswordLogin = true
+      Task {
+        defer { changingPasswordLogin = false }
+        do {
+          try await VaultThisMac.setPasswordLogin(isOn)
+          failure = nil
+        } catch is CancellationError {
+        } catch {
+          failure = error.localizedDescription
+        }
+        await check()
+      }
     }
 
     private func reload() {

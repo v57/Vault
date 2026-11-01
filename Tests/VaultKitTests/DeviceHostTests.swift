@@ -142,6 +142,27 @@ struct DeviceHostTests {
     #expect(try keys.entries().map(\.device) == ["phone"])
   }
 
+  #if os(macOS)
+    @Test func passwordLoginFollowsSSHDsFirstValue() throws {
+      let folder = temporaryDirectory()
+      let included = folder.appendingPathComponent("sshd_config.d")
+      try FileManager.default.createDirectory(at: included, withIntermediateDirectories: true)
+      // As macOS ships it: PAM on, nothing about passwords.
+      try "# comment\nInclude \(included.path)/*\n#PasswordAuthentication yes\n".write(
+        to: folder.appendingPathComponent("sshd_config"), atomically: true, encoding: .utf8)
+      try "UsePAM yes\n".write(to: included.appendingPathComponent("100-macos.conf"), atomically: true, encoding: .utf8)
+      #expect(VaultThisMac.passwordLoginIsOn(directory: folder))
+
+      // The apps' file comes first, so its values win; a Match block's don't count.
+      try "PasswordAuthentication no\nKbdInteractiveAuthentication no\n".write(
+        to: included.appendingPathComponent("050-v57-keys-only.conf"), atomically: true, encoding: .utf8)
+      #expect(!VaultThisMac.passwordLoginIsOn(directory: folder))
+      try "Match User guest\n  PasswordAuthentication no\n".write(
+        to: included.appendingPathComponent("050-v57-keys-only.conf"), atomically: true, encoding: .utf8)
+      #expect(VaultThisMac.passwordLoginIsOn(directory: folder))
+    }
+  #endif
+
   @Test func keyMaterialSkipsOptions() {
     let line = #"from="10.0.0.0/8",no-pty ecdsa-sha2-nistp256 AAAA v57-device=abc My Phone"#
     #expect(VaultAuthorizedKeys.keyMaterial(of: line) == "ecdsa-sha2-nistp256 AAAA")
