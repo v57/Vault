@@ -94,7 +94,8 @@ public struct VaultProfileSheet: View {
   static let uses = "Your commits, your keys on servers and your Hub show them. They stay in your vault."
 
   private var emailField: some View {
-    let field = TextField("ada@example.com", text: $email).autocorrectionDisabled()
+    // A String, not a LocalizedStringKey: a key's Markdown turns the address into a blue link.
+    let field = TextField(String("ada@example.com"), text: $email).autocorrectionDisabled()
     #if os(iOS)
       return field.keyboardType(.emailAddress).textInputAutocapitalization(.never).textContentType(.emailAddress)
     #else
