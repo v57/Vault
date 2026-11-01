@@ -125,6 +125,30 @@ struct ProjectIconTests {
     #expect(try mac.record(VaultProject.self, id: project.id)?.icon == nil)
   }
 
+  @Test func anIconComposerIconIsMadeAgainWhenItsGlyphChanges() throws {
+    let mac = try VaultStore(directory: temporaryDirectory(), keys: keys, deviceID: "mac", notifier: nil, owner: "mac")
+    let root = temporaryDirectory()
+    let icon = root.appendingPathComponent("AppIcon.icon")
+    try FileManager.default.createDirectory(at: icon.appendingPathComponent("Assets"), withIntermediateDirectories: true)
+    let json = icon.appendingPathComponent("icon.json")
+    try Data("{}".utf8).write(to: json)
+    try Data("<svg/>".utf8).write(to: icon.appendingPathComponent("Assets/glyph.svg"))
+    try mac.addProject(path: root.path)
+    var made = 0
+    let refresh = {
+      try mac.refreshProjectIcons(find: { _ in json }) { _ in
+        made += 1
+        return Data("\(made)".utf8)
+      }
+    }
+    try refresh()
+    try refresh()
+    #expect(made == 1)
+    try Data("<svg><path/></svg>".utf8).write(to: icon.appendingPathComponent("Assets/glyph.svg"))
+    try refresh()
+    #expect(made == 2)
+  }
+
   @MainActor @Test func theVaultLooksForIconsOfProjectsAsTheyArrive() async throws {
     let store = try VaultStore(directory: temporaryDirectory(), keys: keys, deviceID: VaultDevice.id, notifier: nil, owner: "mac")
     let vault = Vault(store: store)
