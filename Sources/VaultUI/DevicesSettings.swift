@@ -2,9 +2,9 @@ import ComponentKit
 import SwiftUI
 import VaultKit
 
-/// Settings ▸ Devices, the same in every app: this device and the user's others, each with Rename…, the others with
-/// Remove… (`Vaults.removeDevice`) for one they don't use any more, such as a Mac before its reinstall. Put it in a
-/// `SettingsPane`.
+/// Settings ▸ Devices, the same in every app: this device and the user's others. A row's context menu has Rename…, and
+/// on the others Remove… (`Vaults.removeDevice`) for one they don't use any more, such as a Mac before its reinstall.
+/// Put it in a `SettingsPane`.
 ///
 /// ```swift
 /// SettingsPane("Devices", systemImage: "laptopcomputer", hue: .blue, section: "v57") { VaultDevicesSettings() }
@@ -27,27 +27,16 @@ public struct VaultDevicesSettings: View {
 
   public var body: some View {
     if let device = vault.deviceKeys.first(where: { $0.id == vault.deviceID }) {
-      FormCard("This \(KitDevice.name)") {
-        row(device) {
-          Button("Rename…") { renaming = device }.buttonStyle(.kit)
-        }
-      }
+      FormCard("This \(KitDevice.name)") { row(device) }
     }
     FormCard(
       "Your Other Devices",
       footer: others.isEmpty
         ? "Your other devices show up here once a v57 app runs on them."
-        : "Removing a device tidies up after one you don’t use any more. It doesn’t lock it out of your iCloud account."
+        : "\(idiom == .mac ? "Right-click" : "Touch and hold") a device to rename or remove it. Removing tidies up after "
+          + "one you don’t use any more. It doesn’t lock it out of your iCloud account."
     ) {
-      ForEach(others) { device in
-        row(device) {
-          HStack(spacing: 6) {
-            // No room for both on a phone.
-            if idiom != .phone { Button("Rename…") { renaming = device }.buttonStyle(.kit) }
-            Button("Remove…", role: .destructive) { removing = device }.buttonStyle(.kit)
-          }
-        }
-      }
+      ForEach(others) { row($0) }
     }
     if let error = vault.error {
       Text(error).kitFont(.caption).foregroundStyle(Hue.red.text)
@@ -68,8 +57,15 @@ public struct VaultDevicesSettings: View {
       }
   }
 
-  private func row(_ device: VaultDeviceKey, @ViewBuilder trailing: () -> some View) -> some View {
-    FormRow(device.deviceName, help: details(device), systemImage: device.systemImage, hue: .blue) { trailing() }
+  private func row(_ device: VaultDeviceKey) -> some View {
+    FormRow(device.deviceName, help: details(device), systemImage: device.systemImage, hue: .blue)
+      .contentShape(Rectangle())
+      .kitContextMenu {
+        Button("Rename…") { renaming = device }
+        if device.id != vault.deviceID {
+          Button("Remove…", role: .destructive) { removing = device }
+        }
+      }
   }
 
   private func message(_ device: VaultDeviceKey) -> String {
