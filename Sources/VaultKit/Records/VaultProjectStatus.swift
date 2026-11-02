@@ -14,6 +14,10 @@ extension VaultProject {
     /// The operation git is in the middle of there ("merge", "rebase", …).
     public var operation: String?
     public var files: [File]
+    /// HEAD's commit date there.
+    public var lastCommit: Date?
+    /// When the branch was last pushed from there.
+    public var lastPush: Date?
 
     /// One uncommitted file.
     public struct File: Codable, Sendable, Hashable {
@@ -35,7 +39,8 @@ extension VaultProject {
 
     public init(
       branch: String?, changeCount: Int, ahead: Int = 0, behind: Int = 0, hasUpstream: Bool = false,
-      conflictCount: Int = 0, operation: String? = nil, files: [File] = []
+      conflictCount: Int = 0, operation: String? = nil, files: [File] = [], lastCommit: Date? = nil,
+      lastPush: Date? = nil
     ) {
       self.branch = branch
       self.changeCount = changeCount
@@ -45,7 +50,12 @@ extension VaultProject {
       self.conflictCount = conflictCount
       self.operation = operation
       self.files = Array(files.prefix(Self.fileLimit))
+      self.lastCommit = lastCommit
+      self.lastPush = lastPush
     }
+
+    /// Anything to commit, push, pull or finish there.
+    public var needsAttention: Bool { changeCount > 0 || ahead > 0 || behind > 0 || conflictCount > 0 || operation != nil }
 
     init?(json: String) {
       guard let status = try? JSONDecoder().decode(Status.self, from: Data(json.utf8)) else { return nil }

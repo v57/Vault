@@ -33,6 +33,12 @@ public enum VaultProjectsSort: String, CaseIterable, Identifiable, Sendable {
   case added
   /// The most recently opened first, by the app's own dates (`recent:`).
   case recent
+  /// Those with something to commit, push or pull first, as their devices last said (`VaultProject.statuses`).
+  case changes
+  /// The newest commit on any device first (Git keeps it in `statuses`).
+  case lastCommit
+  /// The newest push from any device first (Git keeps it in `statuses`).
+  case lastPush
 
   public var id: Self { self }
 
@@ -42,14 +48,45 @@ public enum VaultProjectsSort: String, CaseIterable, Identifiable, Sendable {
     case .name: "Name"
     case .added: "Recently Added"
     case .recent: "Recently Opened"
+    case .changes: "With Changes First"
+    case .lastCommit: "Last Commit"
+    case .lastPush: "Last Push"
     }
+  }
+}
+
+/// How much a project row shows. The list header's context menu changes it; each list keeps its own choice.
+public enum VaultProjectsDisplay: String, CaseIterable, Identifiable, Sendable {
+  /// The name over a line of detail (a branch and its device, a group's project count).
+  case detailed
+  /// The name alone.
+  case regular
+  /// The name alone, with a small icon: on the Mac the kit's compact rows, on touch screens still 44pt.
+  case compact
+
+  public var id: Self { self }
+
+  public var title: String {
+    switch self {
+    case .detailed: "Detailed"
+    case .regular: "Regular"
+    case .compact: "Compact"
+    }
+  }
+
+  /// The kit's row density for it, `other` being the sidebar's own.
+  public func density(else other: KitRowDensity = .regular) -> KitRowDensity { self == .compact ? .compact : other }
+
+  /// A row's icon size in it.
+  public func iconSize(_ idiom: KitIdiom) -> CGFloat {
+    if self == .compact { idiom.isTouch ? 24 : 16 } else { idiom.isTouch ? 32 : 18 }
   }
 }
 
 /// The projects the v57 apps share, in the vault's groups, with the picked project's content: below the list, below
 /// a list that folds away, or right under its row (`VaultProjectsLayout`). The header's context menu picks the
-/// layout and the order and holds the app's own items; the app picks the default layout, and the user's choice is
-/// kept under `key`.
+/// layout, the order and how much the rows show (`VaultProjectsDisplay`) and holds the app's own items; the app picks
+/// the default layout, and the user's choice is kept under `key`.
 ///
 /// ```swift
 /// VaultProjectsSection(
@@ -94,15 +131,16 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   @State private var confirmsRemoveAll = false
   @AppStorage private var layout: VaultProjectsLayout
   @AppStorage private var sort: VaultProjectsSort
+  @AppStorage private var display: VaultProjectsDisplay
   /// The folded list is open (`.folding`).
   @AppStorage private var isListOpen: Bool
   @Environment(\.kitIdiom) private var idiom
+  @Environment(\.kitRowDensity) private var density
 
-  /// A row's tile: the Mac's small one, the touch rows' 32pt.
-  private var rowIconSize: CGFloat { idiom.isTouch ? 32 : 18 }
+  private var rowIconSize: CGFloat { display.iconSize(idiom) }
 
-  /// The section over `tree`, `selection` the picked project's id. `key` names where the user's layout and order are
-  /// kept (`<key>Layout`, `<key>Sort`).
+  /// The section over `tree`, `selection` the picked project's id. `key` names where the user's layout, order and
+  /// display are kept (`<key>Layout`, `<key>Sort`, `<key>Display`).
   public init(
     _ tree: VaultProjectTree, selection: Binding<String?>, layout: VaultProjectsLayout = .separate,
     sort: VaultProjectsSort = .arranged, key: String = "Projects", collapsedGroups: Binding<Set<String>>,
@@ -115,6 +153,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     self.menu = menu
     _layout = AppStorage(wrappedValue: layout, "\(key)Layout")
     _sort = AppStorage(wrappedValue: sort, "\(key)Sort")
+    _display = AppStorage(wrappedValue: .detailed, "\(key)Display")
     _isListOpen = AppStorage(wrappedValue: false, "\(key)ListOpen")
   }
 
@@ -278,9 +317,10 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
         switch item {
         case .group(let group, let count, _): groupRow(group, count: count)
         case .project(let project, _): projectRow(project)
-        case .content(let project): contentRows(project)
+        case .content(let project): contentRows(project).kitRowDensity(density)
         }
       }
+      .kitRowDensity(display.density(else: density))
     } accessory: {
       accessory?()
     }
@@ -336,7 +376,12 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     KitMenuSection("Sort By") {
       KitMenuOptions(
         selection: Binding(get: { sort }, set: { new in withKitAnimation { sort = new } }),
-        options: VaultProjectsSort.allCases.filter { $0 != .recent || recent != nil }.map { ($0.title, $0) })
+        options: availableSorts.map { ($0.title, $0) })
+    }
+    KitMenuSection("Display") {
+      KitMenuOptions(
+        selection: Binding(get: { display }, set: { new in withKitAnimation { display = new } }),
+        options: VaultProjectsDisplay.allCases.map { ($0.title, $0) })
     }
     if Menu.self != EmptyView.self || remove != nil {
       Divider()
@@ -352,7 +397,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   // MARK: Rows
 
   private func projectRow(_ project: VaultProject) -> some View {
-    SidebarRow(project.name, subtitle: rowSubtitle?(project)) {
+    SidebarRow(project.name, subtitle: display == .detailed ? rowSubtitle?(project) : nil) {
       projectIcon(project, size: rowIconSize)
     } trailing: {
       trailing?(project)
@@ -381,7 +426,8 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     let projects = tree.projects(in: group.id)
     return SidebarRow(
       group.name,
-      subtitle: group.note.flatMap { $0.isEmpty ? nil : $0 } ?? (count == 1 ? "1 project" : "\(count) projects")
+      subtitle: display != .detailed
+        ? nil : group.note.flatMap { $0.isEmpty ? nil : $0 } ?? (count == 1 ? "1 project" : "\(count) projects")
     ) {
       Avatar(
         name: group.name, kind: .thing, systemImage: isCollapsed ? "folder" : "folder.fill",
@@ -437,21 +483,58 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
 
   // MARK: Order
 
-  private func sorted(_ nodes: [VaultProjectTree.Node]) -> [VaultProjectTree.Node] {
-    switch sort {
-    case .arranged: return nodes
-    case .name: return nodes.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    case .added: return nodes.sorted { Self.latest($0, \.added) > Self.latest($1, \.added) }
-    case .recent:
-      guard let recent else { return nodes }
-      return nodes.sorted { Self.latest($0, recent) > Self.latest($1, recent) }
+  /// The orders that can tell these projects apart: the app's dates when it gave them, what their devices keep when
+  /// any of them has.
+  private var availableSorts: [VaultProjectsSort] {
+    let projects = tree.projects()
+    return VaultProjectsSort.allCases.filter { sort in
+      switch sort {
+      case .arranged, .name, .added: true
+      case .recent: recent != nil
+      case .changes: projects.contains { !$0.statuses.isEmpty }
+      case .lastCommit: projects.contains { Self.lastCommit($0) != nil }
+      case .lastPush: projects.contains { Self.lastPush($0) != nil }
+      }
     }
   }
 
-  /// A node's latest date: a project's own, a group's newest project's.
-  private static func latest(_ node: VaultProjectTree.Node, _ date: (VaultProject) -> Date?) -> Date {
-    node.projects.compactMap(date).max() ?? .distantPast
+  private func sorted(_ nodes: [VaultProjectTree.Node]) -> [VaultProjectTree.Node] {
+    switch sort {
+    case .arranged: return nodes
+    case .name: return nodes.sorted(by: Self.byName)
+    case .added: return Self.newestFirst(nodes) { $0.added }
+    case .recent:
+      guard let recent else { return nodes }
+      return Self.newestFirst(nodes, recent)
+    case .changes:
+      return nodes.sorted { a, b in
+        let (first, second) = (Self.needsAttention(a), Self.needsAttention(b))
+        return first != second ? first : Self.byName(a, b)
+      }
+    case .lastCommit: return Self.newestFirst(nodes, Self.lastCommit)
+    case .lastPush: return Self.newestFirst(nodes, Self.lastPush)
+    }
   }
+
+  private static func byName(_ a: VaultProjectTree.Node, _ b: VaultProjectTree.Node) -> Bool {
+    a.name.localizedStandardCompare(b.name) == .orderedAscending
+  }
+
+  /// By `date`, those without one last, then by name. A group goes by its newest project.
+  private static func newestFirst(
+    _ nodes: [VaultProjectTree.Node], _ date: (VaultProject) -> Date?
+  ) -> [VaultProjectTree.Node] {
+    nodes.map { (node: $0, date: $0.projects.compactMap(date).max() ?? .distantPast) }
+      .sorted { $0.date != $1.date ? $0.date > $1.date : byName($0.node, $1.node) }
+      .map(\.node)
+  }
+
+  private static func needsAttention(_ node: VaultProjectTree.Node) -> Bool {
+    node.projects.contains { $0.statuses.values.contains(where: \.needsAttention) }
+  }
+
+  private static func lastCommit(_ project: VaultProject) -> Date? { project.statuses.values.compactMap(\.lastCommit).max() }
+  private static func lastPush(_ project: VaultProject) -> Date? { project.statuses.values.compactMap(\.lastPush).max() }
 
   /// "~/Developer/v57": a folder from home.
   static func place(_ path: String) -> String {

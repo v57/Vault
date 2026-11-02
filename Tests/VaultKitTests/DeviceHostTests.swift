@@ -179,6 +179,21 @@ struct DeviceHostTests {
     #expect(vault.projects.first?.statuses["mac"] == status)
   }
 
+  @Test @MainActor func aStatusKeepsItsDatesAndOldOnesHaveNone() throws {
+    let mac = try store()
+    try mac.save(VaultProject(id: "p1", name: "Code", paths: ["mac": "/Users/me/Code"]))
+    let date = Date(timeIntervalSince1970: 1_800_000_000)
+    let status = VaultProject.Status(branch: "main", changeCount: 0, lastCommit: date, lastPush: date)
+    Vault(store: mac).setStatus(status, ofProjectAt: "/Users/me/Code")
+    #expect(try mac.record(VaultProject.self, id: "p1")?.statuses["mac"] == status)
+
+    // As a build from before the dates wrote it.
+    let old = try #require(
+      VaultProject.Status(json: #"{"ahead":0,"behind":0,"changeCount":1,"conflictCount":0,"files":[],"hasUpstream":false}"#))
+    #expect(old.lastCommit == nil && old.lastPush == nil)
+    #expect(old.needsAttention)
+  }
+
   @Test @MainActor func anAccountsProjectsUsePersonalsHosts() throws {
     let phone = try FakeDevice("phone", personalKeys: keys)
     let mac = try store()
