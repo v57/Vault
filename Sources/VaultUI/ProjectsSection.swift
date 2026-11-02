@@ -90,6 +90,11 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   var rowProgress: ((VaultProject) -> Double?)?
   var icon: ((VaultProject) -> Data?)?
   var groupTrailing: ((VaultProjectGroup, [VaultProject]) -> AnyView)?
+  var groupTrailingWhenOpen = false
+  var groupStatus: ((VaultProjectGroup, [VaultProject]) -> WorkStatus)?
+  var groupHelp: ((VaultProjectGroup, [VaultProject]) -> (meta: String?, detail: AnyView))?
+  var groupMenu: ((VaultProjectGroup, @escaping () -> Void) -> AnyView)?
+  var rowDimmed: ((VaultProject) -> Bool)?
   var accessory: (() -> AnyView)?
   var emptyState: AnyView?
   var projectMeta: ((VaultProject) -> [String])?
@@ -175,11 +180,53 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     return section
   }
 
-  /// A closed group's trailing views, from the projects in it: the sum of their counts, standing in for the rows
-  /// it hides.
-  public func groupTrailing<V: View>(@ViewBuilder _ views: @escaping (VaultProjectGroup, [VaultProject]) -> V) -> Self {
+  /// A group's trailing views, from the projects in it: the sum of their counts. Only while it's closed, standing in
+  /// for the rows it hides; `whenOpen` keeps them open too.
+  public func groupTrailing<V: View>(
+    whenOpen: Bool = false, @ViewBuilder _ views: @escaping (VaultProjectGroup, [VaultProject]) -> V
+  ) -> Self {
     var section = self
     section.groupTrailing = { AnyView(views($0, $1)) }
+    section.groupTrailingWhenOpen = whenOpen
+    return section
+  }
+
+  /// A group's folder tile plays this: `.working` while something runs on the projects in it.
+  public func groupStatus(_ status: @escaping (VaultProjectGroup, [VaultProject]) -> WorkStatus) -> Self {
+    var section = self
+    section.groupStatus = status
+    return section
+  }
+
+  /// A group's tooltip, from the projects in it: its meta line, and a detail under it.
+  public func groupHelp<V: View>(
+    meta: @escaping (VaultProjectGroup, [VaultProject]) -> String?,
+    @ViewBuilder detail: @escaping (VaultProjectGroup, [VaultProject]) -> V
+  ) -> Self {
+    var section = self
+    section.groupHelp = { (meta($0, $1), AnyView(detail($0, $1))) }
+    return section
+  }
+
+  /// A group's whole context menu, in place of Rename…, Show in Finder and Remove Group from List (a touch screen's
+  /// Expand or Collapse stays first). `rename` starts `renamableGroups`' rename in place.
+  ///
+  /// ```swift
+  /// .groupMenu { group, rename in
+  ///   Button("Rename…", systemImage: "pencil", action: rename)
+  ///   Button("Ungroup", systemImage: "folder.badge.minus") { ungroup(group) }
+  /// }
+  /// ```
+  public func groupMenu<V: View>(@ViewBuilder _ items: @escaping (VaultProjectGroup, @escaping () -> Void) -> V) -> Self {
+    var section = self
+    section.groupMenu = { AnyView(items($0, $1)) }
+    return section
+  }
+
+  /// Dims the projects that are listed but set aside (hidden ones while they show).
+  public func rowDimmed(_ isDimmed: @escaping (VaultProject) -> Bool) -> Self {
+    var section = self
+    section.rowDimmed = isDimmed
     return section
   }
 
@@ -392,6 +439,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     .progress(rowProgress?(project), status: .working)
     .isCurrent(project.id == selection)
     .action { withKitAnimation { selection = project.id } }
+    .opacity(rowDimmed?(project) == true ? 0.5 : 1)
     .kitHelp(project.name, meta: project.localPath.map(Self.place))
     // No menu without items: a held row on iPhone opened an empty one.
     .contextMenu(if: project.localURL != nil || rowMenu != nil || remove != nil) {
@@ -411,42 +459,55 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   private func groupRow(_ group: VaultProjectGroup, count: Int) -> some View {
     let isCollapsed = collapsedGroups.contains(group.id)
     let projects = tree.projects(in: group.id)
-    return SidebarRow(
+    let row = SidebarRow(
       group.name,
       subtitle: group.note.flatMap { $0.isEmpty ? nil : $0 } ?? (count == 1 ? "1 project" : "\(count) projects")
     ) {
       Avatar(
         name: group.name, kind: .thing, systemImage: isCollapsed ? "folder" : "folder.fill",
-        hue: StableHue.pick(group.name), size: rowIconSize)
+        hue: StableHue.pick(group.name), status: groupStatus?(group, projects) ?? .idle, size: rowIconSize)
     } trailing: {
-      if isCollapsed { groupTrailing?(group, projects) }
+      if isCollapsed || groupTrailingWhenOpen { groupTrailing?(group, projects) }
     }
     .isCurrent(isCollapsed && projects.contains { $0.id == selection })
-    .kitHelp(group.name, meta: group.localPath.map(Self.place))
-    .kitRename(isRenaming: Binding { renamingGroup == group.id } set: { if !$0 { renamingGroup = nil } }) { name in
-      renameGroup?(group, name)
-    }
-    .contextMenu(if: idiom.isTouch || group.localURL != nil || renameGroup != nil || remove != nil) {
-      // A tap opens and closes it; held, a touch screen's menu says so too, and is never empty.
-      if idiom.isTouch {
-        Button(isCollapsed ? "Expand" : "Collapse", systemImage: isCollapsed ? "chevron.down" : "chevron.up") {
-          withAnimation(.kit) {
-            if isCollapsed { collapsedGroups.remove(group.id) } else { collapsedGroups.insert(group.id) }
+    return helped(row, group, projects)
+      .kitRename(isRenaming: Binding { renamingGroup == group.id } set: { if !$0 { renamingGroup = nil } }) { name in
+        renameGroup?(group, name)
+      }
+      .contextMenu(if: idiom.isTouch || group.localURL != nil || renameGroup != nil || remove != nil || groupMenu != nil) {
+        // A tap opens and closes it; held, a touch screen's menu says so too, and is never empty.
+        if idiom.isTouch {
+          Button(isCollapsed ? "Expand" : "Collapse", systemImage: isCollapsed ? "chevron.down" : "chevron.up") {
+            withAnimation(.kit) {
+              if isCollapsed { collapsedGroups.remove(group.id) } else { collapsedGroups.insert(group.id) }
+            }
+          }
+        }
+        if let groupMenu {
+          groupMenu(group) { renamingGroup = group.id }
+        } else {
+          if renameGroup != nil {
+            Button("Rename…", systemImage: "pencil") { renamingGroup = group.id }
+          }
+          if let folder = group.localURL {
+            Button("Show in \(KitDesktop.fileManagerName)", systemImage: "folder") { KitDesktop.reveal([folder]) }
+          }
+          if let remove {
+            if idiom.isTouch || group.localURL != nil || renameGroup != nil { Divider() }
+            Button("Remove Group from List", systemImage: "minus.circle") {
+              withAnimation(.kit) { remove(projects.map(\.id)) }
+            }
           }
         }
       }
-      if renameGroup != nil {
-        Button("Rename…", systemImage: "pencil") { renamingGroup = group.id }
-      }
-      if let folder = group.localURL {
-        Button("Show in \(KitDesktop.fileManagerName)", systemImage: "folder") { KitDesktop.reveal([folder]) }
-      }
-      if let remove {
-        if idiom.isTouch || group.localURL != nil || renameGroup != nil { Divider() }
-        Button("Remove Group from List", systemImage: "minus.circle") {
-          withAnimation(.kit) { remove(projects.map(\.id)) }
-        }
-      }
+  }
+
+  /// A group's tooltip: the app's (`groupHelp`), else where it is on this device.
+  @ViewBuilder private func helped(_ row: some View, _ group: VaultProjectGroup, _ projects: [VaultProject]) -> some View {
+    if let help = groupHelp?(group, projects) {
+      row.kitHelp(group.name, meta: help.meta, systemImage: "folder", hue: StableHue.pick(group.name)) { help.detail }
+    } else {
+      row.kitHelp(group.name, meta: group.localPath.map(Self.place))
     }
   }
 
