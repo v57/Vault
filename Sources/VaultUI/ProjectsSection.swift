@@ -88,7 +88,9 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   var rowMenu: ((VaultProject) -> AnyView)?
   var contentSticky: KitStickyBottom = .title
   var remove: (([String]) -> Void)?
+  var renameGroup: ((VaultProjectGroup, String) -> Void)?
   var asksBeforeRemovingAll = true
+  @State private var renamingGroup: String?
   @State private var confirmsRemoveAll = false
   @AppStorage private var layout: VaultProjectsLayout
   @AppStorage private var sort: VaultProjectsSort
@@ -209,6 +211,22 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     var section = self
     section.remove = remove
     section.asksBeforeRemovingAll = confirmsRemoveAll
+    return section
+  }
+
+  /// Lets the user rename a group in place: Rename… in its menu. `rename` gets the group and its new name.
+  ///
+  /// ```swift
+  /// VaultProjectsSection(tree, selection: $id, collapsedGroups: $collapsed)
+  ///   .renamableGroups { group, name in
+  ///     var group = group
+  ///     group.name = name
+  ///     vault.save(group)
+  ///   }
+  /// ```
+  public func renamableGroups(_ rename: @escaping (VaultProjectGroup, String) -> Void) -> Self {
+    var section = self
+    section.renameGroup = rename
     return section
   }
 
@@ -373,12 +391,26 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     }
     .isCurrent(isCollapsed && projects.contains { $0.id == selection })
     .kitHelp(group.name, meta: group.localPath.map(Self.place))
-    .contextMenu(if: group.localURL != nil || remove != nil) {
+    .kitRename(isRenaming: Binding { renamingGroup == group.id } set: { if !$0 { renamingGroup = nil } }) { name in
+      renameGroup?(group, name)
+    }
+    .contextMenu(if: idiom.isTouch || group.localURL != nil || renameGroup != nil || remove != nil) {
+      // A tap opens and closes it; held, a touch screen's menu says so too, and is never empty.
+      if idiom.isTouch {
+        Button(isCollapsed ? "Expand" : "Collapse", systemImage: isCollapsed ? "chevron.down" : "chevron.up") {
+          withAnimation(.kit) {
+            if isCollapsed { collapsedGroups.remove(group.id) } else { collapsedGroups.insert(group.id) }
+          }
+        }
+      }
+      if renameGroup != nil {
+        Button("Rename…", systemImage: "pencil") { renamingGroup = group.id }
+      }
       if let folder = group.localURL {
         Button("Show in \(KitDesktop.fileManagerName)", systemImage: "folder") { KitDesktop.reveal([folder]) }
       }
       if let remove {
-        if group.localURL != nil { Divider() }
+        if idiom.isTouch || group.localURL != nil || renameGroup != nil { Divider() }
         Button("Remove Group from List", systemImage: "minus.circle") {
           withAnimation(.kit) { remove(projects.map(\.id)) }
         }
