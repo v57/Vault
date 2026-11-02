@@ -269,6 +269,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     .headerMenu { headerMenu }
     if let emptyState { section = section.emptyState { emptyState } }
     return section
+    .kitPreloadAvatars(tree.projects().compactMap { $0.icon ?? icon?($0) }, size: rowIconSize)
     .kitConfirmation(
       count == 1 ? "Remove 1 project from the list?" : "Remove all \(count) projects from the list?",
       isPresented: $confirmsRemoveAll,
@@ -342,7 +343,8 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     .isCurrent(project.id == selection)
     .action { withKitAnimation { selection = project.id } }
     .kitHelp(project.name, meta: project.localPath.map(Self.place))
-    .kitContextMenu {
+    // No menu without items: a held row on iPhone opened an empty one.
+    .contextMenu(if: project.localURL != nil || rowMenu != nil || remove != nil) {
       if let folder = project.localURL {
         Button("Show in \(KitDesktop.fileManagerName)", systemImage: "folder") { KitDesktop.reveal([folder]) }
       }
@@ -371,7 +373,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     }
     .isCurrent(isCollapsed && projects.contains { $0.id == selection })
     .kitHelp(group.name, meta: group.localPath.map(Self.place))
-    .kitContextMenu {
+    .contextMenu(if: group.localURL != nil || remove != nil) {
       if let folder = group.localURL {
         Button("Show in \(KitDesktop.fileManagerName)", systemImage: "folder") { KitDesktop.reveal([folder]) }
       }
@@ -483,5 +485,14 @@ private enum Item: Identifiable {
         .project(project, content: project.id == picked)
       }
     }
+  }
+}
+
+extension View {
+  /// The kit's context menu, while it has items to show.
+  @ViewBuilder fileprivate func contextMenu<Menu: View>(
+    if hasItems: Bool, @ViewBuilder content: @escaping () -> Menu
+  ) -> some View {
+    if hasItems { kitContextMenu(content: content) } else { self }
   }
 }

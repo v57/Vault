@@ -5,10 +5,12 @@
   import VaultKit
 
   /// Settings ▸ Remote, the same in every Mac app: whether the user's other devices can reach this Mac over SSH (it
-  /// publishes itself as a host, so the v57 apps on the user's other devices find its projects and work on them here), which of
-  /// them can sign in, and the other keys in `~/.ssh/authorized_keys` (added by hand or by another tool), with Add
-  /// Key… for a pasted one and Remove… for each. Until Remote Login is on, letting devices in is locked and the pane
-  /// says what it would bring; once it's on, it offers to turn password login off. Put it in a `SettingsPane`.
+  /// publishes itself as a host, so the v57 apps on the user's other devices find its projects and work on them here),
+  /// the user's devices (`VaultDevicesSettings`: always listed, to rename or remove, each with a switch for whether it
+  /// can sign in while this Mac lets them in), and the other keys in `~/.ssh/authorized_keys` (added by hand or by
+  /// another tool), with Add Key… for a pasted one and Remove… for each. Until Remote Login is on, letting devices in
+  /// is locked and the pane says what it would bring; once it's on, it offers to turn password login off. Put it in a
+  /// `SettingsPane`.
   ///
   /// ```swift
   /// SettingsPane("Remote", systemImage: "network", hue: .teal, section: "v57") { VaultRemoteSettings() }
@@ -35,7 +37,6 @@
 
     /// The devices and this Mac's host live in the Personal vault.
     private var vault: Vault { vaults.personal }
-    private var devices: [VaultDeviceKey] { vault.deviceKeys.filter { $0.id != vault.deviceID } }
 
     /// The keys in the file that aren't one of the user's devices'.
     private var otherKeys: [VaultAuthorizedKeys.Entry] {
@@ -102,51 +103,45 @@
           FormRow("Get", help: "Starts downloads on this Mac", systemImage: "arrow.down.circle", hue: .green)
         }
       }
-      if loginIsOn, host != nil {
-        FormCard(
-          "Your Devices",
-          footer: devices.isEmpty ? "Your other devices show up here once a v57 app runs on them." : nil
-        ) {
-          ForEach(devices) { device in
-            FormRow(
-              device.deviceName, help: Self.fingerprint(device.publicKey), systemImage: device.systemImage, hue: .blue
-            ) {
-              Toggle(
-                "Can Sign In",
-                isOn: Binding(
-                  get: { allowed.contains(device.id) },
-                  set: { isOn in
-                    vault.setAllowed(isOn, device: device, keys: keys)
-                    reload()
-                  })
-              )
-              .toggleStyle(.kitSwitch).labelsHidden()
-            }
-          }
+      let letsDevicesIn = loginIsOn && host != nil
+      VaultDevicesSettings(
+        vaults: vaults, note: letsDevicesIn ? "Turn on each device that may sign in to this Mac." : nil
+      ) { device in
+        if letsDevicesIn, device.id != vault.deviceID {
+          Toggle(
+            "Can Sign In",
+            isOn: Binding(
+              get: { allowed.contains(device.id) },
+              set: { isOn in
+                vault.setAllowed(isOn, device: device, keys: keys)
+                reload()
+              })
+          )
+          .toggleStyle(.kitSwitch).labelsHidden()
         }
       }
       if loginIsOn {
         FormCard(
           "Security",
           footer: passwordLoginIsOn
-            ? "Your devices sign in with keys and don’t need it. Turning it off asks for an administrator’s password."
-            : nil
+            ? "Your devices have their own keys, so they keep working with this off. Leave it on only if you sign in to "
+              + "this Mac with its password from another computer. macOS asks for your password to change this."
+            : "Only your devices and the keys below can sign in. macOS asks for your password to change this."
         ) {
-          if passwordLoginIsOn {
-            FormRow(
-              "Password Login Is On",
-              help: "Anyone who knows the password of a user on this Mac can sign in over SSH",
-              systemImage: "exclamationmark.shield", hue: .orange
-            ) {
-              Button("Turn Off…") { setPasswordLogin(false) }.buttonStyle(.kit).disabled(changingPasswordLogin)
-            }
-          } else {
-            FormRow(
-              "Keys Only", help: "Password login is off: only keys, like your devices’, get in",
-              systemImage: "checkmark.shield", hue: .green
-            ) {
-              Button("Allow Passwords…") { setPasswordLogin(true) }.buttonStyle(.kit).disabled(changingPasswordLogin)
-            }
+          FormRow(
+            "Sign In with a Password",
+            help: passwordLoginIsOn
+              ? "Anyone who knows your Mac’s password can sign in from the network"
+              : "Off, the safest choice",
+            systemImage: passwordLoginIsOn ? "exclamationmark.shield" : "checkmark.shield",
+            hue: passwordLoginIsOn ? .orange : .green
+          ) {
+            Toggle(
+              "Sign In with a Password",
+              isOn: Binding(get: { passwordLoginIsOn }, set: { setPasswordLogin($0) })
+            )
+            .toggleStyle(.kitSwitch).labelsHidden()
+            .disabled(changingPasswordLogin)
           }
         }
       }
