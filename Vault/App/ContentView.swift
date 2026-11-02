@@ -31,7 +31,7 @@ struct ContentView: View {
     NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $compactColumn) {
       SidebarView(columnVisibility: $columnVisibility)
         .toolbar(removing: .sidebarToggle)
-        .navigationSplitViewColumnWidth(min: 220, ideal: 264, max: 360)
+        .kitSidebarColumn()
     } detail: {
       DetailView()
         .kitSidebarToggle(columnVisibility: $columnVisibility)
