@@ -55,38 +55,10 @@ public enum VaultProjectsSort: String, CaseIterable, Identifiable, Sendable {
   }
 }
 
-/// How much a project row shows. The list header's context menu changes it; each list keeps its own choice.
-public enum VaultProjectsDisplay: String, CaseIterable, Identifiable, Sendable {
-  /// The name over a line of detail (a branch and its device, a group's project count).
-  case detailed
-  /// The name alone.
-  case regular
-  /// The name alone, with a small icon: on the Mac the kit's compact rows, on touch screens still 44pt.
-  case compact
-
-  public var id: Self { self }
-
-  public var title: String {
-    switch self {
-    case .detailed: "Detailed"
-    case .regular: "Regular"
-    case .compact: "Compact"
-    }
-  }
-
-  /// The kit's row density for it, `other` being the sidebar's own.
-  public func density(else other: KitRowDensity = .regular) -> KitRowDensity { self == .compact ? .compact : other }
-
-  /// A row's icon size in it.
-  public func iconSize(_ idiom: KitIdiom) -> CGFloat {
-    if self == .compact { idiom.isTouch ? 24 : 16 } else { idiom.isTouch ? 32 : 18 }
-  }
-}
-
 /// The projects the v57 apps share, in the vault's groups, with the picked project's content: below the list, below
 /// a list that folds away, or right under its row (`VaultProjectsLayout`). The header's context menu picks the
-/// layout, the order and how much the rows show (`VaultProjectsDisplay`) and holds the app's own items; the app picks
-/// the default layout, and the user's choice is kept under `key`.
+/// layout and the order and holds the app's own items; the app picks the default layout, and the user's choice is
+/// kept under `key`.
 ///
 /// ```swift
 /// VaultProjectsSection(
@@ -126,21 +98,22 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   var contentSticky: KitStickyBottom = .title
   var remove: (([String]) -> Void)?
   var renameGroup: ((VaultProjectGroup, String) -> Void)?
+  var isExpanded: Binding<Bool>?
+  var rowContent: ((VaultProject) -> AnyView)?
   var asksBeforeRemovingAll = true
   @State private var renamingGroup: String?
   @State private var confirmsRemoveAll = false
   @AppStorage private var layout: VaultProjectsLayout
   @AppStorage private var sort: VaultProjectsSort
-  @AppStorage private var display: VaultProjectsDisplay
   /// The folded list is open (`.folding`).
   @AppStorage private var isListOpen: Bool
   @Environment(\.kitIdiom) private var idiom
-  @Environment(\.kitRowDensity) private var density
 
-  private var rowIconSize: CGFloat { display.iconSize(idiom) }
+  /// A row's tile: the Mac's small one, the touch rows' 32pt.
+  private var rowIconSize: CGFloat { idiom.isTouch ? 32 : 18 }
 
-  /// The section over `tree`, `selection` the picked project's id. `key` names where the user's layout, order and
-  /// display are kept (`<key>Layout`, `<key>Sort`, `<key>Display`).
+  /// The section over `tree`, `selection` the picked project's id. `key` names where the user's layout and order are
+  /// kept (`<key>Layout`, `<key>Sort`).
   public init(
     _ tree: VaultProjectTree, selection: Binding<String?>, layout: VaultProjectsLayout = .separate,
     sort: VaultProjectsSort = .arranged, key: String = "Projects", collapsedGroups: Binding<Set<String>>,
@@ -153,7 +126,6 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     self.menu = menu
     _layout = AppStorage(wrappedValue: layout, "\(key)Layout")
     _sort = AppStorage(wrappedValue: sort, "\(key)Sort")
-    _display = AppStorage(wrappedValue: .detailed, "\(key)Display")
     _isListOpen = AppStorage(wrappedValue: false, "\(key)ListOpen")
   }
 
@@ -269,6 +241,26 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     return section
   }
 
+  /// Owns whether the list is open, for an app that lays out the picked project itself (Git folds its lists as one).
+  public func isExpanded(_ isExpanded: Binding<Bool>) -> Self {
+    var section = self
+    section.isExpanded = isExpanded
+    return section
+  }
+
+  /// Rows right under the picked project's row while `isOn`, for a list that opens the project elsewhere and only
+  /// keeps some of it here (Git's Changes, History and Stashes).
+  ///
+  /// ```swift
+  /// VaultProjectsSection(tree, selection: $id, collapsedGroups: $collapsed)
+  ///   .rowContent(layout == .inline) { project in WorkspaceRows(project) }
+  /// ```
+  public func rowContent<V: View>(_ isOn: Bool = true, @ViewBuilder _ views: @escaping (VaultProject) -> V) -> Self {
+    var section = self
+    section.rowContent = isOn ? { AnyView(views($0)) } : nil
+    return section
+  }
+
   /// What the picked project's own section keeps in the sidebar's bottom dock while below the visible area
   /// (`.title` by default; `.content` for a few rows, as Git's pages).
   public func contentSticky(_ bottom: KitStickyBottom) -> Self {
@@ -308,19 +300,19 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   private func list(_ picked: VaultProject?) -> some View {
     let count = tree.projects().count
     let items = Item.items(
-      sorted(tree.roots), picked: layout == .inline && !opensElsewhere ? picked?.id : nil, sort: sorted)
+      sorted(tree.roots), picked: rowContent != nil || (layout == .inline && !opensElsewhere) ? picked?.id : nil,
+      sort: sorted)
     var section = KitSection(
       title, meta: [count == 1 ? "1 project" : "\(count) projects"] + meta, systemImage: "square.stack.3d.up",
-      hue: .indigo
+      hue: .indigo, isExpanded: isExpanded
     ) {
       KitOutline(items, children: \.children, collapsed: $collapsedGroups.animation(.kit)) { item in
         switch item {
         case .group(let group, let count, _): groupRow(group, count: count)
         case .project(let project, _): projectRow(project)
-        case .content(let project): contentRows(project).kitRowDensity(density)
+        case .content(let project): contentRows(project)
         }
       }
-      .kitRowDensity(display.density(else: density))
     } accessory: {
       accessory?()
     }
@@ -378,11 +370,6 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
         selection: Binding(get: { sort }, set: { new in withKitAnimation { sort = new } }),
         options: availableSorts.map { ($0.title, $0) })
     }
-    KitMenuSection("Display") {
-      KitMenuOptions(
-        selection: Binding(get: { display }, set: { new in withKitAnimation { display = new } }),
-        options: VaultProjectsDisplay.allCases.map { ($0.title, $0) })
-    }
     if Menu.self != EmptyView.self || remove != nil {
       Divider()
       menu()
@@ -397,7 +384,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   // MARK: Rows
 
   private func projectRow(_ project: VaultProject) -> some View {
-    SidebarRow(project.name, subtitle: display == .detailed ? rowSubtitle?(project) : nil) {
+    SidebarRow(project.name, subtitle: rowSubtitle?(project)) {
       projectIcon(project, size: rowIconSize)
     } trailing: {
       trailing?(project)
@@ -426,8 +413,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     let projects = tree.projects(in: group.id)
     return SidebarRow(
       group.name,
-      subtitle: display != .detailed
-        ? nil : group.note.flatMap { $0.isEmpty ? nil : $0 } ?? (count == 1 ? "1 project" : "\(count) projects")
+      subtitle: group.note.flatMap { $0.isEmpty ? nil : $0 } ?? (count == 1 ? "1 project" : "\(count) projects")
     ) {
       Avatar(
         name: group.name, kind: .thing, systemImage: isCollapsed ? "folder" : "folder.fill",
@@ -466,7 +452,9 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
 
   /// The picked project's content under its row (`.inline`).
   private func contentRows(_ project: VaultProject) -> some View {
-    VStack(alignment: .leading, spacing: 2) { content(project) }
+    VStack(alignment: .leading, spacing: 2) {
+      if let rowContent { rowContent(project) } else { content(project) }
+    }
       .frame(maxWidth: .infinity, alignment: .leading)
   }
 
