@@ -33,7 +33,9 @@ public enum VaultConfiguration {
   public static let changeNotification = "dev.v57.vault.changed"
 
   /// The store's folder: the app group container, or Application Support when the app isn't entitled
-  /// (a debug build signed without the group), so it still runs, without sharing.
+  /// (a debug build signed without the group), so it still runs, without sharing. With secrets in memory (a demo run
+  /// or a test) it's a temporary folder: that run's keys die with it, so anything it wrote to the user's store would
+  /// sync sealed with a key no device has.
   public static func defaultDirectory() -> URL {
     #if DEBUG
       // Testing a second device on one Mac: a fresh store that fetches everything from iCloud.
@@ -41,6 +43,7 @@ public enum VaultConfiguration {
         return URL(fileURLWithPath: path, isDirectory: true)
       }
     #endif
+    if VaultSecrets.isInMemory { return memoryRunDirectory }
     #if canImport(Security)
       let fileManager = FileManager.default
       if isEntitledToGroup, let group = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroup),
@@ -52,6 +55,10 @@ public enum VaultConfiguration {
     // Off Apple platforms every app of the user shares Application Support (Windows: AppData).
     return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("dev.v57.vault", isDirectory: true)
   }
+
+  /// The store's folder in a run with secrets in memory, one per process.
+  private static let memoryRunDirectory = FileManager.default.temporaryDirectory
+    .appendingPathComponent("dev.v57.vault-\(UUID().uuidString)", isDirectory: true)
 
   /// Whether this build is signed with the app group. Unsandboxed macOS apps get a container URL for any group,
   /// and one built without the team's signing (someone else's build, signed to run locally) that opens the
