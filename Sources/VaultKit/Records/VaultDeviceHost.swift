@@ -54,7 +54,7 @@ extension VaultStore {
   }
 
   /// Drops the trust publishing gave a host's address, unless the user has since accepted another key there.
-  private func untrustDeviceKey(of host: VaultHost) throws {
+  func untrustDeviceKey(of host: VaultHost) throws {
     guard host.device?.hostKeyIsPinnable == true, let fingerprint = host.device?.hostKeyFingerprint,
       try knownFingerprint(host: host.hostname, port: host.port) == fingerprint
     else { return }

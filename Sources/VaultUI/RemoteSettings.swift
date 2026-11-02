@@ -109,7 +109,7 @@
         ) {
           ForEach(devices) { device in
             FormRow(
-              device.deviceName, help: Self.fingerprint(device.publicKey), systemImage: Self.symbol(device), hue: .blue
+              device.deviceName, help: Self.fingerprint(device.publicKey), systemImage: device.systemImage, hue: .blue
             ) {
               Toggle(
                 "Can Sign In",
@@ -239,14 +239,6 @@
       else { return nil }
       let digest = Data(SHA256.hash(data: blob)).base64EncodedString().replacingOccurrences(of: "=", with: "")
       return "SHA256:\(digest.prefix(4))…\(digest.suffix(4))"
-    }
-
-    static func symbol(_ device: VaultDeviceKey) -> String {
-      let name = device.deviceName.lowercased()
-      if device.platform == "iOS" { return name.contains("iphone") ? "iphone" : "ipad" }
-      if name.contains("macbook") { return "laptopcomputer" }
-      if device.platform == "windows" || device.platform == "linux" { return "pc" }
-      return "desktopcomputer"
     }
   }
 

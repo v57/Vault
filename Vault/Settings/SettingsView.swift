@@ -42,6 +42,7 @@ struct SettingsView: View {
       // The accounts every v57 app shares; not in demo runs, which never open the user's vaults.
       if !app.isDemo {
         SettingsPane("Accounts", systemImage: "person.2", hue: .indigo, section: "v57") { VaultAccountsSettings() }
+        SettingsPane("Devices", systemImage: "laptopcomputer", hue: .blue, section: "v57") { VaultDevicesSettings() }
       }
       #if os(macOS)
         // Your iPhone and iPad sign in to this Mac over SSH; it writes the real ~/.ssh, so never in the demo.

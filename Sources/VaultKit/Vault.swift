@@ -211,6 +211,17 @@ public final class Vault {
     }
   }
 
+  /// Takes a device out of this vault (`VaultStore.removeDevice`); use `Vaults.removeDevice` for all of them.
+  /// Failures go to `error`.
+  public func removeDevice(_ id: String) {
+    perform { store in
+      try store.removeDevice(id) { path in
+        var isFolder: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
+      }
+    }
+  }
+
   /// This device's id.
   public var deviceID: String { store?.deviceID ?? VaultDevice.id }
 

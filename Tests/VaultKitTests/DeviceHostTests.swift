@@ -29,6 +29,74 @@ struct DeviceHostTests {
     #expect(try !store.publishDeviceHost(name: "Studio", address: "Studio.local", user: "me", hostKey: Self.hostKey, allowed: ["phone"]))
   }
 
+  @Test func aRunWithSecretsInMemoryNeverOpensTheUsersStore() throws {
+    let temporary = FileManager.default.temporaryDirectory.path
+    #expect(VaultConfiguration.defaultDirectory().path.hasPrefix(temporary))
+    #expect(try #require(VaultStore.shared).directory.path.hasPrefix(temporary))
+  }
+
+  @Test func removingADeviceTakesItOutOfTheVault() throws {
+    let store = try store()
+    try store.save(VaultDeviceKey(id: "old", deviceName: "Old Mac", publicKey: Self.phoneKey, platform: "macOS"))
+    let route = VaultHost.DeviceRoute(deviceID: "old", address: "Old.local", hostKey: Self.hostKey, allowed: [])
+    var host = VaultHost(id: "published", name: "Old Mac", hostname: "Old.local", user: "me", source: "device")
+    host.device = route
+    try store.save(host)
+    try store.trust(fingerprint: try #require(route.hostKeyFingerprint), host: "Old.local", port: 22)
+    let status = VaultProject.Status(branch: "main", changeCount: 0)
+    var onBoth = VaultProject(id: "both", name: "both", paths: ["old": "/both", "mac": "/both"])
+    onBoth.statuses = ["old": status, "mac": status]
+    try store.save(onBoth)
+    try store.save(VaultProject(id: "gone", name: "gone", paths: ["old": "/gone"]))
+    try store.save(VaultProject(id: "moved", name: "moved", paths: ["old": "/moved"]))
+    try store.save(VaultProject(id: "duplicate", name: "duplicate", paths: ["old": "/both"]))
+    try store.save(VaultFolder(name: "Notes", paths: ["old": "/notes", "mac": "/notes"]))
+    try store.save(VaultHubServer(id: "hub", url: "ws://hub", connects: ["old", "mac"], members: ["old": "a", "mac": "b"]))
+
+    try store.removeDevice("old") { $0 == "/moved" || $0 == "/both" }
+
+    #expect(try store.record(VaultDeviceKey.self, id: "old") == nil)
+    #expect(try store.record(VaultHost.self, id: "published") == nil)
+    #expect(try store.knownFingerprint(host: "Old.local", port: 22) == nil)
+    let both = try #require(try store.record(VaultProject.self, id: "both"))
+    #expect(both.paths == ["mac": "/both"])
+    #expect(both.statuses == ["mac": status])
+    // The folder isn't here, or another project already has it here: nothing keeps the project.
+    #expect(try store.record(VaultProject.self, id: "gone") == nil)
+    #expect(try store.record(VaultProject.self, id: "duplicate") == nil)
+    #expect(try store.record(VaultProject.self, id: "moved")?.paths == ["mac": "/moved"])
+    #expect(try store.records(VaultFolder.self).first?.paths == ["mac": "/notes"])
+    let hub = try #require(try store.record(VaultHubServer.self, id: "hub"))
+    #expect(hub.connects == ["mac"])
+    #expect(hub.members == ["mac": "b"])
+  }
+
+  @Test func aRemovedProjectsEmptyGroupGoesToo() throws {
+    let store = try store()
+    try store.save(VaultProject(id: "only", name: "only", paths: ["old": "/only"]))
+    try store.save(VaultProject(id: "kept", name: "kept", paths: ["mac": "/kept"]))
+    let group = try #require(try store.groupProjects(["only"], name: "Group"))
+
+    try store.removeDevice("old")
+
+    #expect(try store.record(VaultProjectGroup.self, id: group.id) == nil)
+    #expect(try store.record(VaultProject.self, id: "kept") != nil)
+  }
+
+  @Test func aDeviceCantRemoveItself() throws {
+    let store = try store()
+    #expect(throws: VaultDeviceError.self) { try store.removeDevice("mac") }
+  }
+
+  @Test func aRemovedDeviceCanComeBack() throws {
+    let store = try store()
+    let key = VaultDeviceKey(id: "old", deviceName: "Old Mac", publicKey: Self.phoneKey, platform: "macOS")
+    try store.save(key)
+    try store.removeDevice("old")
+    try store.save(key)
+    #expect(try store.record(VaultDeviceKey.self, id: "old")?.deviceName == "Old Mac")
+  }
+
   @Test func theUsersHostnameOutlivesANewAddress() throws {
     let store = try store()
     try store.publishDeviceHost(name: "Studio", address: "Studio.local", user: "me", hostKey: Self.hostKey, allowed: [])

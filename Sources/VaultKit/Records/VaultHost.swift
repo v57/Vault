@@ -347,14 +347,67 @@ extension VaultStore {
     if let custom { key.deviceName = custom }
     try save(key)
   }
+
+  /// Takes another device out of this vault: its key, the host it published and the trust that gave its key, and
+  /// its fields in projects, groups, folders and Hubs. A project only on it goes (and a group that leaves empty),
+  /// unless `folderIsHere` finds its folder on this device and no project has that folder here: a reinstalled Mac is
+  /// a new device with the same folders. A device still running a v57 app publishes itself again.
+  public func removeDevice(_ id: String, folderIsHere: (String) -> Bool = { _ in false }) throws {
+    guard id != deviceID else { throw VaultDeviceError.thisDevice }
+    let projects = try records(VaultProject.self)
+    let tree = try projectTree()
+    var here = Set(projects.compactMap { $0.paths[deviceID] })
+    var emptied: [String] = []
+    for var project in projects where project.paths[id] != nil || project.statuses[id] != nil {
+      if let path = project.paths[id], project.paths[deviceID] == nil, !here.contains(path), folderIsHere(path) {
+        project.paths[deviceID] = path
+        here.insert(path)
+      }
+      project.paths[id] = nil
+      project.statuses[id] = nil
+      if project.paths.isEmpty {
+        if let group = tree.parent(of: project.id) { emptied.append(group) }
+        try delete(id: project.id)
+      } else {
+        try save(project)
+      }
+    }
+    for var group in try records(VaultProjectGroup.self) where group.paths[id] != nil {
+      group.paths[id] = nil
+      try save(group)
+    }
+    try removeEmptyProjectGroups(emptied)
+    for var folder in try records(VaultFolder.self)
+    where folder.paths[id] != nil || folder.bookmarks[id] != nil || folder.modes[id] != nil || folder.storages[id] != nil {
+      folder.paths[id] = nil
+      folder.bookmarks[id] = nil
+      folder.modes[id] = nil
+      folder.storages[id] = nil
+      try save(folder)
+    }
+    for var hub in try records(VaultHubServer.self)
+    where hub.connects.contains(id) || hub.syncs.contains(id) || hub.members[id] != nil {
+      hub.connects.remove(id)
+      hub.syncs.remove(id)
+      hub.members[id] = nil
+      try save(hub)
+    }
+    for host in try records(VaultHost.self) where host.device?.deviceID == id {
+      try untrustDeviceKey(of: host)
+      try delete(id: host.id)
+    }
+    try delete(id: id)
+  }
 }
 
 public enum VaultDeviceError: LocalizedError {
   case unknownDevice
+  case thisDevice
 
   public var errorDescription: String? {
     switch self {
     case .unknownDevice: "This device hasn't published its key yet."
+    case .thisDevice: "A device can't remove itself."
     }
   }
 }

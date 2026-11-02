@@ -59,6 +59,12 @@ public final class Vaults {
     }
   }
 
+  /// Takes a device out of Personal and every account's vault (`VaultStore.removeDevice`): an account's projects have
+  /// their folders per device too.
+  public func removeDevice(_ id: String) {
+    for account in allAccounts { vault(for: account)?.removeDevice(id) }
+  }
+
   /// Makes an account: its record in Personal. Its zone is made on the server when its vault first syncs.
   @discardableResult
   public func createAccount(name: String, color: String = "blue") throws -> VaultAccount {
