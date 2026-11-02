@@ -33,6 +33,22 @@ struct ProjectTreeTests {
     #expect(try outline(store) == "b, a, c")
   }
 
+  @Test func movingOutPutsItemsAfterTheirGroup() throws {
+    let store = try store()
+    let ids = try add(["a", "b", "c", "d"], to: store)
+    let outer = try store.addProjectGroup(name: "Outer")
+    let inner = try store.addProjectGroup(name: "Inner")
+    try store.moveProjects([ids["d"]!], into: inner.id)
+    try store.moveProjects([ids["a"]!, ids["b"]!, inner.id], into: outer.id)
+    try store.moveProjects([ids["c"]!], into: nil)
+    #expect(try outline(store) == "Outer[a, b, Inner[d]], c")
+    try store.moveProjectsOut([ids["a"]!, inner.id])
+    #expect(try outline(store) == "Outer[b], a, Inner[d], c")
+    // Already at the top level: stays.
+    try store.moveProjectsOut([ids["c"]!])
+    #expect(try outline(store) == "Outer[b], a, Inner[d], c")
+  }
+
   @Test func groupsNestAndMixWithProjects() throws {
     let store = try store()
     let ids = try add(["shell", "git", "agentus", "server"], to: store)

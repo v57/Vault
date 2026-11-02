@@ -243,6 +243,19 @@ extension VaultStore {
     return try record(VaultProjectGroup.self, id: group.id)
   }
 
+  /// Moves projects and groups out of the group they are in, to just after it in the group above (or the top level).
+  /// Those at the top level stay.
+  public func moveProjectsOut(_ ids: [String]) throws {
+    let tree = try projectTree()
+    let byGroup = Dictionary(grouping: ids.filter { tree.parent(of: $0) != nil }) { tree.parent(of: $0)! }
+    for (groupID, ids) in byGroup {
+      let parent = tree.parent(of: groupID)
+      let siblings = tree.children(of: parent).map(\.id)
+      let next = siblings.firstIndex(of: groupID).flatMap { $0 + 1 < siblings.count ? siblings[$0 + 1] : nil }
+      try moveProjects(ids, into: parent, before: next)
+    }
+  }
+
   /// Deletes a group and puts what it holds, projects and groups, where it was.
   public func ungroupProjects(_ groupID: String) throws {
     let tree = try projectTree()
