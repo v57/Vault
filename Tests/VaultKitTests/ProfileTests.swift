@@ -44,6 +44,19 @@ struct ProfileTests {
     #expect(try #require(mac.vault("Acme")?.store).records(VaultProfile.self).isEmpty)
   }
 
+  /// The Git app's security level: unset until picked, then on every device.
+  @Test func gitSettingsSyncWithPersonal() throws {
+    let mac = try device("mac")
+    let phone = try device("phone")
+    let id = VaultGitSettings.recordID
+    #expect(try mac.personal.record(VaultGitSettings.self, id: id) == nil)
+    try mac.personal.save(VaultGitSettings(securityLevel: 3))
+    mac.sync(database)
+    phone.sync(database)
+    #expect(try phone.personal.record(VaultGitSettings.self, id: id)?.securityLevel == 3)
+    #expect(try phone.personal.record(VaultGitSettings.self, id: id)?.id == id)
+  }
+
   @Test func syncsWithPersonalAndMergesFieldByField() throws {
     let mac = try device("mac")
     let phone = try device("phone")

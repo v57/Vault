@@ -40,6 +40,8 @@ public final class Vault {
   public private(set) var appleTeams: [VaultAppleTeam] = []
   /// Each account's name and email (in Personal only; `Vaults.profile(for:)` reads them).
   public private(set) var profiles: [VaultProfile] = []
+  /// The Git app's shared choices, in Personal; nil until one is made.
+  public private(set) var gitSettings: VaultGitSettings?
   /// Which account this is (`VaultAccount.personal` for Personal).
   public let accountID: String
   public var isPersonal: Bool { accountID == VaultAccount.personal.id }
@@ -159,6 +161,7 @@ public final class Vault {
       }
       appleTeams = try store.records(VaultAppleTeam.self).sorted { ($0.name, $0.teamID) < ($1.name, $1.teamID) }
       profiles = try store.records(VaultProfile.self)
+      gitSettings = try store.record(VaultGitSettings.self, id: VaultGitSettings.recordID)
     } catch {
       self.error = error.localizedDescription
     }
