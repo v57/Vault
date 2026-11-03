@@ -443,11 +443,16 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     .kitHelp(project.name, meta: project.localPath.map(Self.place))
     // No menu without items: a held row on iPhone opened an empty one.
     .contextMenu(if: project.localURL != nil || rowMenu != nil || remove != nil) {
+      // What the row does first (the app's items), then where the project is, then taking it out of the list.
+      if let rowMenu {
+        rowMenu(project)
+        if project.localURL != nil || remove != nil { Divider() }
+      }
       if let folder = project.localURL {
         Button("Show in \(KitDesktop.fileManagerName)", systemImage: "folder") { KitDesktop.reveal([folder]) }
+        Button("Copy Path", systemImage: "doc.on.doc") { KitPasteboard.copy(folder.path) }
+        if remove != nil { Divider() }
       }
-      if rowMenu != nil || remove != nil { Divider() }
-      rowMenu?(project)
       if let remove {
         Button("Remove from List", systemImage: "minus.circle") { withAnimation(.kit) { remove([project.id]) } }
       }
@@ -491,6 +496,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
           }
           if let folder = group.localURL {
             Button("Show in \(KitDesktop.fileManagerName)", systemImage: "folder") { KitDesktop.reveal([folder]) }
+            Button("Copy Path", systemImage: "doc.on.doc") { KitPasteboard.copy(folder.path) }
           }
           if let remove {
             if idiom.isTouch || group.localURL != nil || renameGroup != nil { Divider() }
