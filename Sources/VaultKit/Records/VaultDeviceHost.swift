@@ -20,6 +20,7 @@ extension VaultStore {
   public func publishDeviceHost(
     name: String, address: String, user: String, port: Int = 22, hostKey: String?, allowed: Set<String>
   ) throws -> Bool {
+    guard try !isRevoked(device: deviceID) else { return false }
     let id = try deviceHostID(device: deviceID)
     let route = VaultHost.DeviceRoute(deviceID: deviceID, address: address, hostKey: hostKey, allowed: allowed)
     var host: VaultHost

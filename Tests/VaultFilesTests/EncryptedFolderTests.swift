@@ -322,3 +322,21 @@ struct EncryptedFolderTests {
     #expect(throws: VaultFilesError.exists(export.path)) { try folder.exportDecrypted(to: export) }
   }
 }
+
+@Suite struct FolderKeyRotationTests {
+  /// `VaultStore.rewrapFolderKeys` writes `FolderKey`'s layout without importing it.
+  @Test func aFolderKeyStillOpensAfterARotation() throws {
+    let keys = MemoryKeyProvider()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("VaultTests-\(UUID().uuidString)")
+    let store = try VaultStore(directory: directory, keys: keys, deviceID: "mac", notifier: nil, owner: "test")
+    let key = FolderKey()
+    try store.save(VaultFolder(id: "f", name: "Folder", wrappedKey: try key.wrapped(with: keys)))
+    let rotation = try store.rotateKeys()
+    let wrapped = try #require(try store.record(VaultFolder.self, id: "f")?.wrappedKey)
+    #expect(wrapped != (try key.wrapped(with: keys)))
+    #expect(try FolderKey(wrapped: wrapped, keys: keys) == key)
+    // New wrappings use the new key, and the old key wasn't needed for this one.
+    let data = try #require(Data(base64Encoded: wrapped))
+    #expect(String(decoding: data[2..<2 + Int(data[1])], as: UTF8.self) == rotation.epoch.keyID)
+  }
+}

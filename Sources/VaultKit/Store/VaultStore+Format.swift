@@ -229,7 +229,7 @@ extension VaultStore {
   }
 
   /// Seals an item again with the current key and queues it, and checks it reads back the same.
-  private func rewrite(_ item: VaultItem) throws {
+  func rewrite(_ item: VaultItem) throws {
     try writeRow(id: item.id, kind: item.kind, fields: item.fields, queue: true)
     let encoder = JSONEncoder()
     encoder.outputFormatting = .sortedKeys
@@ -368,7 +368,9 @@ extension VaultStore {
   }
 
   /// Does what couldn't be done before a key arrived: finishes the format, moves rows that couldn't open to format 2,
-  /// and merges server copies that waited for their key. Changes go in the outbox. Returns the ids it wrote.
+  /// merges server copies that waited for their key, and seals again what's still under a key a rotation retired (on
+  /// this device, or on one that told iCloud Keychain). Killed halfway, the next call carries on. Changes go in the
+  /// outbox. Returns the ids it wrote.
   @discardableResult
   public func catchUp() throws -> [String] {
     let written: [String] = try withLock {
@@ -376,6 +378,11 @@ extension VaultStore {
       var written: [String] = []
       written += try moveLegacyRows()
       written += try mergeWaitingServerCopies()
+      let retired = try retiredKeys()
+      if !retired.isEmpty {
+        written += try resealRows(sealedWith: retired)
+        written += try rewrapFolderKeys(sealedWith: retired)
+      }
       return written
     }
     if !written.isEmpty { didChange(locally: written) }

@@ -18,7 +18,12 @@ public final class Vault {
   public private(set) var projectTree = VaultProjectTree(projects: [], groups: [])
   public private(set) var hosts: [VaultHost] = []
   public private(set) var databases: [VaultDatabase] = []
+  /// The user's devices, without those taken out through Lost Device (`VaultStore.revokeDevice`).
   public private(set) var deviceKeys: [VaultDeviceKey] = []
+  /// A device's key that was published although the device was revoked: an old build, or someone still holding it.
+  public private(set) var untrustedDeviceKeys: [VaultDeviceKey] = []
+  /// The devices taken out through Lost Device.
+  public private(set) var revokedDevices: [VaultRevokedDevice] = []
   /// Accepted SSH host keys, by host.
   public private(set) var knownHosts: [VaultKnownHost] = []
   /// Logins, by title.
@@ -133,9 +138,15 @@ public final class Vault {
       }
       projectGroups = try store.records(VaultProjectGroup.self)
       projectTree = VaultProjectTree(projects: projects, groups: projectGroups)
-      hosts = try store.records(VaultHost.self).sorted { ($0.order, $0.displayName) < ($1.order, $1.displayName) }
+      let revokedIDs = Set(try store.records(VaultRevokedDevice.self).map(\.deviceID))
+      hosts = try store.records(VaultHost.self)
+        .filter { host in host.device.map { !revokedIDs.contains($0.deviceID) } ?? true }
+        .sorted { ($0.order, $0.displayName) < ($1.order, $1.displayName) }
       databases = try store.records(VaultDatabase.self).sorted { ($0.order, $0.name) < ($1.order, $1.name) }
-      deviceKeys = try store.records(VaultDeviceKey.self).sorted { $0.deviceName < $1.deviceName }
+      revokedDevices = try store.records(VaultRevokedDevice.self).sorted { $0.name < $1.name }
+      let devices = try store.deviceKeysByTrust()
+      deviceKeys = devices.trusted.sorted { $0.deviceName < $1.deviceName }
+      untrustedDeviceKeys = devices.revoked.sorted { $0.deviceName < $1.deviceName }
       knownHosts = try store.records(VaultKnownHost.self).sorted { ($0.host, $0.port) < ($1.host, $1.port) }
       logins = try store.records(VaultLogin.self).sorted {
         $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
@@ -212,6 +223,22 @@ public final class Vault {
       if id == store.deviceID, try store.record(VaultDeviceKey.self, id: id) == nil { try store.publishDeviceKey() }
       try store.renameDevice(id, to: name)
     }
+  }
+
+  /// Marks a device as revoked and takes it out of this vault (`VaultStore.revokeDevice`); use `Vaults.revokeDevice` for
+  /// all of them.
+  public func revokeDevice(_ key: VaultDeviceKey) {
+    perform { store in
+      try store.revokeDevice(key) { path in
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+      }
+    }
+  }
+
+  /// Takes a revoked device off the list, so it can publish itself again.
+  public func trustAgain(_ device: VaultRevokedDevice) {
+    perform { try $0.trustAgain(device: device.deviceID) }
   }
 
   /// Takes a device out of this vault (`VaultStore.removeDevice`); use `Vaults.removeDevice` for all of them.

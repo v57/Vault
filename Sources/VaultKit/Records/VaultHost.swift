@@ -379,6 +379,7 @@ extension VaultStore {
   /// when the name or key changed, so it can run at every launch.
   @MainActor
   public func publishDeviceKey() throws {
+    guard try !isRevoked(device: deviceID) else { return }
     let key = try VaultIdentity.key()
     let name = VaultDevice.name
     let line = VaultIdentity.publicKeyLine(key, comment: name)
@@ -410,7 +411,8 @@ extension VaultStore {
   /// Takes another device out of this vault: its key, the host it published and the trust that gave its key, and
   /// its fields in projects, groups, folders and Hubs. A project only on it goes (and a group that leaves empty),
   /// unless `folderIsHere` finds its folder on this device and no project has that folder here: a reinstalled Mac is
-  /// a new device with the same folders. A device still running a v57 app publishes itself again.
+  /// a new device with the same folders. A device still running a v57 app publishes itself again, and this does nothing
+  /// about what it holds: for a lost or stolen one, `revokeDevice`.
   public func removeDevice(_ id: String, folderIsHere: (String) -> Bool = { _ in false }) throws {
     guard id != deviceID else { throw VaultDeviceError.thisDevice }
     let projects = try records(VaultProject.self)

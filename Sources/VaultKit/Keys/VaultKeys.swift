@@ -45,8 +45,12 @@ public protocol VaultKeyProvider: Sendable {
   /// true in a vault that never rotated. A key no rotation has heard of isn't retired: it may be the next rotation's,
   /// whose keychain items are still arriving one by one.
   func isRetired(_ id: String) throws -> Bool
+  /// Adds keys brought back from elsewhere (`VaultRecovery.restore`). One with an id that's here isn't replaced.
+  func addKeys(_ keys: [String: SymmetricKey]) throws
   /// What `VaultCrypto.derivedID` hashes with: made once and kept across rotations, so ids never change.
   func stableIDKey() throws -> SymmetricKey
+  /// Puts the id key back (`VaultRecovery.restore`, on a device whose keychain lost it and made another).
+  func restoreStableIDKey(_ key: SymmetricKey) throws
   /// A small flag beside the keys, out of reach of whoever can edit the store's file. `synced` ones reach the user's
   /// other devices; the others stay on this one.
   func hasMark(_ name: String, synced: Bool) throws -> Bool
@@ -59,6 +63,7 @@ protocol VaultKeyItems: Sendable {
   func read(_ name: String, synced: Bool) throws -> Data?
   /// Adds the item unless one exists; returns whether it was added.
   func add(_ data: Data, named name: String, synced: Bool, label: String) throws -> Bool
+  func replace(_ data: Data, named name: String, synced: Bool, label: String) throws
 }
 
 /// The items of `KeychainKeyProvider`, in the keychain.
@@ -84,6 +89,10 @@ struct KeychainKeyItems: VaultKeyItems {
     } catch VaultKeychain.KeychainError.status(errSecDuplicateItem) {
       return false
     }
+  }
+
+  func replace(_ data: Data, named name: String, synced: Bool, label: String) throws {
+    try keychain.write(data, account: name, options: options(synced, label: label))
   }
 }
 
@@ -115,6 +124,12 @@ final class MemoryKeyItems: VaultKeyItems, @unchecked Sendable {
         local[name] = data
       }
       return true
+    }
+  }
+
+  func replace(_ data: Data, named name: String, synced isSynced: Bool, label: String) throws {
+    lock.withLock {
+      if isSynced { synced[name] = data } else { local[name] = data }
     }
   }
 
@@ -246,6 +261,15 @@ final class VaultKeyRing: @unchecked Sendable {
     }
   }
 
+  func addKeys(_ added: [String: SymmetricKey]) throws {
+    try lock.withLock {
+      for (id, key) in added.sorted(by: { $0.key < $1.key }) {
+        _ = try items.add(data(of: key), named: Self.keyPrefix + id, synced: true, label: "v57 Vault key")
+      }
+      try load()
+    }
+  }
+
   func rotate(kitCheck: String?) throws -> VaultKeyEpoch {
     try lock.withLock {
       try load()
@@ -293,6 +317,13 @@ final class VaultKeyRing: @unchecked Sendable {
     }
   }
 
+  func restoreStableIDKey(_ key: SymmetricKey) throws {
+    try lock.withLock {
+      try items.replace(data(of: key), named: Self.idKeyName, synced: true, label: "v57 Vault id key")
+      idKey = key
+    }
+  }
+
   func hasMark(_ name: String, synced: Bool) throws -> Bool {
     try items.read(Self.markPrefix + name, synced: synced) != nil
   }
@@ -326,7 +357,9 @@ public final class KeychainKeyProvider: VaultKeyProvider, @unchecked Sendable {
   public func rotate(kitCheck: String?) throws -> VaultKeyEpoch { try ring.rotate(kitCheck: kitCheck) }
   public func kitCheck(forKey id: String) throws -> String? { try ring.kitCheck(forKey: id) }
   public func isRetired(_ id: String) throws -> Bool { try ring.isRetired(id) }
+  public func addKeys(_ keys: [String: SymmetricKey]) throws { try ring.addKeys(keys) }
   public func stableIDKey() throws -> SymmetricKey { try ring.stableIDKey() }
+  public func restoreStableIDKey(_ key: SymmetricKey) throws { try ring.restoreStableIDKey(key) }
   public func hasMark(_ name: String, synced: Bool) throws -> Bool { try ring.hasMark(name, synced: synced) }
   public func setMark(_ name: String, synced: Bool) throws { try ring.setMark(name, synced: synced) }
 
@@ -358,7 +391,9 @@ public final class MemoryKeyProvider: VaultKeyProvider, @unchecked Sendable {
   public func rotate(kitCheck: String?) throws -> VaultKeyEpoch { try ring.rotate(kitCheck: kitCheck) }
   public func kitCheck(forKey id: String) throws -> String? { try ring.kitCheck(forKey: id) }
   public func isRetired(_ id: String) throws -> Bool { try ring.isRetired(id) }
+  public func addKeys(_ keys: [String: SymmetricKey]) throws { try ring.addKeys(keys) }
   public func stableIDKey() throws -> SymmetricKey { try ring.stableIDKey() }
+  public func restoreStableIDKey(_ key: SymmetricKey) throws { try ring.restoreStableIDKey(key) }
   public func hasMark(_ name: String, synced: Bool) throws -> Bool { try ring.hasMark(name, synced: synced) }
   public func setMark(_ name: String, synced: Bool) throws { try ring.setMark(name, synced: synced) }
 }

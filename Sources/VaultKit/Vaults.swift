@@ -65,6 +65,28 @@ public final class Vaults {
     for account in allAccounts { vault(for: account)?.removeDevice(id) }
   }
 
+  /// Revokes a device in Personal and every account's vault (`VaultStore.revokeDevice`).
+  public func revokeDevice(_ key: VaultDeviceKey) {
+    for account in allAccounts { vault(for: account)?.revokeDevice(key) }
+  }
+
+  /// Takes a revoked device off the list in Personal and every account's vault.
+  public func trustAgain(_ device: VaultRevokedDevice) {
+    for account in allAccounts { vault(for: account)?.trustAgain(device) }
+  }
+
+  /// A new vault key for everything, in Personal and every account's store (`VaultStore.rotateKeys`): every device
+  /// that gets the new key through iCloud Keychain carries on, and records sealed under the old one are refused. A
+  /// device still in the Apple account gets the new key too, so a lost one must leave the account first.
+  @discardableResult
+  public func rotateKeys() throws -> VaultKeyRotation {
+    guard let store = personal.store else { throw VaultAccountStores.AccountError.noStore }
+    let others = accounts.compactMap { vault(for: $0)?.store }
+    let rotation = try store.rotateKeys(alongWith: others)
+    for account in allAccounts { vault(for: account)?.reload(force: true) }
+    return rotation
+  }
+
   /// Makes an account: its record in Personal. Its zone is made on the server when its vault first syncs.
   @discardableResult
   public func createAccount(name: String, color: String = "blue") throws -> VaultAccount {
