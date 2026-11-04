@@ -144,21 +144,30 @@ public struct VaultProject: VaultRecord, Hashable {
   /// the same id and syncs as one. A second clone in a folder of the same name on this device (a reference copy
   /// beside the working one) is a project of its own, its id derived from its path: the remote's id has a folder
   /// here already.
-  public static func newID(remoteURL: String?, path: String, in store: VaultStore) -> String {
-    newIdentity(remoteURL: remoteURL, path: path, in: store).id
+  public static func newID(remoteURL: String?, path: String, in store: VaultStore) throws -> String {
+    try newIdentity(remoteURL: remoteURL, path: path, in: store).id
   }
 
-  /// `newID`, and the `separateCopy` a second clone in a folder of the same name gets.
-  static func newIdentity(remoteURL: String?, path: String, in store: VaultStore) -> (id: String, separateCopy: String?) {
+  /// `newID`, and the `separateCopy` a second clone in a folder of the same name gets. With the id key not here yet the id is
+  /// random, and the project's identity folds it when the key comes, so a second clone has to be told by what's here, not by
+  /// its id, or the fold would lose a path. Anything else that goes wrong throws: a random id then would make a duplicate.
+  static func newIdentity(remoteURL: String?, path: String, in store: VaultStore) throws -> (id: String, separateCopy: String?) {
     let name = (path as NSString).lastPathComponent.lowercased()
     let byPath = "path:\(store.deviceID):\(path)"
-    let derive = { (identity: String) in (try? store.derivedID("project|" + identity)) ?? UUID().uuidString }
-    guard let remote = remoteURL.flatMap(normalizedRemote) else { return (derive(byPath), nil) }
-    let id = derive("remote:\(remote)|\(name)")
-    if let other = try? store.record(VaultProject.self, id: id), let here = other.paths[store.deviceID], here != path {
-      return (derive(byPath), "\(store.deviceID):\(path)")
+    let derive = { (identity: String) throws -> String in
+      do {
+        return try store.derivedID("project|" + identity)
+      } catch VaultCrypto.CryptoError.idKeyNotHere {
+        return UUID().uuidString
+      }
     }
-    return (id, nil)
+    guard let remote = remoteURL.flatMap(normalizedRemote) else { return (try derive(byPath), nil) }
+    let identity = "remote:\(remote)|\(name)"
+    let id = try derive(identity)
+    let isSecondClone = try store.records(VaultProject.self).contains {
+      $0.identity == identity && $0.paths[store.deviceID] != nil && $0.paths[store.deviceID] != path
+    }
+    return isSecondClone ? (try derive(byPath), "\(store.deviceID):\(path)") : (id, nil)
   }
 }
 
@@ -187,7 +196,7 @@ extension VaultStore {
       try save(project)
       return project
     }
-    let identity = VaultProject.newIdentity(remoteURL: remoteURL, path: path, in: self)
+    let identity = try VaultProject.newIdentity(remoteURL: remoteURL, path: path, in: self)
     var project = VaultProject(
       id: identity.id, name: name ?? folderName,
       remoteURL: remoteURL, order: try endOrder(in: nil), paths: [deviceID: path], kinds: kinds ?? [])

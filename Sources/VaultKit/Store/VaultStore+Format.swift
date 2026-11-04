@@ -839,20 +839,31 @@ extension VaultStore {
     try legacyAllowed()[id] == Data(SHA256.hash(data: payload))
   }
 
-  /// With only a key made here on an empty keychain, while rows here name keys that aren't, this device belongs to a vault
-  /// whose id key hasn't arrived. Any id made now would be wrong, so ids wait.
+  /// With no key, or only one made here on an empty keychain, while something here names a key that isn't, this device
+  /// belongs to a vault whose id key hasn't arrived. Any id made now would be wrong, and a record under it would never
+  /// converge with the real one, so ids wait. What counts is a row, a server copy or a deferred record naming a key that
+  /// would come before the one ids come from now, or a rotation's, which says there's a vault with a first key. With nothing
+  /// here naming anything, this is a vault's first device, or one whose first fetch hasn't reached it yet: the id key
+  /// can't tell, and a brand new vault has to be able to go on.
   func idKeyCouldBeWrong() throws -> Bool {
-    let missing: [String]
-    if _isWaiting {
-      guard try keys.allKeys.isEmpty || keys.stableIDKeySource()?.hasPrefix("n") == true else { return false }
-      missing = try database.query("SELECT DISTINCT key_id FROM items").compactMap { $0[0].text }
-    } else {
-      guard try keys.stableIDKeySource()?.hasPrefix("n") == true else { return false }
-      missing = try formatReport().missingKeys
-    }
     let source = try keys.stableIDKeySource()
-    return try missing.contains { name in
-      guard source == nil || name < source! else { return false }
+    if let source {
+      guard source.hasPrefix("n") else { return false }
+    } else {
+      guard try keys.allKeys.isEmpty else { return false }
+    }
+    let names: Set<String>
+    if _isWaiting {
+      names = Set(try database.query("SELECT DISTINCT key_id FROM items").compactMap { $0[0].text })
+    } else {
+      var seen = Set(try formatReport().missingKeys)
+      seen.formUnion(try database.query("SELECT DISTINCT key_id FROM items").compactMap { $0[0].text })
+      seen.formUnion(try database.query("SELECT DISTINCT key_id FROM server_copies").compactMap { $0[0].text })
+      seen.formUnion(try deferredRecords().map(\.keyID))
+      names = seen.filter { !$0.isEmpty && !$0.hasPrefix("recovery-") && extraKeys[$0] == nil }
+    }
+    return try names.contains { name in
+      guard source == nil || name < source! || name.hasPrefix(VaultKeyRing.rotationKeyPrefix) else { return false }
       return try keys.key(id: name) == nil
     }
   }

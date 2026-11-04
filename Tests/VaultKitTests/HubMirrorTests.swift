@@ -338,10 +338,10 @@ struct HubMirrorTests {
     let phone = try store("phone")
     let pad = try store("pad")
     let onPhone = VaultHubServer(
-      id: VaultHubServer.newID(url: "ws://192.168.1.21:21999", in: phone), url: "ws://192.168.1.21:21999",
+      id: try VaultHubServer.newID(url: "ws://192.168.1.21:21999", in: phone), url: "ws://192.168.1.21:21999",
       connects: ["phone"], syncs: ["phone"])
     let onPad = VaultHubServer(
-      id: VaultHubServer.newID(url: "WS://192.168.1.21:21999/", in: pad), url: "ws://192.168.1.21:21999",
+      id: try VaultHubServer.newID(url: "WS://192.168.1.21:21999/", in: pad), url: "ws://192.168.1.21:21999",
       connects: ["pad"])
     #expect(onPhone.id == onPad.id)
     try phone.save(onPhone)

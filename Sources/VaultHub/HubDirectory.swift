@@ -78,7 +78,7 @@ public final class HubDirectory {
       return existing
     }
     let hub = VaultHubServer(
-      id: VaultHubServer.newID(url: url, in: store), name: name, url: url, connects: [vault.deviceID],
+      id: try VaultHubServer.newID(url: url, in: store), name: name, url: url, connects: [vault.deviceID],
       order: vault.hubs.count)
     guard let scope = keys ?? original.flatMap(keyScope) ?? HubAddress.canonical(url).map(HubKeyScope.address) else {
       throw HubDirectoryError.badAddress

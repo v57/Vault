@@ -85,7 +85,7 @@ struct ProjectImportTests {
     let remote = "https://github.com/v57/hub-web.git"
     try store.save(
       VaultProject(
-        id: VaultProject.newID(remoteURL: remote, path: "/hub/Hub/hub-web", in: store), name: "hub-web",
+        id: try VaultProject.newID(remoteURL: remote, path: "/hub/Hub/hub-web", in: store), name: "hub-web",
         remoteURL: remote, groupID: hub.id, paths: ["ipad": "/hub/Hub/hub-web"]))
     try store.addProject(path: "/dev/v57/Website/reference/hub-web", remoteURL: remote)
     for path in ["/dev/v57/Code", "/dev/v57/Website/site"] { try store.addProject(path: path) }

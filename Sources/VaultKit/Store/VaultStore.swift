@@ -621,7 +621,7 @@ public final class VaultStore: @unchecked Sendable {
           return false
         }
         let row = try loadRow(id: id)
-        if let item = row?.item { try raiseHighWater(id: id, to: item.fields.latestClock) }
+        if let item = row?.item { try raiseHighWater(id: id, from: item.fields) }
         let existed = row != nil
         try database.query("DELETE FROM items WHERE id = ?", [.text(id)])
         try database.query("DELETE FROM server_copies WHERE id = ?", [.text(id)])
@@ -727,7 +727,7 @@ public final class VaultStore: @unchecked Sendable {
           [.double(cutoff)]
         ).compactMap { $0[0].text }
         for id in ids {
-          if let item = try loadRow(id: id)?.item { try raiseHighWater(id: id, to: item.fields.latestClock) }
+          if let item = try loadRow(id: id)?.item { try raiseHighWater(id: id, from: item.fields) }
           try database.query("DELETE FROM items WHERE id = ?", [.text(id)])
           try database.query("DELETE FROM server_copies WHERE id = ?", [.text(id)])
         }
@@ -805,11 +805,23 @@ public final class VaultStore: @unchecked Sendable {
   /// authenticated, so without this anyone who can write there could delete a record and then put back any older payload
   /// of it, under a key that isn't retired, which would be taken as new: a host pin rolled back. A row that's there
   /// doesn't need it, as its fields win by clock. The row goes in `meta`, one per dropped id, until a later record or save.
+  ///
+  /// A clock past `clockSkewBound` doesn't count, for the reason `observe` ignores it: a mark there would refuse every
+  /// device's ordinary write to that id until wall time caught up, and a store that never held the row would go on writing,
+  /// so they'd never converge. What the mark protects stays protected by the record's other fields. A payload put back
+  /// that itself carries such a clock gets past, and it can't be told from a real write by a device whose clock is wrong.
   private func highWater(id: String) throws -> HybridClock? {
-    try meta("hw.\(id)").flatMap(HybridClock.init)
+    guard let water = try meta("hw.\(id)").flatMap(HybridClock.init), isWithinBound(water) else { return nil }
+    return water
   }
 
-  private func raiseHighWater(id: String, to clock: HybridClock) throws {
+  private func isWithinBound(_ clock: HybridClock) -> Bool {
+    clock.millis <= Self.millis(wallClock().addingTimeInterval(Self.clockSkewBound))
+  }
+
+  /// A row with these fields was dropped.
+  private func raiseHighWater(id: String, from fields: ItemFields) throws {
+    guard let clock = fields.stamped.values.map(\.clock).filter(isWithinBound).max() else { return }
     if let water = try highWater(id: id), water >= clock { return }
     try setMeta("hw.\(id)", clock.description)
     try observe(clock)
@@ -1020,7 +1032,7 @@ public final class VaultStore: @unchecked Sendable {
   /// rejecting the field itself on only some devices would split them, so the field merges as usual and only this
   /// device's own clock stays where it is.
   func observe(_ clock: HybridClock) throws {
-    guard clock.millis <= Self.millis(wallClock().addingTimeInterval(Self.clockSkewBound)) else { return }
+    guard isWithinBound(clock) else { return }
     let last = try meta("clock").flatMap(HybridClock.init) ?? .zero
     if clock > last { try setMeta("clock", clock.description) }
   }

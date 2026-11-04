@@ -79,9 +79,16 @@ public struct VaultHubServer: VaultRecord, Hashable {
     return components.string
   }
 
-  /// The id for a new Hub record: derived from its identity, so the same Hub added on two devices is one record.
-  public static func newID(url: String, in store: VaultStore) -> String {
-    identity(of: url).flatMap { try? store.derivedID("hub|" + $0) } ?? UUID().uuidString
+  /// The id for a new Hub record: derived from its identity, so the same Hub added on two devices is one record. With the id
+  /// key not here yet it's random, and its identity folds it when the key comes. A keychain out of reach throws: a random id
+  /// then would make a duplicate for no reason.
+  public static func newID(url: String, in store: VaultStore) throws -> String {
+    guard let identity = identity(of: url) else { return UUID().uuidString }
+    do {
+      return try store.derivedID("hub|" + identity)
+    } catch VaultCrypto.CryptoError.idKeyNotHere {
+      return UUID().uuidString
+    }
   }
 
   /// The name if given, else the address's host.
