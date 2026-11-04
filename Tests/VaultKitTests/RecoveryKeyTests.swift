@@ -345,6 +345,18 @@ struct RecoveryKeyTests {
     #expect(try recovery.wrapMissing() == 1)
   }
 
+  /// A sign the identity exists, for `VaultPersonalIdentity.current` not to make another.
+  @Test func aKitSaysWhetherItHoldsAnIdentity() throws {
+    let store = try makeStore()
+    let recovery = recovery(store)
+    #expect(try !recovery.holdsIdentity())
+    try recovery.create(folderKeys: [])
+    #expect(try recovery.holdsIdentity())
+    // Without the kit's secret, on a device that only has the records.
+    let other = VaultRecovery(store: store, identity: MemorySecretBacking(), secrets: MemorySecretBacking())
+    #expect(try other.holdsIdentity())
+  }
+
   @Test func recoverOnNewDevice() async throws {
     // The Mac has the vault and a recovery key; everything syncs through CloudKit.
     let mac = try makeStore("mac")
