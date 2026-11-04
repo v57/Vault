@@ -23,7 +23,7 @@ struct DeviceHostTests {
     #expect(host.source == "device")
     #expect(host.device?.deviceID == "mac")
     #expect(host.device?.allowed == ["phone"])
-    #expect(try store.knownFingerprint(host: "Studio.local", port: 22) == VaultIdentity.fingerprint(keyLine: Self.hostKey))
+    #expect(try store.knownFingerprint(for: host) == VaultIdentity.fingerprint(keyLine: Self.hostKey))
 
     // The same again writes nothing.
     #expect(try !store.publishDeviceHost(name: "Studio", address: "Studio.local", user: "me", hostKey: Self.hostKey, allowed: ["phone"]))
@@ -42,7 +42,7 @@ struct DeviceHostTests {
     var host = VaultHost(id: "published", name: "Old Mac", hostname: "Old.local", user: "me", source: "device")
     host.device = route
     try store.save(host)
-    try store.trust(fingerprint: try #require(route.hostKeyFingerprint), host: "Old.local", port: 22)
+    try store.trust(fingerprint: try #require(route.hostKeyFingerprint), for: host)
     let status = VaultProject.Status(branch: "main", changeCount: 0)
     var onBoth = VaultProject(id: "both", name: "both", paths: ["old": "/both", "mac": "/both"])
     onBoth.statuses = ["old": status, "mac": status]
@@ -57,7 +57,7 @@ struct DeviceHostTests {
 
     #expect(try store.record(VaultDeviceKey.self, id: "old") == nil)
     #expect(try store.record(VaultHost.self, id: "published") == nil)
-    #expect(try store.knownFingerprint(host: "Old.local", port: 22) == nil)
+    #expect(try store.knownFingerprint(for: host) == nil)
     let both = try #require(try store.record(VaultProject.self, id: "both"))
     #expect(both.paths == ["mac": "/both"])
     #expect(both.statuses == ["mac": status])
@@ -110,7 +110,7 @@ struct DeviceHostTests {
     #expect(host.hostname == "studio.tail1234.ts.net")
     #expect(host.name == "Mac Studio")
     #expect(host.device?.address == "Studio-2.local")
-    #expect(try store.knownFingerprint(host: "studio.tail1234.ts.net", port: 22) == VaultIdentity.fingerprint(keyLine: Self.hostKey))
+    #expect(try store.knownFingerprint(for: host) == VaultIdentity.fingerprint(keyLine: Self.hostKey))
   }
 
   @Test func withdrawingTakesTheHostAndItsTrust() throws {
@@ -118,7 +118,7 @@ struct DeviceHostTests {
     try store.publishDeviceHost(name: "Studio", address: "Studio.local", user: "me", hostKey: Self.hostKey, allowed: [])
     try store.withdrawDeviceHost()
     #expect(try store.records(VaultHost.self).isEmpty)
-    #expect(try store.knownFingerprint(host: "Studio.local", port: 22) == nil)
+    #expect(try store.records(VaultKnownHost.self).isEmpty)
   }
 
   @Test @MainActor func projectsOnAPublishedMacHaveAWayThere() throws {

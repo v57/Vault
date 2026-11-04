@@ -188,7 +188,7 @@ struct HostInspector: View {
         InspectorRow("Password") { KitSecretValue { host.password } }
       }
     }
-    if let known = vault.knownHosts.first(where: { $0.host == host.hostname.lowercased() && $0.port == host.port }) {
+    if let known = vault.knownHost(for: host) {
       KitSection(
         "Known host",
         meta: [host.hub != nil ? "trusted from the Hub" : "trusted \(known.accepted.map { RelativeTime.day($0) } ?? "")", "shared by every app"],

@@ -194,7 +194,9 @@ public struct HubMirrorChanges: Sendable, Equatable {
 
 extension VaultStore {
   /// Keeps one `VaultHost` per SSH-capable device of a Hub ("via Hub": the overlay address, the signed host key
-  /// trusted for every app when they can all negotiate its type, `HubRoute.hostKeyIsPinnable`), and removes the hosts of devices the Hub no longer lists or revoked, with their trust.
+  /// trusted for every app when they can all negotiate its type, `HubRoute.hostKeyIsPinnable`), and removes the hosts
+  /// of devices the Hub no longer lists or revoked, with their trust. The trust stays on this Hub's routes
+  /// (`VaultHost.pinRoute`): another Hub's device or a server the user saved at the same address doesn't see it.
   ///
   /// Every device connected to the Hub mirrors the same directory into the same derived ids with the same values,
   /// so two of them doing it at once write nothing new. Offline devices stay: they're still listed.
@@ -229,9 +231,9 @@ extension VaultStore {
       let isNew = !existing.contains { $0.id == id }
       if try save(host) { isNew ? changes.added.append(id) : changes.updated.append(id) }
       if route.hostKeyIsPinnable, let fingerprint = route.hostKeyFingerprint,
-        try knownFingerprint(host: address, port: ssh.port) != fingerprint
+        try record(VaultKnownHost.self, id: knownHostID(for: host))?.fingerprint != fingerprint
       {
-        try trust(fingerprint: fingerprint, host: address, port: ssh.port, keyType: route.hostKey.flatMap(Self.keyType))
+        try trust(fingerprint: fingerprint, for: host, keyType: route.hostKey.flatMap(Self.keyType))
       }
     }
     for host in existing where !kept.contains(host.id) {
@@ -253,12 +255,10 @@ extension VaultStore {
     try derivedID("hubHost|\(hubID)|\(deviceID)")
   }
 
-  /// Drops the trust the mirror gave a host's address, unless the user has since accepted another key there.
+  /// Drops the trust the mirror gave a host, unless the user has since accepted another key there.
   private func untrustHubKey(of host: VaultHost) throws {
-    guard host.hub?.hostKeyIsPinnable == true, let fingerprint = host.hub?.hostKeyFingerprint,
-      try knownFingerprint(host: host.hostname, port: host.port) == fingerprint
-    else { return }
-    try delete(id: try knownHostID(host: host.hostname, port: host.port))
+    guard host.hub?.hostKeyIsPinnable == true, let fingerprint = host.hub?.hostKeyFingerprint else { return }
+    try untrust(fingerprint: fingerprint, for: host)
   }
 
   /// One device per Hub Network address: a reinstalled or second copy of the Hub app on a machine is a new device

@@ -291,6 +291,11 @@ public final class Vault {
     host.isDevice ? personalVault.store : store
   }
 
+  /// The host key trusted for a host, in the store that holds it.
+  public func knownHost(for host: VaultHost) -> VaultKnownHost? {
+    (try? trustStore(for: host)?.knownHost(for: host)) ?? nil
+  }
+
   /// This Mac as the others reach it, when it lets them in (`VaultStore.publishDeviceHost`).
   public var thisDeviceHost: VaultHost? { deviceHosts.first { $0.device?.deviceID == deviceID } }
 

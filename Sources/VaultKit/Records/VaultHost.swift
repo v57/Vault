@@ -189,6 +189,16 @@ public struct VaultHost: VaultRecord, Hashable {
     ]
   }
 
+  /// The way to the machine that a pin on this host belongs to (`VaultStore.knownFingerprint(for:)`), nil when the
+  /// address alone says it: a device on a Hub (another Hub can use the same overlay address), a Mac that published
+  /// itself, or a `.local` name, which means another machine on another network.
+  public var pinRoute: String? {
+    if let hub { return "hub|\(hub.hubID)|\(hub.deviceID)" }
+    if let device { return "device|\(device.deviceID)" }
+    if hostname.lowercased().hasSuffix(".local") { return "host|\(id)" }
+    return nil
+  }
+
   /// Whether the host is a device on one of the user's Hubs, reached through Hub Network.
   public var isViaHub: Bool { hub != nil }
 
@@ -210,7 +220,9 @@ public struct VaultHost: VaultRecord, Hashable {
   }
 }
 
-/// An accepted SSH host key, shared so a server is trusted once for every app (like `known_hosts`).
+/// An accepted SSH host key, shared so a server is trusted once for every app (like `known_hosts`). A pin belongs to
+/// its host and port, and to its route when the host has one (`VaultHost.pinRoute`): what one Hub says about a device
+/// counts for that Hub's device and nothing else.
 public struct VaultKnownHost: VaultRecord, Hashable {
   public static let kind = "knownHost"
 
@@ -221,14 +233,21 @@ public struct VaultKnownHost: VaultRecord, Hashable {
   public var fingerprint: String
   public var keyType: String?
   public var accepted: Date?
+  /// `VaultHost.pinRoute`; empty for a pin on a host and port alone. Nil on a pin from before routes, which is still
+  /// read for a host at that address when it has no pin of its own.
+  public var route: String?
 
-  public init(id: String, host: String, port: Int, fingerprint: String, keyType: String? = nil, accepted: Date? = .now) {
+  public init(
+    id: String, host: String, port: Int, fingerprint: String, keyType: String? = nil, accepted: Date? = .now,
+    route: String? = nil
+  ) {
     self.id = id
     self.host = host
     self.port = port
     self.fingerprint = fingerprint
     self.keyType = keyType
     self.accepted = accepted
+    self.route = route
   }
 
   public init(id: String, values: [String: JSONValue]) {
@@ -239,32 +258,72 @@ public struct VaultKnownHost: VaultRecord, Hashable {
     fingerprint = read.string("fingerprint", default: "")
     keyType = read.string("keyType")
     accepted = read.date("accepted")
+    route = read.string("route")
   }
 
   public var values: [String: JSONValue] {
     [
       "host": .string(host), "port": .init(port), "fingerprint": .string(fingerprint), "keyType": .init(keyType),
-      "accepted": .init(accepted),
+      "accepted": .init(accepted), "route": .init(route),
     ]
   }
 }
 
 extension VaultStore {
-  /// The accepted key fingerprint for a server, if any app accepted one.
+  /// The accepted key for a saved host: its own pin, else a pin from before routes at its address.
+  public func knownHost(for host: VaultHost) throws -> VaultKnownHost? {
+    if let pin = try record(VaultKnownHost.self, id: knownHostID(for: host)) { return pin }
+    guard host.pinRoute != nil else { return nil }
+    let old = try record(VaultKnownHost.self, id: knownHostID(host: host.hostname, port: host.port))
+    return old?.route == nil ? old : nil
+  }
+
+  /// The accepted key fingerprint for a saved host, if any app accepted one or a verified source gave one.
+  public func knownFingerprint(for host: VaultHost) throws -> String? {
+    try knownHost(for: host)?.fingerprint
+  }
+
+  /// Trusts a saved host's key for every app, on the host's route.
+  public func trust(fingerprint: String, for host: VaultHost, keyType: String? = nil) throws {
+    try save(
+      VaultKnownHost(
+        id: knownHostID(for: host), host: host.hostname.lowercased(), port: host.port, fingerprint: fingerprint,
+        keyType: keyType, route: host.pinRoute ?? ""))
+  }
+
+  /// The accepted key fingerprint for an address that's no saved host (a Git remote, a connection being set up).
+  /// Pins on routes don't count: they say nothing about whoever else answers at that address.
   public func knownFingerprint(host: String, port: Int) throws -> String? {
     try record(VaultKnownHost.self, id: knownHostID(host: host, port: port))?.fingerprint
   }
 
-  /// Trusts a server's key for every app.
+  /// Trusts the key of an address that's no saved host, for every app.
   public func trust(fingerprint: String, host: String, port: Int, keyType: String? = nil) throws {
     try save(
       VaultKnownHost(
         id: knownHostID(host: host, port: port), host: host.lowercased(), port: port, fingerprint: fingerprint,
-        keyType: keyType))
+        keyType: keyType, route: ""))
   }
 
   func knownHostID(host: String, port: Int) throws -> String {
     try derivedID("knownHost|\(host.lowercased()):\(port)")
+  }
+
+  /// A pin's place: the same address on two routes is two pins.
+  func knownHostID(for host: VaultHost) throws -> String {
+    guard let route = host.pinRoute else { return try knownHostID(host: host.hostname, port: host.port) }
+    return try derivedID("knownHost|\(route)|\(host.hostname.lowercased()):\(host.port)")
+  }
+
+  /// Drops the pin of `fingerprint` on a host's route, and one from before routes at its address, unless the user has
+  /// since accepted another key there.
+  func untrust(fingerprint: String, for host: VaultHost) throws {
+    let pin = try knownHostID(for: host)
+    if try record(VaultKnownHost.self, id: pin)?.fingerprint == fingerprint { try delete(id: pin) }
+    let id = try knownHostID(host: host.hostname, port: host.port)
+    if let old = try record(VaultKnownHost.self, id: id), old.route == nil, old.fingerprint == fingerprint {
+      try delete(id: id)
+    }
   }
 }
 

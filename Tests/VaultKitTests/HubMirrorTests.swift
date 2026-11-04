@@ -40,7 +40,7 @@ struct HubMirrorTests {
     #expect(host.source == "hub")
     #expect(host.hub?.deviceID == "8cef065b7af83669150b7d32704d3d3e")
     #expect(host.hub?.lastSeen == Date(timeIntervalSince1970: 1_792_501_200))
-    #expect(try store.knownFingerprint(host: "100.96.0.4", port: 22) == VaultIdentity.fingerprint(keyLine: Self.hostKey))
+    #expect(try store.knownFingerprint(for: host) == VaultIdentity.fingerprint(keyLine: Self.hostKey))
 
     // The same directory again writes nothing.
     #expect(try store.mirrorHubDevices([studio(), phone, me], hubID: "hub1", thisDevice: "me").isEmpty)
@@ -110,7 +110,7 @@ struct HubMirrorTests {
     let changes = try store.mirrorHubDevices([studio(revoked: true)], hubID: "hub1")
     #expect(changes.removed.count == 1)
     #expect(try store.records(VaultHost.self).isEmpty)
-    #expect(try store.knownFingerprint(host: "100.96.0.4", port: 22) == nil)
+    #expect(try store.records(VaultKnownHost.self).isEmpty)
   }
 
   /// A Hub the user added can say anything about its devices: it can't point one at a server and replace its key.
@@ -130,18 +130,21 @@ struct HubMirrorTests {
     let store = try store()
     try store.mirrorHubDevices([studio()], hubID: "hub1")
     try store.mirrorHubDevices([studio(address: "100.96.0.7")], hubID: "hub1")
-    #expect(try store.knownFingerprint(host: "100.96.0.4", port: 22) == nil)
-    #expect(try store.knownFingerprint(host: "100.96.0.7", port: 22) != nil)
+    let host = try #require(try store.records(VaultHost.self).first)
+    #expect(host.hostname == "100.96.0.7")
+    #expect(try store.knownFingerprint(for: host) != nil)
+    #expect(try store.records(VaultKnownHost.self).map(\.host) == ["100.96.0.7"])
   }
 
   @Test func keysTheUserAcceptedStay() throws {
     let store = try store()
     try store.mirrorHubDevices([studio(key: nil)], hubID: "hub1")
     let accepted = try #require(VaultIdentity.fingerprint(keyLine: Self.otherKey))
-    try store.trust(fingerprint: accepted, host: "100.96.0.4", port: 22)
+    let host = try #require(try store.records(VaultHost.self).first)
+    try store.trust(fingerprint: accepted, for: host)
     try store.forgetHubHosts(hubID: "hub1")
     #expect(try store.records(VaultHost.self).isEmpty)
-    #expect(try store.knownFingerprint(host: "100.96.0.4", port: 22) == accepted)
+    #expect(try store.knownFingerprint(for: host) == accepted)
   }
 
   @Test func otherHubsAndUserHostsStay() throws {
@@ -212,8 +215,105 @@ struct HubMirrorTests {
   @Test func ed25519KeysAreShownButNotPinned() throws {
     let store = try store()
     try store.mirrorHubDevices([studio(key: Self.ed25519Key)], hubID: "hub1")
-    #expect(try store.records(VaultHost.self).first?.hub?.hostKey == Self.ed25519Key)
-    #expect(try store.knownFingerprint(host: "100.96.0.4", port: 22) == nil)
+    let host = try #require(try store.records(VaultHost.self).first)
+    #expect(host.hub?.hostKey == Self.ed25519Key)
+    #expect(try store.knownFingerprint(for: host) == nil)
+  }
+
+  // MARK: Pins by route
+
+  /// Two Hubs hand out addresses on their own: the same address on both is two machines, and neither pin moves the
+  /// other. Once it was one pin, overwritten in turn, and the mismatch warnings taught people to accept them.
+  @Test func twoHubsAtOneAddressKeepTheirOwnPins() throws {
+    let store = try store()
+    let one = try #require(VaultIdentity.fingerprint(keyLine: Self.hostKey))
+    let other = try #require(VaultIdentity.fingerprint(keyLine: Self.otherKey))
+    try store.mirrorHubDevices([studio()], hubID: "hub1")
+    try store.mirrorHubDevices([studio(key: Self.otherKey)], hubID: "hub2")
+    let hosts = try store.records(VaultHost.self)
+    let first = try #require(hosts.first { $0.hub?.hubID == "hub1" })
+    let second = try #require(hosts.first { $0.hub?.hubID == "hub2" })
+    #expect(first.hostname == second.hostname)
+    #expect(try store.knownFingerprint(for: first) == one)
+    #expect(try store.knownFingerprint(for: second) == other)
+
+    try store.forgetHubHosts(hubID: "hub2")
+    #expect(try store.knownFingerprint(for: first) == one)
+  }
+
+  /// A Hub the user joined names an address another Hub uses, or a server they saved: its key counts for its own device
+  /// and nowhere else.
+  @Test func aHubsTrustStaysOnItsOwnRoutes() throws {
+    let store = try store()
+    let saved = VaultHost(name: "box", hostname: "100.96.0.4")
+    try store.save(saved)
+    let real = try #require(VaultIdentity.fingerprint(keyLine: Self.hostKey))
+    try store.trust(fingerprint: real, for: saved)
+    try store.mirrorHubDevices([studio()], hubID: "real")
+    let realHost = try #require(try store.records(VaultHost.self).first { $0.hub?.hubID == "real" })
+
+    try store.mirrorHubDevices([studio(key: Self.otherKey)], hubID: "malicious")
+
+    #expect(try store.knownFingerprint(for: saved) == real)
+    #expect(try store.knownFingerprint(host: "100.96.0.4", port: 22) == real)
+    #expect(try store.knownFingerprint(for: realHost) == real)
+    // A host the user adds at that address starts knowing nothing, whatever any Hub said.
+    #expect(try store.knownFingerprint(for: VaultHost(hostname: "100.96.0.5")) == nil)
+    let mirrored = try store.records(VaultKnownHost.self).filter { $0.route?.hasPrefix("hub|") == true }
+    #expect(Set(mirrored.compactMap(\.route)).count == 2)
+  }
+
+  /// A Hub can't replace a pin on a route of another Hub even by claiming to be the same device id.
+  @Test func theSameDeviceIDOnAnotherHubIsAnotherRoute() throws {
+    let store = try store()
+    try store.mirrorHubDevices([studio()], hubID: "hub1")
+    let first = try #require(try store.records(VaultHost.self).first)
+    let before = try store.knownFingerprint(for: first)
+    try store.mirrorHubDevices([studio(address: "100.96.0.4", key: Self.otherKey)], hubID: "hub2")
+    #expect(try store.knownFingerprint(for: first) == before)
+  }
+
+  /// `.local` names repeat across networks: two saved hosts with one name are two machines.
+  @Test func repeatedLocalNamesDontOverwriteEachOther() throws {
+    let store = try store()
+    let home = VaultHost(id: "home", hostname: "nas.local")
+    let office = VaultHost(id: "office", hostname: "NAS.local")
+    try store.trust(fingerprint: "SHA256:home", for: home)
+    try store.trust(fingerprint: "SHA256:office", for: office)
+    #expect(try store.knownFingerprint(for: home) == "SHA256:home")
+    #expect(try store.knownFingerprint(for: office) == "SHA256:office")
+    // Other names stay one server for every saved host, the way known_hosts has them.
+    let one = VaultHost(id: "one", hostname: "prod.example.com")
+    let other = VaultHost(id: "other", hostname: "Prod.Example.com")
+    try store.trust(fingerprint: "SHA256:prod", for: one)
+    #expect(try store.knownFingerprint(for: other) == "SHA256:prod")
+    #expect(try store.knownFingerprint(host: "prod.example.com", port: 22) == "SHA256:prod")
+  }
+
+  /// A pin written before routes (no `route` field) still answers for a host at its address, until that host has
+  /// its own, and it goes when the Hub's device does. The schema didn't change: `route` is a field.
+  @Test func pinsFromBeforeRoutesStayReadable() throws {
+    let store = try store()
+    let id = try store.knownHostID(host: "100.96.0.4", port: 22)
+    let fingerprint = try #require(VaultIdentity.fingerprint(keyLine: Self.hostKey))
+    try store.save(VaultKnownHost(id: id, host: "100.96.0.4", port: 22, fingerprint: fingerprint))
+    #expect(try store.record(VaultKnownHost.self, id: id)?.route == nil)
+
+    #expect(try store.knownFingerprint(host: "100.96.0.4", port: 22) == fingerprint)
+    #expect(try store.knownFingerprint(for: VaultHost(hostname: "100.96.0.4")) == fingerprint)
+    try store.mirrorHubDevices([studio(key: Self.ed25519Key)], hubID: "hub1")
+    let unsigned = try #require(try store.records(VaultHost.self).first)
+    #expect(try store.knownFingerprint(for: unsigned) == fingerprint)
+
+    // Its own pin wins.
+    try store.mirrorHubDevices([studio(key: Self.otherKey)], hubID: "hub1")
+    let signed = try #require(try store.records(VaultHost.self).first)
+    #expect(try store.knownFingerprint(for: signed) == VaultIdentity.fingerprint(keyLine: Self.otherKey))
+    // A pin made since routes began belongs to the plain address, and says nothing about a Hub's device.
+    try store.trust(fingerprint: "SHA256:plain", host: "100.96.0.9", port: 22)
+    try store.mirrorHubDevices([studio(address: "100.96.0.9", key: Self.ed25519Key)], hubID: "hub3")
+    let other = try #require(try store.records(VaultHost.self).first { $0.hub?.hubID == "hub3" })
+    #expect(try store.knownFingerprint(for: other) == nil)
   }
 
   /// Sends an item from one device's store to another's, as sync would.

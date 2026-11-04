@@ -38,9 +38,9 @@ extension VaultStore {
     host.device = route
     let wrote = try save(host)
     if route.hostKeyIsPinnable, let fingerprint = route.hostKeyFingerprint,
-      try knownFingerprint(host: host.hostname, port: host.port) != fingerprint
+      try record(VaultKnownHost.self, id: knownHostID(for: host))?.fingerprint != fingerprint
     {
-      try trust(fingerprint: fingerprint, host: host.hostname, port: host.port, keyType: hostKey.flatMap(Self.keyType))
+      try trust(fingerprint: fingerprint, for: host, keyType: hostKey.flatMap(Self.keyType))
     }
     return wrote
   }
@@ -53,12 +53,10 @@ extension VaultStore {
     try delete(id: id)
   }
 
-  /// Drops the trust publishing gave a host's address, unless the user has since accepted another key there.
+  /// Drops the trust publishing gave a host, unless the user has since accepted another key there.
   func untrustDeviceKey(of host: VaultHost) throws {
-    guard host.device?.hostKeyIsPinnable == true, let fingerprint = host.device?.hostKeyFingerprint,
-      try knownFingerprint(host: host.hostname, port: host.port) == fingerprint
-    else { return }
-    try delete(id: try knownHostID(host: host.hostname, port: host.port))
+    guard host.device?.hostKeyIsPinnable == true, let fingerprint = host.device?.hostKeyFingerprint else { return }
+    try untrust(fingerprint: fingerprint, for: host)
   }
 }
 
