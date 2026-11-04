@@ -918,9 +918,10 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     let (store, keys, _, _) = try withKeychainDown()
     try store.markSent(id: "h", version: 1, changeTag: "t0", systemFields: nil)
     #expect(try store.pendingIDs().isEmpty)
-    // A store with something that needs a key on this path: see `C`'s high-water clock. The deferred path is the same.
-    try store.deferRecord(VaultStore.DeferredRecord(deletionOf: "h"))
-    _ = keys
+    keys.failing = true
+    try store.applyDeletion(id: "h")
+    keys.failing = false
+    #expect(try store.allIDs().contains("h"))
     _ = try store.catchUp()
     #expect(try store.allIDs().contains("h") == false)
   }
@@ -1074,6 +1075,147 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     #expect(store.formatStatus.notRewritten == 0)
     #expect(store.formatStatus.resealed == everyKind.count)
     try expectEverythingReadable(store)
+  }
+
+  // MARK: Deleting and replaying
+
+  private func sealed(_ store: VaultStore, _ id: String, tag: String = "t") throws -> RemoteRecord {
+    let row = try payload(store, id)
+    return RemoteRecord(id: id, keyID: row.keyID, payload: row.payload, changeTag: tag, systemFields: nil)
+  }
+
+  /// Finding 9b: CloudKit deletes a pin, then puts an older payload of it back.
+  @Test func aDeleteAndAReplayDoesntRollBackAPin() throws {
+    let keys = MemoryKeyProvider()
+    let store = try open(temporaryDirectory(), keys: keys)
+    try store.save(id: "pin", kind: "knownHost", changes: ["fingerprint": .string("old")])
+    let old = try sealed(store, "pin")
+    try store.save(id: "pin", kind: "knownHost", changes: ["fingerprint": .string("new")])
+    try store.markSent(id: "pin", version: 2, changeTag: "t2", systemFields: nil)
+    #expect(try store.pendingIDs().isEmpty)
+
+    try store.applyDeletion(id: "pin")
+    #expect(try store.allIDs().contains("pin") == false)
+    #expect(try store.apply(old) == .refused(needsSend: false))
+    #expect(try store.item(id: "pin") == nil)
+    #expect(try store.applyFromPeer(id: "pin", keyID: old.keyID, payload: old.payload) == .refused)
+    #expect(try store.item(id: "pin") == nil)
+    #expect(try open(store.directory, keys: keys).apply(old) == .refused(needsSend: false))
+  }
+
+  /// A purged tombstone counts too, and a later record or save at the id still goes in, on every device that dropped it.
+  @Test func anIDThatWasDroppedTakesWhatsLater() throws {
+    let keys = MemoryKeyProvider()
+    let store = try open(temporaryDirectory(), keys: keys)
+    let other = try open(temporaryDirectory(), keys: keys, device: "pad")
+    try store.save(id: "pin", kind: "knownHost", changes: ["fingerprint": .string("one")])
+    let record = try sealed(store, "pin")
+    _ = try other.apply(record)
+    try store.markSent(id: "pin", version: 1, changeTag: "t1", systemFields: nil)
+    try other.database.query("DELETE FROM outbox")
+    try other.applyDeletion(id: "pin")
+
+    try store.database.query("DELETE FROM outbox")
+    try store.delete(id: "pin")
+    try store.database.query("DELETE FROM outbox")
+    let purged = try store.purgeTombstones(olderThan: -100, now: .now)
+    #expect(purged == ["pin"])
+    #expect(try store.apply(record) == .refused(needsSend: false))
+
+    // Saved again, with a clock past what it dropped, whatever the wall clock says.
+    Thread.sleep(forTimeInterval: 0.01)
+    try other.save(id: "pin", kind: "knownHost", changes: ["fingerprint": .string("two")])
+    #expect(try #require(try other.item(id: "pin")).fields.latestClock > #require(try record.opened(by: other)).fields.latestClock)
+    let later = try sealed(other, "pin", tag: "t2")
+    #expect(try store.apply(later).isMerged)
+    #expect(try store.item(id: "pin")?.fields["fingerprint"]?.stringValue == "two")
+  }
+
+  /// Finding 9b: revocations are out of CloudKit's reach.
+  @Test func deletingTheRecordDoesntUnrevokeADevice() throws {
+    let keys = MemoryKeyProvider()
+    let store = try open(temporaryDirectory(), keys: keys)
+    let device = VaultDeviceKey(id: "dead", deviceName: "Lost", publicKey: "ssh-ed25519 AAAA lost", platform: "mac")
+    try store.save(device)
+    try store.revokeDevice(device)
+    try store.database.query("DELETE FROM outbox")
+    try store.applyDeletion(id: try store.revokedDeviceID("dead"))
+    #expect(try store.isRevoked(device: "dead"))
+    #expect(try store.revokedDevices().map(\.deviceID) == ["dead"])
+    #expect(try store.revokedDevices().first?.name == "Lost")
+
+    // Finding 7: its device key coming back, as it does when a device that missed the deletion sends it again, or under
+    // another id with the same key, trusts nothing.
+    try store.save(VaultDeviceKey(id: "dead", deviceName: "Lost", publicKey: "ssh-ed25519 AAAA lost", platform: "mac"))
+    try store.save(VaultDeviceKey(id: "other", deviceName: "Lost", publicKey: "ssh-ed25519 AAAA lost", platform: "mac"))
+    #expect(try store.deviceKeysByTrust().trusted.isEmpty)
+    #expect(try store.deviceKeysByTrust().revoked.count == 2)
+
+    // Trusting it again is the user's, and it does take.
+    try store.trustAgain(device: "dead")
+    #expect(try store.isRevoked(device: "dead") == false)
+    #expect(try store.revokedDevices().isEmpty)
+    #expect(try store.deviceKeysByTrust().trusted.count == 2)
+  }
+
+  @Test func aRevocationInOneVaultIsntOneInAnother() throws {
+    let keys = MemoryKeyProvider()
+    let directory = temporaryDirectory()
+    let personal = try open(directory, keys: keys)
+    let account = try open(directory, keys: keys, fileName: "acme.sqlite", account: "acme")
+    let device = VaultDeviceKey(id: "dead", deviceName: "Lost", publicKey: "ssh-ed25519 AAAA lost", platform: "mac")
+    try account.save(device)
+    try account.revokeDevice(device)
+    #expect(try account.isRevoked(device: "dead"))
+    #expect(try personal.isRevoked(device: "dead") == false)
+  }
+
+  /// A revocation from before the marks gets one when the store first opens.
+  @Test func anOldRevocationIsMarkedOnMigrating() throws {
+    let keys = MemoryKeyProvider()
+    let old = try OldBuildStore(keys: keys, device: "mac")
+    let earlier = try open(temporaryDirectory(), keys: keys)
+    let id = try earlier.revokedDeviceID("dead")
+    try old.save(id: id, kind: VaultRevokedDevice.kind, changes: VaultRevokedDevice(id: id, deviceID: "dead", name: "Lost", publicKey: "ssh-ed25519 AAAA lost").values)
+    let store = try open(old.directory, keys: keys)
+    try store.database.query("DELETE FROM outbox")
+    try store.applyDeletion(id: id)
+    #expect(try store.isRevoked(device: "dead"))
+  }
+
+  /// Finding 9c: a record naming a missing key doesn't take the place of a row waiting for its own.
+  @Test func aRecordNamingAMissingKeyKeepsARowWaitingForItsOwn() throws {
+    let keys = MemoryKeyProvider()
+    let store = try open(temporaryDirectory(), keys: keys)
+    let real = SymmetricKey(size: .bits256)
+    var fields = ItemFields()
+    _ = fields.apply(["a": .string("b")], clock: HybridClock.zero.next(now: .now, device: "pad"))
+    let body = try JSONEncoder().encode(fields)
+    let genuine = try VaultItemSeal.seal(kind: "host", fields: body, id: "h", account: "personal", keyID: "k1", key: real)
+    #expect(try store.apply(RemoteRecord(id: "h", keyID: "k1", payload: genuine, changeTag: "t1", systemFields: nil)) == .undecryptable)
+    let forged = try VaultItemSeal.seal(kind: "host", fields: body, id: "h", account: "personal", keyID: "k2", key: SymmetricKey(size: .bits256))
+    #expect(try store.apply(RemoteRecord(id: "h", keyID: "k2", payload: forged, changeTag: "t2", systemFields: nil)) == .undecryptable)
+
+    keys.add(real, id: "k1")
+    #expect(try store.item(id: "h")?.fields["a"]?.stringValue == "b")
+  }
+
+  /// And the other way: the second key arrives first, and what it opens is authentic.
+  @Test func aWaitingCopyThatOpensFirstTakesARowStillWaiting() throws {
+    let keys = MemoryKeyProvider()
+    let store = try open(temporaryDirectory(), keys: keys)
+    let newer = SymmetricKey(size: .bits256)
+    var fields = ItemFields()
+    _ = fields.apply(["a": .string("newer")], clock: HybridClock.zero.next(now: .now, device: "pad"))
+    let body = try JSONEncoder().encode(fields)
+    let first = try VaultItemSeal.seal(kind: "host", fields: body, id: "h", account: "personal", keyID: "k1", key: SymmetricKey(size: .bits256))
+    _ = try store.apply(RemoteRecord(id: "h", keyID: "k1", payload: first, changeTag: "t1", systemFields: nil))
+    let second = try VaultItemSeal.seal(kind: "host", fields: body, id: "h", account: "personal", keyID: "k2", key: newer)
+    _ = try store.apply(RemoteRecord(id: "h", keyID: "k2", payload: second, changeTag: "t2", systemFields: nil))
+    keys.add(newer, id: "k2")
+    _ = try store.catchUp()
+    #expect(try store.item(id: "h")?.fields["a"]?.stringValue == "newer")
+    #expect(try store.pendingIDs().isEmpty)
   }
 
   // MARK: Attacks
@@ -1389,6 +1531,18 @@ final class FailingAfter: VaultKeyProvider, @unchecked Sendable {
   func marks(prefix: String, synced: Bool) throws -> [(name: String, data: Data)] { try base.marks(prefix: prefix, synced: synced) }
   func setMark(_ name: String, data: Data, synced: Bool) throws { try base.setMark(name, data: data, synced: synced) }
   func removeMark(_ name: String, synced: Bool) throws { try base.removeMark(name, synced: synced) }
+}
+
+extension RemoteRecord {
+  func opened(by store: VaultStore) throws -> VaultItem? {
+    try store.decodeIfItOpens(id: id, keyID: keyID, payload: payload, from: .local)
+  }
+}
+
+extension VaultStore.ApplyResult {
+  var isMerged: Bool {
+    if case .merged = self { true } else { false }
+  }
 }
 
 final class LockedList: @unchecked Sendable {

@@ -306,6 +306,8 @@ public final class VaultStore: @unchecked Sendable {
         var clock = try nextClock()
         // Bringing a deleted item back takes a write later than its delete, whatever the delete's clock says.
         if wasDeleted, let deleted = fields.stamped[ItemFields.deletedKey] { clock = clock.after(deleted.clock) }
+        // And so does an id whose row was dropped: everyone who dropped it refuses anything up to that clock.
+        if let water = try highWater(id: id) { clock = clock.after(water) }
         var changed = fields.apply(changes, clock: clock)
         // Saving a deleted item brings it back: the new writes are later than the delete.
         if wasDeleted && !changed, !changes.isEmpty {
@@ -313,6 +315,7 @@ public final class VaultStore: @unchecked Sendable {
           changed = true
         }
         guard changed else { return false }
+        try clearHighWater(id: id)
         try writeRow(id: id, kind: kind, fields: fields, queue: true)
         try foldDuplicates(of: id, kind: kind)
         try bumpRevision()
@@ -506,11 +509,13 @@ public final class VaultStore: @unchecked Sendable {
     let remote: VaultItem
     do {
       remote = try decode(id: record.id, keyID: keyID, payload: record.payload, from: .network)
+      try checkHighWater(id: record.id, remote)
     } catch VaultCrypto.CryptoError.missingKey {
-      // Keep the server's copy until the key arrives. A row this device can read stays as it is, and the copy waits
-      // beside it (`catchUp` merges it): whoever can write to CloudKit doesn't get to blank a record by naming a key
-      // this device lacks, and an edit waiting here goes up with the server's tag.
-      if row?.item != nil {
+      // Keep the server's copy until the key arrives. A row stays as it is, whether this device can read it or it's
+      // waiting for a key of its own, and the copy waits beside it (`catchUp` merges it): whoever can write to CloudKit
+      // doesn't get to blank a record by naming a key this device lacks, and an edit waiting here goes up with the
+      // server's tag.
+      if row != nil {
         try setServerCopy(id: record.id, keyID: keyID, payload: record.payload)
         try setServerFields(id: record.id, changeTag: record.changeTag, systemFields: record.systemFields)
         try addWaitingServerCopy(record.id)
@@ -519,8 +524,6 @@ public final class VaultStore: @unchecked Sendable {
           """
           INSERT INTO items(id, kind, key_id, payload, version, deleted, modified, change_tag, system_fields)
           VALUES(?, '', ?, ?, 0, 0, 0, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET key_id = excluded.key_id, payload = excluded.payload,
-            change_tag = excluded.change_tag, system_fields = excluded.system_fields
           """,
           [.text(record.id), .text(keyID), .blob(record.payload), .init(record.changeTag), .init(record.systemFields)])
         if isOldFormat { try addLegacyAllowed(id: record.id, payload: record.payload) }
@@ -543,6 +546,7 @@ public final class VaultStore: @unchecked Sendable {
     }
 
     try clearRefused(id: record.id)
+    try clearHighWater(id: record.id)
     try observe(remote.fields.latestClock)
     let local = row?.item
     let kind = local?.kind.isEmpty == false ? local!.kind : remote.kind
@@ -611,7 +615,9 @@ public final class VaultStore: @unchecked Sendable {
           try setServerFields(id: id, changeTag: nil, systemFields: nil)
           return false
         }
-        let existed = try !database.query("SELECT 1 FROM items WHERE id = ?", [.text(id)]).isEmpty
+        let row = try loadRow(id: id)
+        if let item = row?.item { try raiseHighWater(id: id, to: item.fields.latestClock) }
+        let existed = row != nil
         try database.query("DELETE FROM items WHERE id = ?", [.text(id)])
         try database.query("DELETE FROM server_copies WHERE id = ?", [.text(id)])
         if existed { try bumpRevision() }
@@ -654,6 +660,7 @@ public final class VaultStore: @unchecked Sendable {
         let remote: VaultItem
         do {
           remote = try decode(id: id, keyID: keyID, payload: payload, from: .network)
+          try checkHighWater(id: id, remote)
         } catch VaultCrypto.CryptoError.missingKey {
           return .undecryptable
         } catch where Self.payloadIsWrong(error) {
@@ -661,6 +668,7 @@ public final class VaultStore: @unchecked Sendable {
           return .refused
         }
         try clearRefused(id: id)
+        try clearHighWater(id: id)
         try observe(remote.fields.latestClock)
         let local = try loadRow(id: id)?.item
         let kind = local?.kind.isEmpty == false ? local!.kind : remote.kind
@@ -714,6 +722,7 @@ public final class VaultStore: @unchecked Sendable {
           [.double(cutoff)]
         ).compactMap { $0[0].text }
         for id in ids {
+          if let item = try loadRow(id: id)?.item { try raiseHighWater(id: id, to: item.fields.latestClock) }
           try database.query("DELETE FROM items WHERE id = ?", [.text(id)])
           try database.query("DELETE FROM server_copies WHERE id = ?", [.text(id)])
         }
@@ -783,6 +792,31 @@ public final class VaultStore: @unchecked Sendable {
     } catch where Self.payloadIsWrong(error) {
     }
     return Row(id: id, keyID: keyID, changeTag: row[2].text, item: item, isRefused: isRefused)
+  }
+
+  // MARK: Dropped rows
+
+  /// A row dropped because CloudKit deleted its record leaves the highest clock it held. CloudKit deletions aren't
+  /// authenticated, so without this anyone who can write there could delete a record and then put back any older payload
+  /// of it, under a key that isn't retired, which would be taken as new: a host pin rolled back. A row that's there
+  /// doesn't need it, as its fields win by clock. The row goes in `meta`, one per dropped id, until a later record or save.
+  private func highWater(id: String) throws -> HybridClock? {
+    try meta("hw.\(id)").flatMap(HybridClock.init)
+  }
+
+  private func raiseHighWater(id: String, to clock: HybridClock) throws {
+    if let water = try highWater(id: id), water >= clock { return }
+    try setMeta("hw.\(id)", clock.description)
+    try observe(clock)
+  }
+
+  private func clearHighWater(id: String) throws {
+    try database.query("DELETE FROM meta WHERE key = ?", [.text("hw.\(id)")])
+  }
+
+  /// Throws when what arrived is no later than what was dropped.
+  func checkHighWater(id: String, _ item: VaultItem) throws {
+    if let water = try highWater(id: id), item.fields.latestClock <= water { throw VaultCrypto.CryptoError.refused }
   }
 
   /// Format 1's plaintext.

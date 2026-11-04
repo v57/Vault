@@ -138,12 +138,13 @@ public final class Vault {
       }
       projectGroups = try store.records(VaultProjectGroup.self)
       projectTree = VaultProjectTree(projects: projects, groups: projectGroups)
-      let revokedIDs = Set(try store.records(VaultRevokedDevice.self).map(\.deviceID))
+      let revoked = try store.revokedDevices()
+      let revokedIDs = Set(revoked.map(\.deviceID))
       hosts = try store.records(VaultHost.self)
         .filter { host in host.device.map { !revokedIDs.contains($0.deviceID) } ?? true }
         .sorted { ($0.order, $0.displayName) < ($1.order, $1.displayName) }
       databases = try store.records(VaultDatabase.self).sorted { ($0.order, $0.name) < ($1.order, $1.name) }
-      revokedDevices = try store.records(VaultRevokedDevice.self).sorted { $0.name < $1.name }
+      revokedDevices = revoked.sorted { $0.name < $1.name }
       let devices = try store.deviceKeysByTrust()
       deviceKeys = devices.trusted.sorted { $0.deviceName < $1.deviceName }
       untrustedDeviceKeys = devices.revoked.sorted { $0.deviceName < $1.deviceName }

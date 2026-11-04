@@ -6,6 +6,10 @@ import Foundation
 /// The device itself stops publishing when it reads this. One that doesn't (an old build, or someone holding it) can
 /// still write a device key while it's in the Apple account, so readers leave it out by id and by key: it shows as not
 /// trusted, Macs drop its `authorized_keys` line (`removeStale`), and its host is hidden.
+///
+/// The record is what shows in the list. What counts is a mark in the synced keychain (`revocationMarkPrefix`), as a
+/// CloudKit deletion isn't authenticated and the mark is out of its reach: deleting the record un-revokes nothing. A
+/// revocation an old build made after this store's migration has only the record.
 public struct VaultRevokedDevice: VaultRecord, Hashable {
   public static let kind = "revokedDevice"
 
@@ -43,28 +47,75 @@ public struct VaultRevokedDevice: VaultRecord, Hashable {
 extension VaultStore {
   func revokedDeviceID(_ device: String) throws -> String { try derivedID("revokedDevice|\(device)") }
 
+  /// One per store, as a device is revoked in a vault, not everywhere: `revoked.<store>.<device id>`.
+  private var revocationMarkPrefix: String { "revoked.\(accountBinding)." }
+
+  private struct RevocationMark: Codable {
+    var name: String
+    var publicKey: String
+    var revoked: Date?
+  }
+
+  private func revocationMarks() throws -> [VaultRevokedDevice] {
+    let prefix = revocationMarkPrefix
+    return try keys.marks(prefix: prefix, synced: true).compactMap { mark in
+      guard let content = try? JSONDecoder().decode(RevocationMark.self, from: mark.data) else { return nil }
+      let device = String(mark.name.dropFirst(prefix.count))
+      return VaultRevokedDevice(
+        id: (try? revokedDeviceID(device)) ?? "revoked.\(device)", deviceID: device, name: content.name,
+        publicKey: content.publicKey, revoked: content.revoked)
+    }
+  }
+
+  private func setRevocationMark(_ device: VaultRevokedDevice) throws {
+    let content = RevocationMark(name: device.name, publicKey: device.publicKey, revoked: device.revoked)
+    try keys.setMark(revocationMarkPrefix + device.deviceID, data: try JSONEncoder().encode(content), synced: true)
+  }
+
+  /// Every revoked device: the marks, and any record with no mark.
+  public func revokedDevices() throws -> [VaultRevokedDevice] {
+    let marks = try revocationMarks()
+    let marked = Set(marks.map(\.deviceID))
+    return try marks + records(VaultRevokedDevice.self).filter { !marked.contains($0.deviceID) }
+  }
+
+  /// Revocations from before the marks get one, once.
+  func markRevocationsOnce() throws {
+    guard try meta("format.revocations") == nil else { return }
+    let existing = Set(try revocationMarks().map(\.deviceID))
+    for device in try records(VaultRevokedDevice.self) where !existing.contains(device.deviceID) {
+      try setRevocationMark(device)
+    }
+    try setMeta("format.revocations", "1")
+  }
+
   public func isRevoked(device: String) throws -> Bool {
-    try record(VaultRevokedDevice.self, id: try revokedDeviceID(device)) != nil
+    if try !keys.marks(prefix: revocationMarkPrefix + device, synced: true).filter({ $0.name == revocationMarkPrefix + device }).isEmpty {
+      return true
+    }
+    return try record(VaultRevokedDevice.self, id: try revokedDeviceID(device)) != nil
   }
 
   /// Takes a lost device out: remembers it so that it can't come back by itself, then `removeDevice`. Not its keys or
   /// passwords: those are the other steps of Lost Device.
   public func revokeDevice(_ key: VaultDeviceKey, folderIsHere: (String) -> Bool = { _ in false }) throws {
     guard key.id != deviceID else { throw VaultDeviceError.thisDevice }
-    try save(
-      VaultRevokedDevice(
-        id: try revokedDeviceID(key.id), deviceID: key.id, name: key.deviceName, publicKey: key.publicKey))
+    let revoked = VaultRevokedDevice(
+      id: try revokedDeviceID(key.id), deviceID: key.id, name: key.deviceName, publicKey: key.publicKey)
+    try setRevocationMark(revoked)
+    try save(revoked)
     try removeDevice(key.id, folderIsHere: folderIsHere)
   }
 
   /// Takes a revoked device off the list: it publishes itself again the next time it runs.
   public func trustAgain(device: String) throws {
     try delete(id: try revokedDeviceID(device))
+    try keys.removeMark(revocationMarkPrefix + device, synced: true)
   }
 
   /// Device keys, without those of revoked devices (by id, and by key under another id).
   public func deviceKeysByTrust() throws -> (trusted: [VaultDeviceKey], revoked: [VaultDeviceKey]) {
-    let revoked = try records(VaultRevokedDevice.self)
+    let revoked = try revokedDevices()
     let ids = Set(revoked.map(\.deviceID))
     let materials = Set(revoked.compactMap { VaultAuthorizedKeys.keyMaterial(of: $0.publicKey) })
     var result: (trusted: [VaultDeviceKey], revoked: [VaultDeviceKey]) = ([], [])

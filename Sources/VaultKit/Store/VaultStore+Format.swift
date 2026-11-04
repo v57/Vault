@@ -224,6 +224,7 @@ extension VaultStore {
       removeLeftovers()
       _vaultMark = nil
       try finishIfDue()
+      try markRevocationsOnce()
       try withKeySweep { try importOldEdits() }
     } catch {
       _formatError = String(describing: error)
@@ -482,7 +483,8 @@ extension VaultStore {
           }
           let incoming =
             isQueued ? old.fields : ItemFields(old.fields.stamped.filter { $0.value.clock.device == deviceID && $0.value.clock.millis >= builtMillis })
-          guard !incoming.stamped.isEmpty else {
+          let isOverDropped = (try? checkHighWater(id: id, VaultItem(id: id, kind: old.kind, fields: incoming))) == nil
+          guard !incoming.stamped.isEmpty, !isOverDropped else {
             versions[id] = version
             continue
           }
@@ -819,7 +821,13 @@ extension VaultStore {
           continue
         }
         left.remove(id)
-        guard let local = try loadRow(id: id)?.item else { continue }
+        guard let row = try loadRow(id: id) else { continue }
+        guard let local = row.item else {
+          // The row still waits for its own key, and this record is authentic and is what the server has now.
+          try writeRow(id: id, kind: remote.kind, fields: remote.fields, queue: false)
+          try bumpRevision()
+          continue
+        }
         try observe(remote.fields.latestClock)
         let merged = local.fields.merged(with: remote.fields, base: nil, textKeys: Self.textFields[local.kind] ?? [])
         if merged != local.fields {
