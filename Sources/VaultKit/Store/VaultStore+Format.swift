@@ -131,7 +131,7 @@ extension VaultStore {
     let hasFormat1 = try !database.query("SELECT 1 FROM items WHERE \(Self.format1Rows) LIMIT 1").isEmpty
     // This device finished this store before, and the file doesn't say so: it was restored from a backup, or edited.
     // The rows it holds aren't taken back; what's on CloudKit comes again.
-    if try keys.hasMark(formatMark, synced: false) {
+    if try !keys.marks(prefix: formatMark, synced: false).isEmpty {
       try database.transaction {
         if hasFormat1 { try forgetWhatWasFetched() }
         try setMeta("format", Self.formatValue)
@@ -140,7 +140,7 @@ extension VaultStore {
       return
     }
     // A migration that began goes on, even with no format 1 row left: only the last transaction may be missing.
-    if try meta("format.started") == nil, try !keys.hasMark(formatMark, synced: true) {
+    if try meta("format.started") == nil, try keys.marks(prefix: formatMark, synced: true).isEmpty {
       let firstOpen = try meta("format.firstOpen").flatMap(Double.init)
       if firstOpen == nil, !hasFormat1 {
         try setMeta("format.firstOpen", String(formatTesting.now().timeIntervalSince1970))
@@ -208,8 +208,8 @@ extension VaultStore {
   }
 
   private func setFormatMarks() throws {
-    if try !keys.hasMark(formatMark, synced: false) { try keys.setMark(formatMark, synced: false) }
-    if try !keys.hasMark(formatMark, synced: true) { try keys.setMark(formatMark, synced: true) }
+    try keys.setMark(formatMark, data: Data("1".utf8), synced: false)
+    try keys.setMark(formatMark, data: Data("1".utf8), synced: true)
   }
 
   /// A row in format 1 becomes format 2, read back before the transaction commits. Returns false for one that doesn't

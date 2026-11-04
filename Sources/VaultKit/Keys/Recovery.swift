@@ -167,6 +167,14 @@ public struct VaultRecovery: Sendable {
     return try wrap(folderKey.keyData, content: .folderKey, keyID: folderKey.keyID, folderID: folderKey.folderID, to: key)
   }
 
+  private func stableIDKeyIfHere() throws -> Data? {
+    do {
+      return try keys.stableIDKey().withUnsafeBytes { Data($0) }
+    } catch VaultCrypto.CryptoError.idKeyNotHere {
+      return nil
+    }
+  }
+
   /// Seals every vault key this device has, the identity, `folderKeys` and the secrets, skipping those sealed already.
   /// A secret whose value changed is sealed again; one that's gone goes, once its record is deleted (one missing while
   /// its record lives may simply not have arrived here). Reads the keychain only with a kit on. Returns how many it
@@ -178,8 +186,8 @@ public struct VaultRecovery: Sendable {
     for (id, vaultKey) in try keys.allKeys.sorted(by: { $0.key < $1.key }) {
       if try wrapVaultKey(vaultKey, id: id, to: key) { count += 1 }
     }
-    let idKey = try keys.stableIDKey().withUnsafeBytes { Data($0) }
-    if try wrap(idKey, content: .idKey, keyID: "id", folderID: nil, to: key) { count += 1 }
+    // Without it here yet, a device that has it seals it.
+    if let idKey = try stableIDKeyIfHere(), try wrap(idKey, content: .idKey, keyID: "id", folderID: nil, to: key) { count += 1 }
     if let identity = try identityBacking.read(VaultPersonalIdentity.account).map(PersonalIdentity.init),
       try wrap(identity.rawRepresentation, content: .identity, keyID: Self.keyID(of: identity), folderID: nil, to: key)
     {

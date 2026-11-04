@@ -47,14 +47,19 @@ public protocol VaultKeyProvider: Sendable {
   func isRetired(_ id: String) throws -> Bool
   /// Adds keys brought back from elsewhere (`VaultRecovery.restore`). One with an id that's here isn't replaced.
   func addKeys(_ keys: [String: SymmetricKey]) throws
-  /// What `VaultCrypto.derivedID` hashes with: made once and kept across rotations, so ids never change.
+  /// What `VaultCrypto.derivedID` hashes with: comes from the vault's first key and stays across rotations, so ids never
+  /// change. Throws `CryptoError.idKeyNotHere` when this device has only a later key and hasn't heard of the first.
   func stableIDKey() throws -> SymmetricKey
+  /// The first key `stableIDKey` comes from, here or not; nil when it was put back by `restoreStableIDKey`, or nothing
+  /// says yet.
+  func stableIDKeySource() throws -> String?
   /// Puts the id key back (`VaultRecovery.restore`, on a device whose keychain lost it and made another).
   func restoreStableIDKey(_ key: SymmetricKey) throws
-  /// A small flag beside the keys, out of reach of whoever can edit the store's file. `synced` ones reach the user's
-  /// other devices; the others stay on this one.
-  func hasMark(_ name: String, synced: Bool) throws -> Bool
-  func setMark(_ name: String, synced: Bool) throws
+  /// Small items beside the keys, out of reach of CloudKit and of whoever can edit the store's file. `synced` ones reach
+  /// the user's other devices; the others stay on this one. Names are the caller's; a name that's there stays as it is.
+  func marks(prefix: String, synced: Bool) throws -> [(name: String, data: Data)]
+  func setMark(_ name: String, data: Data, synced: Bool) throws
+  func removeMark(_ name: String, synced: Bool) throws
 }
 
 /// Where the keys and their marks are kept: the keychain, or memory for tests.
@@ -64,6 +69,7 @@ protocol VaultKeyItems: Sendable {
   /// Adds the item unless one exists; returns whether it was added.
   func add(_ data: Data, named name: String, synced: Bool, label: String) throws -> Bool
   func replace(_ data: Data, named name: String, synced: Bool, label: String) throws
+  func delete(_ name: String, synced: Bool) throws
 }
 
 /// The items of `KeychainKeyProvider`, in the keychain.
@@ -93,6 +99,10 @@ struct KeychainKeyItems: VaultKeyItems {
 
   func replace(_ data: Data, named name: String, synced: Bool, label: String) throws {
     try keychain.write(data, account: name, options: options(synced, label: label))
+  }
+
+  func delete(_ name: String, synced: Bool) throws {
+    try keychain.delete(name, options: options(synced))
   }
 }
 
@@ -133,6 +143,12 @@ final class MemoryKeyItems: VaultKeyItems, @unchecked Sendable {
     }
   }
 
+  func delete(_ name: String, synced isSynced: Bool) throws {
+    lock.withLock {
+      if isSynced { synced[name] = nil } else { local[name] = nil }
+    }
+  }
+
   /// What another device's iCloud Keychain delivers: every synced item the other has.
   func receive(from other: MemoryKeyItems) {
     let theirs = other.lock.withLock { other.synced }
@@ -145,13 +161,23 @@ final class MemoryKeyItems: VaultKeyItems, @unchecked Sendable {
 /// - `key.<id>`: a key. Old builds read every item with this prefix and nothing else.
 /// - `keyepoch.<epoch>.<id>`: a rotation made `id` current; its data (`Claim`) names the keys it retired, and the
 ///   recovery kit it's tied to, if any.
-/// - `idkey`: what ids are hashed with.
+/// - `idkey.<first key's id>`: what ids are hashed with, made from that key. It's the same bytes whoever makes it. Every
+///   device goes by the smallest first key it knows of, so two devices that made different ones converge.
+/// - `idkey`: an id key `VaultRecovery.restore` put back, which goes first.
 /// - `mark.<name>`: `VaultKeyProvider.setMark`.
+///
+/// **Key ids say where they came from**, because their items arrive one by one, in any order, and a key alone has to say
+/// whether ids may come from it. Ids from before this are plain hex. A key made because the keychain was empty is `n`,
+/// then the time, so it sorts after all of those and after older `n` keys: a device that made one before the vault's real
+/// key arrived neither moves the current key nor ids anywhere else. A rotation's key is `r`: never where ids come from,
+/// and never current before the rotation's own item says so.
 final class VaultKeyRing: @unchecked Sendable {
   static let keyPrefix = "key."
   static let epochPrefix = "keyepoch."
   static let idKeyName = "idkey"
+  static let idKeyPrefix = "idkey."
   static let markPrefix = "mark."
+  static let rotationKeyPrefix = "r"
 
   struct Claim: Codable {
     var kit: String?
@@ -164,7 +190,10 @@ final class VaultKeyRing: @unchecked Sendable {
   private let lock = NSRecursiveLock()
   private var keys: [String: SymmetricKey] = [:]
   private var epochs: [VaultKeyEpoch: Claim] = [:]
-  private var idKey: SymmetricKey?
+  /// An id key put back by a restore.
+  private var restoredIDKey: SymmetricKey?
+  /// Id keys by the first key they come from.
+  private var idKeys: [String: SymmetricKey] = [:]
   private var loaded: Date?
 
   init(items: any VaultKeyItems, staleAfter: TimeInterval) {
@@ -184,6 +213,10 @@ final class VaultKeyRing: @unchecked Sendable {
           let claim = (try? JSONDecoder().decode(Claim.self, from: item.data)) ?? Claim(kit: nil, retired: [])
           epochs[VaultKeyEpoch(epoch: epoch, keyID: String(parts[1]))] = claim
         }
+      } else if item.name == Self.idKeyName {
+        restoredIDKey = SymmetricKey(data: item.data)
+      } else if item.name.hasPrefix(Self.idKeyPrefix) {
+        idKeys[String(item.name.dropFirst(Self.idKeyPrefix.count))] = SymmetricKey(data: item.data)
       }
     }
     loaded = .now
@@ -208,7 +241,7 @@ final class VaultKeyRing: @unchecked Sendable {
     try lock.withLock {
       try loadIfStale()
       if keys.isEmpty {
-        let id = Self.newKeyID()
+        let id = Self.newFirstKeyID()
         let key = SymmetricKey(size: .bits256)
         _ = try items.add(data(of: key), named: Self.keyPrefix + id, synced: true, label: "v57 Vault key")
         keys[id] = key
@@ -273,9 +306,10 @@ final class VaultKeyRing: @unchecked Sendable {
   func rotate(kitCheck: String?) throws -> VaultKeyEpoch {
     try lock.withLock {
       try load()
-      // Before the current key changes, so ids keep coming from the key they always came from.
-      _ = try stableIDKey()
-      let id = Self.newKeyID()
+      // Before the current key changes, so ids keep coming from the key they always came from. A device that only has a
+      // later key can still rotate: whoever has the first key makes it.
+      _ = try? stableIDKey()
+      let id = Self.newRotationKeyID()
       let key = SymmetricKey(size: .bits256)
       let epoch = VaultKeyEpoch(epoch: (epochs.keys.map(\.epoch).max() ?? 0) + 1, keyID: id)
       let claim = Claim(kit: kitCheck, retired: keys.keys.sorted())
@@ -291,52 +325,70 @@ final class VaultKeyRing: @unchecked Sendable {
 
   func stableIDKey() throws -> SymmetricKey {
     try lock.withLock {
-      if let idKey { return idKey }
-      if let stored = try items.read(Self.idKeyName, synced: true) {
-        let key = SymmetricKey(data: stored)
-        idKey = key
-        return key
-      }
-      // The first use: what ids were hashed with until now, the smallest key from before any rotation, so no id changes
-      // and it's the same whichever items of a rotation have arrived. Two devices with different keys here (a first-key
-      // race) made different ids before too, and iCloud Keychain keeps one of the two items.
-      let (primaryID, primaryKey) = try primary()
-      let rotated = Set(epochs.keys.map(\.keyID))
-      let key = keys.filter { !rotated.contains($0.key) }.min { $0.key < $1.key }?.value ?? keys[primaryID] ?? primaryKey
-      let made = HKDF<SHA256>.deriveKey(
-        inputKeyMaterial: key, info: Data("dev.v57.vault.ids".utf8), outputByteCount: 32)
-      if try !items.add(data(of: made), named: Self.idKeyName, synced: true, label: "v57 Vault id key"),
-        let stored = try items.read(Self.idKeyName, synced: true)
-      {
-        let key = SymmetricKey(data: stored)
-        idKey = key
-        return key
-      }
-      idKey = made
+      try loadIfStale()
+      if let restoredIDKey { return restoredIDKey }
+      // No key at all: this may be the vault's first device, or one whose keychain hasn't arrived, and nothing can tell
+      // which. The key made here sorts after any real key, so if it's the second, ids here are wrong until the real key
+      // arrives and no other device's ever change (`newFirstKeyID`).
+      if keys.isEmpty, idKeys.isEmpty { _ = try primary() }
+      guard let source = idKeySource else { throw VaultCrypto.CryptoError.idKeyNotHere }
+      if let stored = idKeys[source] { return stored }
+      guard let key = keys[source] else { throw VaultCrypto.CryptoError.idKeyNotHere }
+      let made = HKDF<SHA256>.deriveKey(inputKeyMaterial: key, info: Data("dev.v57.vault.ids".utf8), outputByteCount: 32)
+      _ = try items.add(data(of: made), named: Self.idKeyPrefix + source, synced: true, label: "v57 Vault id key")
+      idKeys[source] = made
       return made
     }
+  }
+
+  func stableIDKeySource() throws -> String? {
+    try lock.withLock {
+      try loadIfStale()
+      return restoredIDKey == nil ? idKeySource : nil
+    }
+  }
+
+  /// The smallest first key anything here names: a key, an id key made from one, or what a rotation says it retired.
+  private var idKeySource: String? {
+    let rotated = Set(epochs.keys.map(\.keyID))
+    let known = Array(keys.keys) + Array(idKeys.keys) + epochs.values.flatMap(\.retired)
+    return known.filter { !rotated.contains($0) && !$0.hasPrefix(Self.rotationKeyPrefix) }.min()
   }
 
   func restoreStableIDKey(_ key: SymmetricKey) throws {
     try lock.withLock {
       try items.replace(data(of: key), named: Self.idKeyName, synced: true, label: "v57 Vault id key")
-      idKey = key
+      restoredIDKey = key
     }
   }
 
-  func hasMark(_ name: String, synced: Bool) throws -> Bool {
-    try items.read(Self.markPrefix + name, synced: synced) != nil
+  func marks(prefix: String, synced: Bool) throws -> [(name: String, data: Data)] {
+    let full = Self.markPrefix + prefix
+    return try items.all(synced: synced).filter { $0.name.hasPrefix(full) }.map {
+      (String($0.name.dropFirst(Self.markPrefix.count)), $0.data)
+    }
   }
 
-  func setMark(_ name: String, synced: Bool) throws {
-    _ = try items.add(Data("1".utf8), named: Self.markPrefix + name, synced: synced, label: "v57 Vault mark")
+  func setMark(_ name: String, data: Data, synced: Bool) throws {
+    _ = try items.add(data, named: Self.markPrefix + name, synced: synced, label: "v57 Vault mark")
+  }
+
+  func removeMark(_ name: String, synced: Bool) throws {
+    try items.delete(Self.markPrefix + name, synced: synced)
   }
 
   private func data(of key: SymmetricKey) -> Data { key.withUnsafeBytes { Data($0) } }
 
-  static func newKeyID() -> String {
-    (0..<8).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
+  private static func randomHex(_ bytes: Int) -> String {
+    (0..<bytes).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
   }
+
+  /// A key made because the keychain was empty: `n`, the time, then something random. Of two first keys the earlier wins.
+  static func newFirstKeyID(now: Date = .now) -> String {
+    "n" + String(format: "%012llx", Int64(now.timeIntervalSince1970 * 1000)) + randomHex(4)
+  }
+
+  static func newRotationKeyID() -> String { rotationKeyPrefix + randomHex(8) }
 }
 
 /// The keys in the shared keychain group, synced by iCloud Keychain.
@@ -359,11 +411,13 @@ public final class KeychainKeyProvider: VaultKeyProvider, @unchecked Sendable {
   public func isRetired(_ id: String) throws -> Bool { try ring.isRetired(id) }
   public func addKeys(_ keys: [String: SymmetricKey]) throws { try ring.addKeys(keys) }
   public func stableIDKey() throws -> SymmetricKey { try ring.stableIDKey() }
+  public func stableIDKeySource() throws -> String? { try ring.stableIDKeySource() }
   public func restoreStableIDKey(_ key: SymmetricKey) throws { try ring.restoreStableIDKey(key) }
-  public func hasMark(_ name: String, synced: Bool) throws -> Bool { try ring.hasMark(name, synced: synced) }
-  public func setMark(_ name: String, synced: Bool) throws { try ring.setMark(name, synced: synced) }
-
-  static func newKeyID() -> String { VaultKeyRing.newKeyID() }
+  public func marks(prefix: String, synced: Bool) throws -> [(name: String, data: Data)] {
+    try ring.marks(prefix: prefix, synced: synced)
+  }
+  public func setMark(_ name: String, data: Data, synced: Bool) throws { try ring.setMark(name, data: data, synced: synced) }
+  public func removeMark(_ name: String, synced: Bool) throws { try ring.removeMark(name, synced: synced) }
 }
 
 /// Keys held in memory, for tests and previews.
@@ -393,9 +447,13 @@ public final class MemoryKeyProvider: VaultKeyProvider, @unchecked Sendable {
   public func isRetired(_ id: String) throws -> Bool { try ring.isRetired(id) }
   public func addKeys(_ keys: [String: SymmetricKey]) throws { try ring.addKeys(keys) }
   public func stableIDKey() throws -> SymmetricKey { try ring.stableIDKey() }
+  public func stableIDKeySource() throws -> String? { try ring.stableIDKeySource() }
   public func restoreStableIDKey(_ key: SymmetricKey) throws { try ring.restoreStableIDKey(key) }
-  public func hasMark(_ name: String, synced: Bool) throws -> Bool { try ring.hasMark(name, synced: synced) }
-  public func setMark(_ name: String, synced: Bool) throws { try ring.setMark(name, synced: synced) }
+  public func marks(prefix: String, synced: Bool) throws -> [(name: String, data: Data)] {
+    try ring.marks(prefix: prefix, synced: synced)
+  }
+  public func setMark(_ name: String, data: Data, synced: Bool) throws { try ring.setMark(name, data: data, synced: synced) }
+  public func removeMark(_ name: String, synced: Bool) throws { try ring.removeMark(name, synced: synced) }
 }
 
 /// AES-GCM sealing with the vault keys.
@@ -405,12 +463,16 @@ public enum VaultCrypto {
     case damaged
     /// It opens, or could, but this store doesn't take it: the old format, a retired key, or the wrong place.
     case refused
+    /// This device hasn't got what ids are hashed with yet, and won't make up another: try again once the keychain has
+    /// caught up.
+    case idKeyNotHere
 
     public var errorDescription: String? {
       switch self {
       case .missingKey: "This device doesn't have the key for this data yet. It arrives through iCloud Keychain."
       case .damaged: "The encrypted data is damaged."
       case .refused: "This data was refused: it's in an old format, under a retired key, or was moved from another record."
+      case .idKeyNotHere: "This device doesn't have the vault's id key yet. It arrives through iCloud Keychain."
       }
     }
   }
@@ -441,7 +503,8 @@ public enum VaultCrypto {
 
   /// A keyed hash for ids derived from content (a project's remote URL), so CloudKit sees the id but not what it was
   /// made from. Keyed with the id key, which stays when the current key changes (`VaultKeyProvider.stableIDKey`).
-  /// After a first-key race a few ids may differ between devices, which `VaultStore` folds together by content.
+  /// After a first-key race a few ids may differ between devices until they've seen each other's keys, which `VaultStore`
+  /// folds together by content. Throws `idKeyNotHere` rather than make an id that'd be wrong.
   public static func derivedID(_ text: String, keys: VaultKeyProvider) throws -> String {
     let mac = HMAC<SHA256>.authenticationCode(for: Data(text.utf8), using: try keys.stableIDKey())
     return Data(mac).prefix(16).map { String(format: "%02x", $0) }.joined()

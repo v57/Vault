@@ -100,7 +100,7 @@ import Testing
     let b = MemoryKeyProvider(keys: ["0000000000000001": key])
     try a.rotate(kitCheck: nil)
     // Everything but the id key arrived.
-    for item in try a.items.all(synced: true) where item.name != VaultKeyRing.idKeyName {
+    for item in try a.items.all(synced: true) where !item.name.hasPrefix(VaultKeyRing.idKeyName) {
       _ = try b.items.add(item.data, named: item.name, synced: true, label: "")
     }
     #expect(try b.ring.primary().id == a.ring.primary().id)
@@ -110,20 +110,111 @@ import Testing
   @Test func theIDKeySyncsAsOneItem() throws {
     let a = MemoryKeyProvider()
     _ = try VaultCrypto.derivedID("x", keys: a)
-    #expect(try a.items.read(VaultKeyRing.idKeyName, synced: true) != nil)
+    #expect(try a.items.read(VaultKeyRing.idKeyPrefix + "0000000000000001", synced: true) != nil)
     // Old builds read `key.` items as keys: nothing else may start with that.
     let names = try a.items.all(synced: true).map(\.name)
     #expect(names.filter { $0.hasPrefix(VaultKeyRing.keyPrefix) }.count == 1)
   }
 
+  // MARK: Ids, and the keys they come from
+
+  /// The first key's id comes from a rotation's claim: only a later key is here, so nothing is made up.
+  @Test func aDeviceWithOnlyALaterKeyWaitsAndThenGetsTheSameIDs() throws {
+    let first = SymmetricKey(size: .bits256)
+    let a = MemoryKeyProvider(keys: ["0000000000000001": first])
+    let id = try VaultCrypto.derivedID("project", keys: a)
+    let epoch = try a.rotate(kitCheck: nil)
+    let later = try #require(try a.key(id: epoch.keyID))
+
+    // The rotation's key is the only item that arrived; its id says what it is.
+    let alone = MemoryKeyProvider(keys: [epoch.keyID: later])
+    #expect(throws: VaultCrypto.CryptoError.self) { try VaultCrypto.derivedID("project", keys: alone) }
+    #expect(try alone.items.read(VaultKeyRing.idKeyName, synced: true) == nil)
+    #expect(try alone.items.all(synced: true).allSatisfy { !$0.name.hasPrefix(VaultKeyRing.idKeyPrefix) })
+
+    // The rotation's item arrives too, naming a first key that isn't here.
+    let claim = try a.items.all(synced: true).first { $0.name.hasPrefix(VaultKeyRing.epochPrefix) }
+    _ = try alone.items.add(try #require(claim).data, named: try #require(claim).name, synced: true, label: "")
+    #expect(throws: VaultCrypto.CryptoError.self) { try VaultCrypto.derivedID("project", keys: alone) }
+
+    // The id key alone is enough.
+    let idKey = try #require(try a.items.read(VaultKeyRing.idKeyPrefix + "0000000000000001", synced: true))
+    _ = try alone.items.add(idKey, named: VaultKeyRing.idKeyPrefix + "0000000000000001", synced: true, label: "")
+    #expect(try VaultCrypto.derivedID("project", keys: alone) == id)
+  }
+
+  /// Two devices make different id keys in a first-key race, in the order that used to leave it to iCloud Keychain.
+  @Test func twoIDKeysConvergeOnTheSmallerFirstKey() throws {
+    let a = MemoryKeyProvider(keys: ["aaaa": SymmetricKey(size: .bits256)])
+    let b = MemoryKeyProvider(keys: ["bbbb": SymmetricKey(size: .bits256)])
+    let idA = try VaultCrypto.derivedID("x", keys: a)
+    let idB = try VaultCrypto.derivedID("x", keys: b)
+    #expect(idA != idB)
+    a.items.receive(from: b.items)
+    b.items.receive(from: a.items)
+    #expect(try VaultCrypto.derivedID("x", keys: a) == idA)
+    #expect(try VaultCrypto.derivedID("x", keys: b) == idA)
+  }
+
+  /// A device that found its keychain empty made a key before the vault's arrived. That can't move anyone's ids.
+  @Test func aKeyMadeOnAnEmptyKeychainMovesNobodysIDs() throws {
+    let vault = MemoryKeyProvider(keys: ["ffffffffffffffff": SymmetricKey(size: .bits256)])
+    let id = try VaultCrypto.derivedID("x", keys: vault)
+    let fresh = MemoryKeyProvider(keys: [:])
+    let early = try VaultCrypto.derivedID("x", keys: fresh)
+    let made = try fresh.primary().id
+    #expect(made.hasPrefix("n") && made > "ffffffffffffffff")
+    #expect(early != id)
+
+    fresh.items.receive(from: vault.items)
+    vault.items.receive(from: fresh.items)
+    #expect(try VaultCrypto.derivedID("x", keys: vault) == id)
+    #expect(try VaultCrypto.derivedID("x", keys: fresh) == id)
+    #expect(try vault.primary().id == "ffffffffffffffff")
+    #expect(try fresh.primary().id == "ffffffffffffffff")
+  }
+
+  /// Two first keys on empty keychains: the earlier wins on both, whichever arrives where.
+  @Test func twoNewVaultsConvergeOnTheEarlierKey() throws {
+    let earlier = VaultKeyRing.newFirstKeyID(now: Date(timeIntervalSince1970: 1_000))
+    let later = VaultKeyRing.newFirstKeyID(now: Date(timeIntervalSince1970: 2_000))
+    #expect(earlier < later)
+    let a = MemoryKeyProvider(keys: [earlier: SymmetricKey(size: .bits256)])
+    let b = MemoryKeyProvider(keys: [later: SymmetricKey(size: .bits256)])
+    let id = try VaultCrypto.derivedID("x", keys: a)
+    _ = try VaultCrypto.derivedID("x", keys: b)
+    a.items.receive(from: b.items)
+    b.items.receive(from: a.items)
+    #expect(try a.primary().id == earlier && b.primary().id == earlier)
+    #expect(try VaultCrypto.derivedID("x", keys: b) == id)
+  }
+
+  @Test func aRestoredIDKeyGoesFirst() throws {
+    let a = MemoryKeyProvider()
+    let restored = SymmetricKey(size: .bits256)
+    _ = try a.stableIDKey()
+    try a.restoreStableIDKey(restored)
+    #expect(try a.stableIDKey() == restored)
+    #expect(try a.stableIDKeySource() == nil)
+  }
+
+  /// A rotation's key without its item isn't current: another device's write can't be sealed under a key some haven't got.
+  @Test func aRotationsKeyIsNeverCurrentWithoutItsItem() throws {
+    let a = MemoryKeyProvider(keys: ["ffffffffffffffff": SymmetricKey(size: .bits256)])
+    a.add(SymmetricKey(size: .bits256), id: VaultKeyRing.newRotationKeyID())
+    #expect(try a.primary().id == "ffffffffffffffff")
+  }
+
   @Test func marksStayWhereTheyWerePut() throws {
     let a = MemoryKeyProvider()
-    try a.setMark("one", synced: false)
-    try a.setMark("two", synced: true)
-    try a.setMark("two", synced: true)
-    #expect(try a.hasMark("one", synced: false))
-    #expect(try a.hasMark("one", synced: true) == false)
-    #expect(try a.hasMark("two", synced: true))
-    #expect(try a.hasMark("two", synced: false) == false)
+    try a.setMark("one", data: Data("1".utf8), synced: false)
+    try a.setMark("two.a", data: Data("2".utf8), synced: true)
+    try a.setMark("two.a", data: Data("3".utf8), synced: true)
+    #expect(try a.marks(prefix: "one", synced: false).map(\.name) == ["one"])
+    #expect(try a.marks(prefix: "one", synced: true).isEmpty)
+    #expect(try a.marks(prefix: "two.", synced: true).map(\.data) == [Data("2".utf8)])
+    #expect(try a.marks(prefix: "two", synced: false).isEmpty)
+    try a.removeMark("two.a", synced: true)
+    #expect(try a.marks(prefix: "two", synced: true).isEmpty)
   }
 }
