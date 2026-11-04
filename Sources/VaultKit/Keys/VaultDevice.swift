@@ -34,9 +34,20 @@ public enum VaultDevice {
       if let data = try? keychain.read("device-id", options: .thisDevice), let id = String(data: data, encoding: .utf8) {
         return id
       }
+      // Out of reach, so this id is the process's own: see `isProvisional`.
+      noteProvisional(id)
       return id
     }
   }()
+
+  private static let provisionalLock = NSLock()
+  nonisolated(unsafe) private static var provisionalIDs: Set<String> = []
+
+  /// Whether this is an id made up for this process because the keychain was out of reach: nothing else on the device goes
+  /// by it, so a stamp not matching it says nothing about who wrote it. Doesn't touch the keychain.
+  static func isProvisional(_ id: String) -> Bool { provisionalLock.withLock { provisionalIDs.contains(id) } }
+
+  static func noteProvisional(_ id: String) { provisionalLock.withLock { _ = provisionalIDs.insert(id) } }
 
   /// The device's name everywhere v57 shows it (the Hub, its SSH key's comment, `authorized_keys` lines, the hosts
   /// other devices see): the one the user gave it in the vault (`VaultStore.renameDevice`), else the system's.

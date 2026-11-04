@@ -83,6 +83,8 @@ public final class VaultStore: @unchecked Sendable {
   var _legacyAllowedSource: String?
   var _lastCatchUp: Date?
   var _vaultMark: Date?
+  /// The old file as the last import saw it.
+  var _oldFileSeen: String?
   /// While a sweep runs: `withKeySweep`.
   private var _sweepDepth = 0
   private var _sweepKeys: [String: SymmetricKey]?
@@ -293,6 +295,7 @@ public final class VaultStore: @unchecked Sendable {
   public func save(id: String, kind: String, changes: [String: JSONValue]) throws -> Bool {
     let changed: Bool = try withLock {
       try openForWriting()
+      importOldEditsIfChanged()
       return try database.transaction {
         var fields = ItemFields()
         if let row = try loadRow(id: id) {
@@ -331,6 +334,7 @@ public final class VaultStore: @unchecked Sendable {
   public func delete(id: String) throws {
     let deleted: Bool = try withLock {
       try openForWriting()
+      importOldEditsIfChanged()
       return try database.transaction {
         guard let row = try loadRow(id: id), let item = row.item, !item.isDeleted else { return false }
         var fields = item.fields

@@ -68,8 +68,8 @@ struct FormatTesting: Sendable {
 /// makes a key, as every build did, and builds the file. Without keys the rows can't be read anyway, and a save
 /// that failed would lose what the user just typed. `derivedID` waits (`idKeyCouldBeWrong`). The sync engines don't start.
 ///
-/// **What an old app does on this device afterwards:** for 30 days from this store's migration, each open merges in by
-/// field clock the old file's rows that have outbox entries: local edits the old app couldn't send. An old app can send
+/// **What an old app does on this device afterwards:** for 30 days from this store's migration, each open, `catchUp` and
+/// local write after the old file changed merges in by field clock the old file's rows that have outbox entries: local edits the old app couldn't send. An old app can send
 /// some, a brand new row for one, and those would then be refused by the store they came from, so rows
 /// with fields stamped by this device since the migration come over too, those fields only. Nothing else in the old file
 /// counts, as what it fetched came from CloudKit. Afterwards the old file is ignored.
@@ -459,8 +459,48 @@ extension VaultStore {
     try setMeta("format.imported", String(decoding: try JSONEncoder().encode(versions), as: UTF8.self))
   }
 
-  /// See this file's header. A row whose key hasn't arrived waits for a later open.
-  private func importOldEdits() throws {
+  /// See this file's header. Runs on every open, on `catchUp`, and before a local write when the old file has changed, so
+  /// that an old app's edit, whose clock may be ahead of this store's by what a fast peer told it, is merged before a later
+  /// edit here gets its clock: the later one goes past it, as any write does. With a device id made up for this process,
+  /// nothing can be told about a stamp, so nothing is imported or recorded, and the next launch does it. Returns what it wrote.
+  @discardableResult
+  private func importOldEdits() throws -> [String] {
+    guard !VaultDevice.isProvisional(deviceID) else { return [] }
+    let seen = oldFileSignature()
+    let written = try importOldEditsNow()
+    _oldFileSeen = seen
+    return written
+  }
+
+  /// `importOldEdits`, if the old file changed since it last ran. A failure doesn't stop the write it comes before.
+  func importOldEditsIfChanged() {
+    guard oldFileSignature() != _oldFileSeen else { return }
+    do {
+      try withKeySweep { _ = try importOldEdits() }
+    } catch {
+      _formatError = String(describing: error)
+    }
+  }
+
+  /// Enough to tell the old file changed: an old build's write goes to its journal first.
+  private func oldFileSignature() -> String? {
+    let manager = FileManager.default
+    let parts = ["", "-wal"].compactMap { suffix -> String? in
+      guard let attributes = try? manager.attributesOfItem(atPath: legacyFileURL.path + suffix) else { return nil }
+      let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+      return "\(suffix):\(attributes[.size] as? Int64 ?? 0):\(modified)"
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: "|")
+  }
+
+  /// A text merge stamps `<device>+merge`, which is this device's edit too.
+  private func isThisDevice(_ clock: HybridClock) -> Bool {
+    var device = Substring(clock.device)
+    while device.hasSuffix("+merge") { device = device.dropLast("+merge".count) }
+    return device == deviceID
+  }
+
+  private func importOldEditsNow() throws -> [String] {
     guard FileManager.default.fileExists(atPath: legacyFileURL.path),
       let built = try meta("format.built").flatMap(Double.init),
       formatTesting.now().timeIntervalSince1970 - built < Self.oldFileWindow,
@@ -475,11 +515,11 @@ extension VaultStore {
         SELECT id, kind, key_id, payload, version FROM items
         WHERE kind != '' AND modified >= ? AND id NOT IN (SELECT id FROM outbox)
         """, [.double(built - 1)])
-    else { return }
-    guard !queued.isEmpty || !stamped.isEmpty else { return }
-    let wrote: Bool = try database.transaction {
+    else { return [] }
+    guard !queued.isEmpty || !stamped.isEmpty else { return [] }
+    let wrote: [String] = try database.transaction {
       var versions = try imported()
-      var wrote = false
+      var wrote: [String] = []
       let builtMillis = Int64(built * 1000)
       for (rows, isQueued) in [(queued, true), (stamped, false)] {
         for row in rows {
@@ -504,8 +544,13 @@ extension VaultStore {
             continue
           }
           let incoming =
-            isQueued ? old.fields : ItemFields(old.fields.stamped.filter { $0.value.clock.device == deviceID && $0.value.clock.millis >= builtMillis })
-          let isOverDropped = (try? checkHighWater(id: id, VaultItem(id: id, kind: old.kind, fields: incoming))) == nil
+            isQueued ? old.fields : ItemFields(old.fields.stamped.filter { isThisDevice($0.value.clock) && $0.value.clock.millis >= builtMillis })
+          var isOverDropped = false
+          do {
+            try checkHighWater(id: id, VaultItem(id: id, kind: old.kind, fields: incoming))
+          } catch VaultCrypto.CryptoError.refused {
+            isOverDropped = true
+          }
           guard !incoming.stamped.isEmpty, !isOverDropped else {
             versions[id] = version
             continue
@@ -518,14 +563,15 @@ extension VaultStore {
           guard fields != local?.item?.fields else { continue }
           try observe(incoming.latestClock)
           try writeRow(id: id, kind: local?.item?.kind ?? old.kind, fields: fields, queue: true)
-          wrote = true
+          wrote.append(id)
         }
       }
       try setImported(versions)
-      if wrote { try bumpRevision() }
+      if !wrote.isEmpty { try bumpRevision() }
       return wrote
     }
-    if wrote { notifier?.post() }
+    if !wrote.isEmpty { notifier?.post() }
+    return wrote
   }
 
   // MARK: Records from the server in format 1
@@ -839,7 +885,8 @@ extension VaultStore {
     if due { _ = try? catchUp() }
   }
 
-  /// Does what couldn't be done before a key arrived: builds the new file, moves rows that came over unopened to format 2,
+  /// Does what couldn't be done before a key arrived: builds the new file, brings over what an old app wrote since the last
+  /// look, as an app stays open long after its first look, moves rows that came over unopened to format 2,
   /// merges server copies that waited for their key, and seals again what's still under a key a rotation retired (on
   /// this device, or on one that told iCloud Keychain). Killed halfway, the next call carries on. Changes go in the
   /// outbox. Returns the ids it wrote.
@@ -857,7 +904,8 @@ extension VaultStore {
         settle()
       }
       return try withKeySweep {
-        var written: [String] = try retryDeferred()
+        var written: [String] = try importOldEdits()
+        written += try retryDeferred()
         written += try moveLegacyRows()
         written += try mergeWaitingServerCopies()
         let retired = try retiredKeys()
