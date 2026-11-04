@@ -753,6 +753,12 @@ extension VaultStore {
       "DELETE FROM meta WHERE key IN (?, ?)", [.text("refused.\(Self.refusedOld)\(id)"), .text("refused.\(Self.refusedOther)\(id)")])
   }
 
+  func hasRefused(id: String) throws -> Bool {
+    try !database.query(
+      "SELECT 1 FROM meta WHERE key IN (?, ?)", [.text("refused.\(Self.refusedOld)\(id)"), .text("refused.\(Self.refusedOther)\(id)")]
+    ).isEmpty
+  }
+
   private func refusedCount(_ prefix: String) throws -> Int {
     Int(try database.query("SELECT COUNT(*) FROM meta WHERE key LIKE ?", [.text("refused.\(prefix)%")])[0][0].int ?? 0)
   }

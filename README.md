@@ -109,9 +109,18 @@ list these secrets, write them or delete them: it's told they aren't there.
 because a device on an old build keeps writing there and iCloud Keychain brings that in at any time. Each secret's old
 copy goes only after the new one reads back. A login's password is `login.<id>` in the new group, and a `password.<id>`
 whose record hasn't arrived stays where it is until it has, since connection passwords share that name. Two different
-values under one name keep the later-modified one, and the other as `superseded.<name>`; the identity already in the
-group always stays. Deleting an iCloud Keychain item deletes it on every device, so an old build stops seeing what
-moved. Until Vault has run, what hasn't moved is still in the shared group for every app to read.
+values under one name keep the later-modified one, by the source's date for a copy (`moved-date.<name>`, as the keychain
+dates a copy when it's written), and every other value as `superseded.<name>`, then `#2` and on, up to 16 per name, past
+which the old copy stays where it is. None is ever deleted, and the Vault app's Sync settings show them. The identity
+already in the group always stays; a new build won't make one while there's a sign one exists (a mark the move leaves, a
+kept value, a sealed copy in the recovery kit), because another device's move syncs item by item. Deleting an iCloud
+Keychain item deletes it on every device, so an old build stops seeing what moved. Until Vault has run, what hasn't moved
+is still in the shared group for every app to read.
+
+An app outside the group that removes an account can't reach its logins' secrets, so Vault deletes them. No record can ask
+for that, as every app can write any record: Vault keeps its own list per live account in the group
+(`account-secrets.<account>`), and goes by it once Personal holds the account's tombstone, Personal and every live account
+are settled (`VaultStore.isSettled`), and no other store holds the login.
 
 **Merging.** Every field carries a hybrid logical clock (wall time, a counter, the device id). Merging two copies
 of an item keeps each field's later write, so edits made on an iPhone and a Mac at once both survive unless they
@@ -248,7 +257,7 @@ imported SSH keys (`VaultSecrets`). Each is sealed to the recovery public key, n
 app reads the vault key and these are for the kit alone. They follow every change, and a deleted secret's box is
 emptied before its tombstone syncs. Only Vault and its AutoFill extension see every secret, so only they check the boxes
 against the keychain (`seesEverySecret`); another app seals what it changes itself, without a digest, and Vault adds that
-later. `superseded.` copies aren't covered. Not covered: device SSH keys (they never leave their Secure Enclave), Hub keys,
+later. `superseded.` copies aren't covered, though a recovery that opens several identities takes the oldest and keeps the rest as those. Not covered: device SSH keys (they never leave their Secure Enclave), Hub keys,
 the GitHub sign-in, and what Shell keeps in its own keychain service.
 
 **Payload format.** A record's payload is `"V57I" 0x02`, its key's id, then its kind and its fields in two AES-GCM
@@ -272,15 +281,20 @@ that failed would lose what the user typed, and ids wait until the vault's id ke
 
 An old app on an updated device can't reach the new file, so for 30 days from the store's migration each open merges in
 what it wrote: the old file's rows with outbox entries, which are local edits it couldn't send, and fields stamped by
-this device since the migration, as it can send some of them. What it fetched from CloudKit stays behind. After the 30
-days the old file is ignored, so update every v57 app on a device within that time.
+this device since the migration, as it can send some of them. `catchUp` does too, and so does a local write when the old
+file has changed, so an old edit stamped ahead by a fast peer merges before a later edit gets its clock. What it fetched
+from CloudKit stays behind, and what it wrote under a retired key is refused. With the keychain out of reach, so that this
+process's device id is made up, it waits for the next launch. After the 30 days the old file is ignored, so update every
+v57 app on a device within that time.
 
 A store reads format 1 from CloudKit and Hubs during its own first complete fetch after migrating, so a v1 edit waiting
 on the server merges by clock rather than being overwritten, and only within 30 days of a vault-wide mark. The mark is a
 synced keychain item holding the date the first device migrated, out of CloudKit's reach; if two devices set one, every
-device counts from the earliest. A store finishes when that fetch completes, not on a timer: an offline one stays
-unfinished rather than refusing what it hasn't seen, and an engine starts from nothing until then. Past the 30 days it
-finishes as soon as it opens. A device with no CloudKit counts a Hub pull as that fetch.
+device counts from the earliest. A store finishes when that fetch completes, by its own zone's completion event, not on a
+timer: an offline one stays unfinished rather than refusing what it hasn't seen, and an engine starts from nothing until
+then. A format 1 copy waiting for its key beside a row holds it up too, as it would be refused when the key came. Past the
+30 days it finishes as soon as it opens. A device with no CloudKit counts a Hub pull as that fetch. An Apple ID switch
+starts this again on the new account, within the 30 days.
 
 After that, format 1 from elsewhere is refused. The record stays on the server with its tag untouched, since it's its
 writer's copy and comes back when that device migrates; a local edit may still go up over it as a normal conflict. Each
@@ -290,7 +304,9 @@ the server and on itself.
 
 Only an authentication or format failure refuses. A keychain out of reach or a busy database leaves the row and its tag
 untouched: reads throw, and a fetched record waits in the store (`engines`, `retry:<id>`) for `catchUp`, because the sync
-engine's position has already moved past it. A store doesn't finish with one waiting.
+engine's position has already moved past it. A store doesn't finish with one waiting. A record whose asset couldn't be read
+waits there too, for a month at most, and asks for a full fetch, which is what can bring it back. An old tombstone is purged
+only by a finished store, and not while the server's record at that id is one it refused, as the delete would take that too.
 
 Format 2 CloudKit records carry no `keyID` field, so an old build on another device skips them rather than storing them
 over its copy (given a key id it would blank the row). A device that migrates later re-sends every row, which converges

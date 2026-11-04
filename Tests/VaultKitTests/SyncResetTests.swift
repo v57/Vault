@@ -118,4 +118,35 @@ struct SyncResetTests {
     #expect(store.isFormatFinished)
     #expect(try store.apply(try format1Remote("h", keys: keys)) == .refused(needsSend: false))
   }
+
+  // MARK: Purging
+
+  /// U3's variant: a tombstone whose record on the server is a format 1 edit this store refused. Deleting it would take
+  /// that edit from the device that made it.
+  @Test func aPurgeLeavesARefusedRecordOnTheServer() throws {
+    let store = try openStore(keys: keys)
+    try store.save(id: "t", kind: "host", changes: ["a": .string("b")])
+    try store.delete(id: "t")
+    try markEverythingSent(store)
+    store.fetchCompleted()
+    #expect(try store.apply(try format1Remote("t", keys: keys)) == .refused(needsSend: false))
+
+    #expect(try store.purgeTombstones(olderThan: -100).isEmpty)
+    #expect(try store.item(id: "t")?.isDeleted == true)
+
+    // Once it has been dealt with, the tombstone can go.
+    try store.clearRefused(id: "t")
+    #expect(try store.purgeTombstones(olderThan: -100) == ["t"])
+  }
+
+  /// A store that hasn't fetched doesn't know what's on the server at that id, and `attach` runs before the first fetch.
+  @Test func aStoreStillInItsFirstFetchPurgesNothing() throws {
+    let store = try openStore(keys: keys)
+    try store.save(id: "t", kind: "host", changes: ["a": .string("b")])
+    try store.delete(id: "t")
+    try markEverythingSent(store)
+    #expect(try store.purgeTombstones(olderThan: -100).isEmpty)
+    store.fetchCompleted()
+    #expect(try store.purgeTombstones(olderThan: -100) == ["t"])
+  }
 }

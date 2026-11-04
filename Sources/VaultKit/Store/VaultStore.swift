@@ -737,15 +737,20 @@ public final class VaultStore: @unchecked Sendable {
   }
 
   /// Removes tombstones older than `age` that nothing waits to send, and returns their ids so the sync engine
-  /// deletes CloudKit's copies too.
+  /// deletes CloudKit's copies too. A delete goes by id, whatever is on the server, so nothing goes before this store has
+  /// seen what's there, and nothing whose record there this store refused: that's another device's edit, which would go
+  /// with it.
   public func purgeTombstones(olderThan age: TimeInterval = 30 * 24 * 3600, now: Date = .now) throws -> [String] {
     try withLock {
-      try database.transaction {
+      guard !_isWaiting, formatIsFinished else { return [] }
+      return try database.transaction {
         let cutoff = now.timeIntervalSince1970 - age
-        let ids = try database.query(
+        let candidates = try database.query(
           "SELECT id FROM items WHERE deleted = 1 AND modified < ? AND id NOT IN (SELECT id FROM outbox)",
           [.double(cutoff)]
         ).compactMap { $0[0].text }
+        var ids: [String] = []
+        for id in candidates where try !hasRefused(id: id) { ids.append(id) }
         for id in ids {
           if let item = try loadRow(id: id)?.item { try raiseHighWater(id: id, from: item.fields) }
           try database.query("DELETE FROM items WHERE id = ?", [.text(id)])

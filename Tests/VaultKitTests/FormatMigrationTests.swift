@@ -1122,6 +1122,7 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     try store.database.query("DELETE FROM outbox")
     try store.delete(id: "pin")
     try store.database.query("DELETE FROM outbox")
+    store.fetchCompleted()
     let purged = try store.purgeTombstones(olderThan: -100, now: .now)
     #expect(purged == ["pin"])
     #expect(try store.apply(record) == .refused(needsSend: false))
