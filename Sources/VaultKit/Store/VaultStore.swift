@@ -242,7 +242,7 @@ public final class VaultStore: @unchecked Sendable {
       var items: [VaultItem] = []
       for row in rows {
         let origin: PayloadOrigin = row[1].text == "" ? .waiting : .local
-        guard let item = try? decode(id: row[0].text!, keyID: row[2].text!, payload: row[3].blob ?? Data(), from: origin)
+        guard let item = try decodeIfItOpens(id: row[0].text!, keyID: row[2].text!, payload: row[3].blob ?? Data(), from: origin)
         else { continue }
         if row[1].text == "", !_isWaiting {
           try database.query(
@@ -264,9 +264,19 @@ public final class VaultStore: @unchecked Sendable {
     try withLock { try database.query("SELECT id FROM items").compactMap { $0[0].text } }
   }
 
-  /// An item by id, deleted or not; nil when missing or not decryptable here.
+  /// An item by id, deleted or not; nil when missing or not decryptable here. A keychain out of reach throws: nil says
+  /// something about the item.
   public func item(id: String) throws -> VaultItem? {
     try withLock { try loadRow(id: id)?.item }
+  }
+
+  /// Whether there's a row for this id that doesn't open here: most likely its key hasn't arrived. It counts as there, so
+  /// that nothing treats it as deleted.
+  public func holdsUnreadableRow(id: String) throws -> Bool {
+    try withLock {
+      guard let row = try loadRow(id: id) else { return false }
+      return row.item == nil
+    }
   }
 
   /// Bumped by every change from any app or from CloudKit: observers compare it to skip needless reloads.
@@ -450,6 +460,9 @@ public final class VaultStore: @unchecked Sendable {
     case merged(needsSend: Bool)
     /// This device doesn't have the record's key yet; it's kept until the key arrives.
     case undecryptable
+    /// The keychain or the disk failed, which says nothing about the record: nothing changed, and `catchUp` applies it
+    /// again.
+    case deferred
     /// This store doesn't take the record: it's in the old format or under a retired key, or it was moved from another
     /// record or changed. Nothing of it was kept, and it's counted (`VaultFormatStatus`). With `needsSend`, the local copy
     /// goes up over it.
@@ -465,8 +478,19 @@ public final class VaultStore: @unchecked Sendable {
   @discardableResult
   public func apply(_ record: RemoteRecord) throws -> ApplyResult {
     let result: ApplyResult = try withLock {
-      try requireOpen()
-      return try database.transaction { try applyInTransaction(record) }
+      do {
+        try requireOpen()
+        return try database.transaction {
+          // In this order: a store with a fetch behind it finishes once nothing is deferred, which needs this record read.
+          let result = try applyInTransaction(record)
+          try forgetDeferred(id: record.id)
+          return result
+        }
+      } catch where !_isWaiting {
+        // Thrown when this can't be written either, for the sync engine to hold on to.
+        try deferRecord(DeferredRecord(record))
+        return .deferred
+      }
     }
     if case .merged = result { notifier?.post() }
     return result
@@ -502,7 +526,7 @@ public final class VaultStore: @unchecked Sendable {
         if isOldFormat { try addLegacyAllowed(id: record.id, payload: record.payload) }
       }
       return .undecryptable
-    } catch {
+    } catch where Self.payloadIsWrong(error) {
       try noteRefused(id: record.id, tag: record.changeTag, isOldFormat: isOldFormat)
       guard let local = row?.item else { return .refused(needsSend: false) }
       // The writer's copy, which it merges when it migrates: only an edit waiting here goes up over it, as a normal
@@ -568,8 +592,21 @@ public final class VaultStore: @unchecked Sendable {
   /// CloudKit deleted a record (a purged tombstone): drop it, unless a local edit is waiting to bring it back.
   public func applyDeletion(id: String) throws {
     let changed: Bool = try withLock {
-      try requireOpen()
-      return try database.transaction {
+      do {
+        try requireOpen()
+        return try database.transaction {
+          try forgetDeferred(id: id)
+          return try applyDeletionInTransaction(id: id)
+        }
+      } catch where !_isWaiting {
+        try deferRecord(DeferredRecord(deletionOf: id))
+        return false
+      }
+    }
+    if changed { notifier?.post() }
+  }
+
+  private func applyDeletionInTransaction(id: String) throws -> Bool {
         if try !database.query("SELECT 1 FROM outbox WHERE id = ?", [.text(id)]).isEmpty {
           try setServerFields(id: id, changeTag: nil, systemFields: nil)
           return false
@@ -579,9 +616,6 @@ public final class VaultStore: @unchecked Sendable {
         try database.query("DELETE FROM server_copies WHERE id = ?", [.text(id)])
         if existed { try bumpRevision() }
         return existed
-      }
-    }
-    if changed { notifier?.post() }
   }
 
   // MARK: Records from other devices directly (Hub)
@@ -622,7 +656,7 @@ public final class VaultStore: @unchecked Sendable {
           remote = try decode(id: id, keyID: keyID, payload: payload, from: .network)
         } catch VaultCrypto.CryptoError.missingKey {
           return .undecryptable
-        } catch {
+        } catch where Self.payloadIsWrong(error) {
           try noteRefused(id: id, tag: nil, isOldFormat: VaultItemSeal.parse(payload) == nil)
           return .refused
         }
@@ -712,6 +746,26 @@ public final class VaultStore: @unchecked Sendable {
     let isRefused: Bool
   }
 
+  /// What says that a payload itself is wrong. Nothing else does: a keychain out of reach or a busy database says nothing
+  /// about it, so those go on being thrown, and a row and its change tag stay as they are until it can be read.
+  static func payloadIsWrong(_ error: Error) -> Bool {
+    switch error {
+    case VaultCrypto.CryptoError.damaged, VaultCrypto.CryptoError.refused, is DecodingError: true
+    default: false
+    }
+  }
+
+  /// A payload's item, or nil when it doesn't open here.
+  func decodeIfItOpens(id: String, keyID: String, payload: Data, from origin: PayloadOrigin = .local) throws -> VaultItem? {
+    do {
+      return try decode(id: id, keyID: keyID, payload: payload, from: origin)
+    } catch VaultCrypto.CryptoError.missingKey {
+      return nil
+    } catch where Self.payloadIsWrong(error) {
+      return nil
+    }
+  }
+
   func loadRow(id: String) throws -> Row? {
     guard
       let row = try database.query(
@@ -725,7 +779,9 @@ public final class VaultStore: @unchecked Sendable {
       item = try decode(id: id, keyID: keyID, payload: row[1].blob ?? Data(), from: row[3].text == "" ? .waiting : .local)
     } catch VaultCrypto.CryptoError.refused {
       isRefused = true
-    } catch {}
+    } catch VaultCrypto.CryptoError.missingKey {
+    } catch where Self.payloadIsWrong(error) {
+    }
     return Row(id: id, keyID: keyID, changeTag: row[2].text, item: item, isRefused: isRefused)
   }
 
@@ -851,7 +907,7 @@ public final class VaultStore: @unchecked Sendable {
   /// The fields of the server's copy this device last saw (sent or fetched), the base of text merges.
   func serverCopy(id: String) throws -> ItemFields? {
     guard let row = try database.query("SELECT key_id, payload FROM server_copies WHERE id = ?", [.text(id)]).first,
-      let item = try? decode(id: id, keyID: row[0].text ?? "", payload: row[1].blob ?? Data())
+      let item = try decodeIfItOpens(id: id, keyID: row[0].text ?? "", payload: row[1].blob ?? Data())
     else { return nil }
     return item.fields
   }
@@ -881,7 +937,7 @@ public final class VaultStore: @unchecked Sendable {
     for other in try database.query(
       "SELECT id, key_id, payload FROM items WHERE kind = ? AND deleted = 0 AND id != ?", [.text(kind), .text(id)])
     {
-      if let twin = try? decode(id: other[0].text!, keyID: other[1].text!, payload: other[2].blob ?? Data()),
+      if let twin = try decodeIfItOpens(id: other[0].text!, keyID: other[1].text!, payload: other[2].blob ?? Data()),
         !twin.isDeleted, twin.fields["_identity"]?.stringValue == identity
       {
         twins.append(twin)

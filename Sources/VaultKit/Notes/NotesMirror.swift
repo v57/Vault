@@ -186,6 +186,8 @@ public final class NotesMirror: @unchecked Sendable {
   }
 
   private func reconcile(id: String, file: LocalFile?, record: VaultItem?, entry: Entry?, report: inout Report) throws {
+    // A note that doesn't open here isn't a note deleted elsewhere, and a file isn't a new one to send over it.
+    if record == nil, file != nil, try store.holdsUnreadableRow(id: id) { return }
     switch (file, record, entry) {
     case let (file?, record?, entry?):
       let fileChanged = file.hash != entry.hash || file.path != entry.path

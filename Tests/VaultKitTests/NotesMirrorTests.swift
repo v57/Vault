@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 
@@ -45,6 +46,47 @@ struct NotesMirrorTests {
     let sealed = try Data(contentsOf: folder.appendingPathComponent("From Shell.mdenc"))
     #expect(!String(decoding: sealed, as: UTF8.self).contains("secret"))
     #expect(try EncryptedNote.open(sealed, keys: keys) == "secret text")
+  }
+
+  /// A note whose key hasn't arrived isn't a note deleted elsewhere: its file stays, and so does the row.
+  @Test func aNoteThatDoesntOpenHereKeepsItsFile() throws {
+    let (mirror, store, folder) = try make()
+    try write("keep me", "Keep.md", in: folder)
+    mirror.reconcileNow()
+    let id = try #require(try notes(store).first?.id)
+    let original = try store.database.query("SELECT key_id, payload FROM items WHERE id = ?", [.text(id)])[0]
+
+    let sealed = try VaultItemSeal.seal(
+      kind: VaultNote.kind, fields: Data("{}".utf8), id: id, account: "personal", keyID: "ffff", key: .init(size: .bits256))
+    try store.database.query("UPDATE items SET key_id = 'ffff', payload = ? WHERE id = ?", [.blob(sealed), .text(id)])
+    #expect(try notes(store).isEmpty)
+    mirror.reconcileNow()
+    #expect(try read("Keep.md", in: folder) == "keep me")
+    #expect(try store.allIDs().contains(id))
+
+    // And it picks up where it left off.
+    try store.database.query("UPDATE items SET key_id = ?, payload = ? WHERE id = ?", [original[0], original[1], .text(id)])
+    mirror.reconcileNow()
+    #expect(try read("Keep.md", in: folder) == "keep me")
+    #expect(try notes(store).map(\.id) == [id])
+  }
+
+  /// The same with a keychain out of reach, where nothing can be read at all.
+  @Test func aKeychainOutOfReachLeavesTheFilesAlone() throws {
+    let root = temporaryDirectory()
+    let flaky = FlakyKeys(keys)
+    let store = try VaultStore(directory: root.appendingPathComponent("vault"), keys: flaky, deviceID: "mac", notifier: nil, owner: "mac")
+    let folder = root.appendingPathComponent("Notes")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let mirror = NotesMirror(folder: folder, store: store, keys: flaky, stateDirectory: root.appendingPathComponent("state"))
+    mirror.usesTrash = false
+    try write("keep me", "Keep.md", in: folder)
+    mirror.reconcileNow()
+    flaky.failing = true
+    mirror.reconcileNow()
+    flaky.failing = false
+    #expect(try read("Keep.md", in: folder) == "keep me")
+    #expect(try notes(store).count == 1)
   }
 
   @Test func editsGoBothWays() throws {

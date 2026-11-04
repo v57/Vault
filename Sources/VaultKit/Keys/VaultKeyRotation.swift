@@ -83,7 +83,7 @@ extension VaultStore {
           after = id
           let item =
             adopting
-            ? try? decode(id: id, keyID: row[1].text ?? "", payload: row[2].blob ?? Data(), from: .local)
+            ? try decodeIfItOpens(id: id, keyID: row[1].text ?? "", payload: row[2].blob ?? Data(), from: .local)
             : try loadRow(id: id)?.item
           guard let item else { continue }
           try rewrite(item)

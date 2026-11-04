@@ -210,7 +210,7 @@ extension VaultStore {
     }
   }
 
-  private enum FormatWait: Error {
+  enum FormatWait: Error {
     /// The keychain answered, and has no key.
     case noKeys
   }
@@ -358,7 +358,7 @@ extension VaultStore {
         return
       } catch VaultCrypto.CryptoError.missingKey {
         return
-      } catch {
+      } catch where Self.payloadIsWrong(error) {
         // Format 1 starts with a random nonce, which can look like format 2's header once in 2^40.
       }
     }
@@ -375,8 +375,9 @@ extension VaultStore {
       allowed[id] = Data(SHA256.hash(data: payload))
       report.unreadable += 1
       if !report.missingKeys.contains(keyID) { report.missingKeys.append(keyID) }
-    } catch {
-      // It stays as readable as it was, and a later `catchUp` tries again. A row like this never stops the store.
+    } catch where Self.payloadIsWrong(error) {
+      // It stays as readable as it was, and a later `catchUp` tries again. A row like this never stops the store. Any
+      // other failure stops the build, as it says nothing about the row.
       allowed[id] = Data(SHA256.hash(data: payload))
       report.notRewritten += 1
     }
@@ -390,10 +391,13 @@ extension VaultStore {
       try setServerCopy(id: id, keyID: row[1].text ?? "", payload: payload)
       return
     }
-    guard let item = try? openFormat1(id: id, keyID: row[1].text ?? "", payload: payload),
-      let sealed = try? sealed(kind: item.kind, fields: item.fields, id: id)
-    else { return }
-    try setServerCopy(id: id, keyID: sealed.keyID, payload: sealed.payload)
+    do {
+      let item = try openFormat1(id: id, keyID: row[1].text ?? "", payload: payload)
+      let sealed = try sealed(kind: item.kind, fields: item.fields, id: id)
+      try setServerCopy(id: id, keyID: sealed.keyID, payload: sealed.payload)
+    } catch VaultCrypto.CryptoError.missingKey {
+    } catch where Self.payloadIsWrong(error) {
+    }
   }
 
   /// Seals an item again with the current key and queues it, and checks it reads back the same.
@@ -472,7 +476,7 @@ extension VaultStore {
             old = try openFormat1(id: id, keyID: row[2].text ?? "", payload: payload)
           } catch VaultCrypto.CryptoError.missingKey {
             continue
-          } catch {
+          } catch where Self.payloadIsWrong(error) {
             versions[id] = version
             continue
           }
@@ -531,7 +535,8 @@ extension VaultStore {
   /// A store finishes when its first complete fetch is done, or as soon as it can past the vault's month.
   func finishIfDue() throws {
     guard !_isWaiting, !formatIsFinished else { return }
-    var isDue = try meta("format.fetched") == "1"
+    // What's deferred was seen but not read, so a fetch isn't complete without it. The month ends regardless.
+    var isDue = try meta("format.fetched") == "1" && deferredRecords().isEmpty
     if !isDue { isDue = formatTesting.now().timeIntervalSince(try vaultMarkDate()) > Self.serverFormat1Window }
     if isDue { try setMeta("format", Self.formatValue) }
   }
@@ -547,6 +552,67 @@ extension VaultStore {
         _formatError = String(describing: error)
       }
     }
+  }
+
+  // MARK: Records that couldn't be applied yet
+
+  /// A fetched record that met a keychain out of reach or a busy database. The sync engine's position has moved past it,
+  /// so it waits here until it can be read. One per id: a later one replaces it.
+  struct DeferredRecord: Codable {
+    var id: String
+    var keyID = ""
+    var payload = Data()
+    var changeTag: String?
+    var systemFields: Data?
+    var isDeletion = false
+
+    init(_ record: RemoteRecord) {
+      id = record.id
+      keyID = record.keyID
+      payload = record.payload
+      changeTag = record.changeTag
+      systemFields = record.systemFields
+    }
+
+    init(deletionOf id: String) {
+      self.id = id
+      isDeletion = true
+    }
+  }
+
+  private static let deferredPrefix = "retry:"
+
+  func deferRecord(_ record: DeferredRecord) throws {
+    try setEngineState(try JSONEncoder().encode(record), for: Self.deferredPrefix + record.id)
+  }
+
+  func forgetDeferred(id: String) throws {
+    try database.query("DELETE FROM engines WHERE name = ?", [.text(Self.deferredPrefix + id)])
+  }
+
+  private func deferredRecords() throws -> [DeferredRecord] {
+    try database.query("SELECT state FROM engines WHERE name LIKE ?", [.text(Self.deferredPrefix + "%")]).compactMap {
+      $0[0].blob.flatMap { try? JSONDecoder().decode(DeferredRecord.self, from: $0) }
+    }
+  }
+
+  /// What was deferred, again. Stops at the first failure: the next one would meet the same keychain.
+  private func retryDeferred() throws -> [String] {
+    var toSend: [String] = []
+    for record in try deferredRecords() {
+      if record.isDeletion {
+        try applyDeletion(id: record.id)
+        continue
+      }
+      let remote = RemoteRecord(
+        id: record.id, keyID: record.keyID, payload: record.payload, changeTag: record.changeTag, systemFields: record.systemFields)
+      switch try apply(remote) {
+      case .deferred: return toSend
+      case .merged(needsSend: true), .refused(needsSend: true): toSend.append(record.id)
+      default: break
+      }
+    }
+    return toSend
   }
 
   // MARK: Refusals
@@ -589,34 +655,35 @@ extension VaultStore {
   }
 
   /// Adds a record that arrived in format 1, naming a key this device hasn't got, while the store still reads format 1.
+  /// Sealing the list takes a key: with none here this isn't the moment to make one, so it fails, and the record is
+  /// deferred until keys arrive.
   func addLegacyAllowed(id: String, payload: Data) throws {
-    var allowed = legacyAllowed()
+    guard try !keys.allKeys.isEmpty else { throw FormatWait.noKeys }
+    var allowed = try legacyAllowed()
     allowed[id] = Data(SHA256.hash(data: payload))
     try setLegacyAllowed(allowed)
   }
 
-  func legacyAllowed() -> [String: Data] {
+  /// The list. A keychain out of reach throws, and so does a list whose own key is gone: neither says anything about a row.
+  func legacyAllowed() throws -> [String: Data] {
     if let cached = _legacyAllowed { return cached }
     var allowed: [String: Data] = [:]
-    if let stored = try? meta("format.legacy") {
+    if let stored = try meta("format.legacy") {
       let parts = stored.split(separator: ":", maxSplits: 1).map(String.init)
-      if parts.count == 2, let key = try? vaultKey(id: parts[0]), let combined = Data(base64Encoded: parts[1]),
-        let box = try? AES.GCM.SealedBox(combined: combined),
+      guard parts.count == 2 else { throw VaultCrypto.CryptoError.missingKey("") }
+      guard let key = try vaultKey(id: parts[0]) else { throw VaultCrypto.CryptoError.missingKey(parts[0]) }
+      guard let combined = Data(base64Encoded: parts[1]), let box = try? AES.GCM.SealedBox(combined: combined),
         let plaintext = try? AES.GCM.open(box, using: key, authenticating: legacyAAD),
         let decoded = try? JSONDecoder().decode([String: Data].self, from: plaintext)
-      {
-        allowed = decoded
-      } else {
-        // Its key hasn't arrived: look again next time.
-        return [:]
-      }
+      else { throw VaultCrypto.CryptoError.refused }
+      allowed = decoded
     }
     _legacyAllowed = allowed
     return allowed
   }
 
   func isAllowedFormat1(id: String, payload: Data) throws -> Bool {
-    legacyAllowed()[id] == Data(SHA256.hash(data: payload))
+    try legacyAllowed()[id] == Data(SHA256.hash(data: payload))
   }
 
   /// With only a key made here on an empty keychain, while rows here name keys that aren't, this device belongs to a vault
@@ -678,7 +745,7 @@ extension VaultStore {
       }
       _vaultMark = nil
       return try withKeySweep {
-        var written: [String] = []
+        var written: [String] = try retryDeferred()
         written += try moveLegacyRows()
         written += try mergeWaitingServerCopies()
         let retired = try retiredKeys()
@@ -695,9 +762,9 @@ extension VaultStore {
   }
 
   private func moveLegacyRows() throws -> [String] {
-    let allowed = legacyAllowed()
+    let allowed = try legacyAllowed()
     guard !allowed.isEmpty else { return [] }
-    if let row = try? record(VaultRecoveryKey.self, id: VaultRecoveryKey.recordID), row.publicKey.count == 32 {
+    if let row = try record(VaultRecoveryKey.self, id: VaultRecoveryKey.recordID), row.publicKey.count == 32 {
       let recordKey = row.recordKey
       useKey(recordKey.key, id: recordKey.id, sealing: VaultRecoveryBlob.kind)
     }
@@ -705,11 +772,15 @@ extension VaultStore {
       var moved: [String] = []
       for id in allowed.keys.sorted() {
         guard let row = try database.query("SELECT key_id, payload FROM items WHERE id = ?", [.text(id)]).first,
-          let payload = row[1].blob, Data(SHA256.hash(data: payload)) == allowed[id],
-          let item = try? openFormat1(id: id, keyID: row[0].text ?? "", payload: payload),
-          (try? database.savepoint { try rewrite(item) }) != nil
+          let payload = row[1].blob, Data(SHA256.hash(data: payload)) == allowed[id]
         else { continue }
-        moved.append(id)
+        do {
+          let item = try openFormat1(id: id, keyID: row[0].text ?? "", payload: payload)
+          try database.savepoint { try rewrite(item) }
+          moved.append(id)
+        } catch VaultCrypto.CryptoError.missingKey {
+        } catch where Self.payloadIsWrong(error) {
+        }
       }
       guard !moved.isEmpty else { return [] }
       var left = allowed
@@ -741,8 +812,8 @@ extension VaultStore {
           remote = try decode(id: id, keyID: copy[0].text ?? "", payload: copy[1].blob ?? Data(), from: .network)
         } catch VaultCrypto.CryptoError.missingKey {
           continue
-        } catch {
-          try noteRefused(id: id, tag: nil, isOldFormat: false)
+        } catch where Self.payloadIsWrong(error) {
+          try noteRefused(id: id, tag: nil, isOldFormat: VaultItemSeal.parse(copy[1].blob ?? Data()) == nil)
           try database.query("DELETE FROM server_copies WHERE id = ?", [.text(id)])
           left.remove(id)
           continue

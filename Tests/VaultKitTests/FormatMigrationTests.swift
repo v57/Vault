@@ -856,6 +856,226 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     #expect(keys.reads < 20, "\(keys.reads)")
   }
 
+  // MARK: A keychain out of reach
+
+  private func withKeychainDown() throws -> (VaultStore, FlakyKeys, MemoryKeyProvider, RemoteRecord) {
+    let base = MemoryKeyProvider()
+    let keys = FlakyKeys(base)
+    let store = try open(temporaryDirectory(), keys: keys)
+    try store.save(id: "h", kind: "host", changes: ["a": .string("local")])
+    try store.setServerFields(id: "h", changeTag: "t0", systemFields: nil)
+    let writer = try open(temporaryDirectory(), keys: keysCopy(base), device: "pad")
+    try writer.save(id: "h", kind: "host", changes: ["b": .string("remote")])
+    let sealed = try payload(writer, "h")
+    return (store, keys, base, RemoteRecord(id: "h", keyID: sealed.keyID, payload: sealed.payload, changeTag: "t9", systemFields: nil))
+  }
+
+  /// Finding 6: `apply`, retried by `catchUp`.
+  @Test func aKeychainErrorIsNotARefusal() throws {
+    let (store, keys, _, record) = try withKeychainDown()
+    keys.failing = true
+    #expect(try store.apply(record) == .deferred)
+    keys.failing = false
+    #expect(store.formatStatus.refused == 0)
+    #expect(try store.database.query("SELECT change_tag FROM items WHERE id = 'h'")[0][0].text == "t0")
+    #expect(try store.item(id: "h")?.fields["b"] == nil)
+
+    // It comes back on its own, and takes its tag.
+    _ = try store.catchUp()
+    #expect(try store.item(id: "h")?.fields["a"]?.stringValue == "local")
+    #expect(try store.item(id: "h")?.fields["b"]?.stringValue == "remote")
+    #expect(try store.database.query("SELECT change_tag FROM items WHERE id = 'h'")[0][0].text == "t9")
+    #expect(try store.engineState("retry:h") == nil)
+  }
+
+  @Test func aDeferredRecordSurvivesAReopen() throws {
+    let base = MemoryKeyProvider()
+    let keys = FlakyKeys(base)
+    let directory = temporaryDirectory()
+    let store = try open(directory, keys: keys)
+    let writer = try open(temporaryDirectory(), keys: keysCopy(base), device: "pad")
+    try writer.save(id: "h", kind: "host", changes: ["b": .string("remote")])
+    let sealed = try payload(writer, "h")
+    keys.failing = true
+    #expect(try store.apply(RemoteRecord(id: "h", keyID: sealed.keyID, payload: sealed.payload, changeTag: "t", systemFields: nil)) == .deferred)
+    keys.failing = false
+    let again = try open(directory, keys: keys)
+    _ = try again.catchUp()
+    #expect(try again.item(id: "h")?.fields["b"]?.stringValue == "remote")
+  }
+
+  /// A later record at the id is what counts, not the deferred one.
+  @Test func aLaterRecordReplacesADeferredOne() throws {
+    let (store, keys, _, record) = try withKeychainDown()
+    keys.failing = true
+    _ = try store.apply(record)
+    keys.failing = false
+    _ = try store.apply(record)
+    #expect(try store.engineState("retry:h") == nil)
+  }
+
+  @Test func aDeletionMetByAKeychainErrorComesBack() throws {
+    let (store, keys, _, _) = try withKeychainDown()
+    try store.markSent(id: "h", version: 1, changeTag: "t0", systemFields: nil)
+    #expect(try store.pendingIDs().isEmpty)
+    // A store with something that needs a key on this path: see `C`'s high-water clock. The deferred path is the same.
+    try store.deferRecord(VaultStore.DeferredRecord(deletionOf: "h"))
+    _ = keys
+    _ = try store.catchUp()
+    #expect(try store.allIDs().contains("h") == false)
+  }
+
+  /// Every other path through a decode.
+  @Test func aKeychainErrorNeverLooksLikeAnEmptyStoreOrAMissingItem() throws {
+    let (store, keys, _, record) = try withKeychainDown()
+    try store.setServerCopy(id: "h", keyID: record.keyID, payload: record.payload)
+    keys.failing = true
+    #expect(throws: VaultKeychain.KeychainError.self) { try store.item(id: "h") }
+    #expect(throws: VaultKeychain.KeychainError.self) { try store.items(kind: "host") }
+    #expect(throws: VaultKeychain.KeychainError.self) { try store.serverCopy(id: "h") == nil || true }
+    #expect(throws: VaultKeychain.KeychainError.self) { try store.holdsUnreadableRow(id: "h") }
+    #expect(throws: VaultKeychain.KeychainError.self) { try store.save(id: "h", kind: "host", changes: ["c": .int(1)]) }
+    #expect(throws: VaultKeychain.KeychainError.self) { try store.catchUp() }
+    #expect(throws: VaultKeychain.KeychainError.self) {
+      try store.applyFromPeer(id: record.id, keyID: record.keyID, payload: record.payload)
+    }
+    keys.failing = false
+    #expect(try store.item(id: "h")?.fields["a"]?.stringValue == "local")
+    #expect(store.formatStatus.refused == 0)
+  }
+
+  /// `catchUp`'s own paths: a row waiting for its key, and a copy waiting for its key, stay waiting, not refused.
+  @Test func aKeychainErrorDuringCatchUpLeavesEverythingWaiting() throws {
+    let base = MemoryKeyProvider(keys: ["0000000000000001": SymmetricKey(size: .bits256)])
+    let otherKey = SymmetricKey(size: .bits256)
+    let other = MemoryKeyProvider(keys: ["ffff": otherKey])
+    let old = try oldStore(keys: base)
+    let writer = try OldBuildStore(keys: other, device: "other")
+    try writer.save(id: "theirs", kind: "login", changes: ["a": .string("b")])
+    let theirs = try writer.database.query("SELECT key_id, payload FROM items WHERE id = 'theirs'")[0]
+    try old.database.query(
+      "INSERT INTO items(id, kind, key_id, payload) VALUES('theirs', '', ?, ?)", [.text(theirs[0].text ?? ""), .blob(theirs[1].blob ?? Data())])
+    let keys = FlakyKeys(base)
+    let store = try open(old.directory, keys: keys)
+
+    var fields = ItemFields()
+    _ = fields.apply(["newer": .string("x")], clock: HybridClock.zero.next(now: .now.addingTimeInterval(100), device: "x"))
+    let sealed = try VaultItemSeal.seal(
+      kind: "host", fields: try JSONEncoder().encode(fields), id: "id-host", account: "personal", keyID: "ffff", key: otherKey)
+    #expect(try store.apply(RemoteRecord(id: "id-host", keyID: "ffff", payload: sealed, changeTag: "t", systemFields: nil)) == .undecryptable)
+
+    try base.addKeys(["ffff": otherKey])
+    keys.failing = true
+    #expect(throws: VaultKeychain.KeychainError.self) { try store.catchUp() }
+    keys.failing = false
+    #expect(store.formatStatus.refused == 0)
+    #expect(store.formatStatus.unreadable == 1)
+
+    let written = try store.catchUp()
+    #expect(Set(written) == ["theirs", "id-host"])
+    #expect(try store.item(id: "theirs")?.fields["a"]?.stringValue == "b")
+    #expect(try store.item(id: "id-host")?.fields["newer"]?.stringValue == "x")
+    #expect(store.formatStatus.refused == 0)
+  }
+
+  /// An old app's edit waits out the keychain error too.
+  @Test func aKeychainErrorDuringTheImportTriesAgainNextOpen() throws {
+    let base = MemoryKeyProvider()
+    let old = try OldBuildStore(keys: base, device: "mac")
+    try old.save(id: "h", kind: "host", changes: ["name": .string("x")])
+    _ = try open(old.directory, keys: base)
+    try old.save(id: "later", kind: "host", changes: ["a": .string("1")])
+
+    let keys = FailingAfter(base, reads: 0)
+    let stopped = try open(old.directory, keys: keys)
+    #expect(stopped.formatStatus.error != nil)
+    #expect(stopped.formatStatus.refused == 0)
+    keys.reads = -1
+    #expect(try open(old.directory, keys: keys).item(id: "later")?.fields["a"]?.stringValue == "1")
+  }
+
+  /// A fetch isn't complete until what it deferred was read.
+  @Test func aDeferredRecordHoldsUpFinishing() throws {
+    let (store, keys, base, _) = try withKeychainDown()
+    let record = try format1Record("v1", keys: base)
+    keys.failing = true
+    #expect(try store.apply(record) == .deferred)
+    keys.failing = false
+    store.fetchCompleted()
+    #expect(!store.isFormatFinished)
+    _ = try store.catchUp()
+    #expect(store.isFormatFinished)
+    #expect(try store.item(id: "v1")?.fields["name"]?.stringValue == "from an old build")
+    #expect(store.formatStatus.refused == 0)
+  }
+
+  /// The coordinator's conflict path: a resend now would only meet the same conflict.
+  @Test func aConflictMetByAKeychainErrorWaits() throws {
+    let (store, keys, _, record) = try withKeychainDown()
+    let sync = SyncCoordinator(store: store)
+    keys.failing = true
+    #expect(sync.failed(id: "h", .conflict(server: record)) == .retryLater)
+    keys.failing = false
+  }
+
+  /// A store on the old file can't even write a record down: the coordinator holds it.
+  @Test func aStoreWaitingOnKeysLosesNothingItFetched() throws {
+    let cloud = FakeCloud()
+    let keys = MemoryKeyProvider()
+    let old = try OldBuildStore(keys: keys, device: "mac")
+    try old.save(id: "h", kind: "host", changes: ["name": .string("x")])
+    try old.push(cloud)
+    let pad = try OldBuildStore(keys: keysCopy(keys), device: "pad")
+    try pad.pull(cloud)
+    try pad.save(id: "h", kind: "host", changes: ["user": .string("pad")])
+    try pad.push(cloud)
+
+    let empty = MemoryKeyProvider(keys: [:])
+    let app = try FakeApp(directory: old.directory, keys: empty, device: "mac", name: "new")
+    #expect(app.store.isWaitingToMigrate)
+    app.pull(cloud)
+    #expect(!app.store.isFormatFinished)
+    #expect(try old.database.query("SELECT 1 FROM items WHERE id = 'h'").count == 1)
+
+    try empty.addKeys(keys.allKeys)
+    _ = try app.store.catchUp()
+    app.push(cloud)
+    #expect(!app.store.isWaitingToMigrate)
+    #expect(app.store.isFormatFinished)
+    #expect(try app.store.item(id: "h")?.fields["user"]?.stringValue == "pad")
+  }
+
+  /// A fresh device on its first fetch with no keys yet makes none of its own for an old-format record.
+  @Test func anOldFormatRecordBeforeAnyKeyArrivesDoesntMakeAKey() throws {
+    let keys = MemoryKeyProvider()
+    let empty = MemoryKeyProvider(keys: [:])
+    let store = try open(temporaryDirectory(), keys: empty)
+    #expect(try store.apply(try format1Record("v1", keys: keys)) == .deferred)
+    #expect(empty.allKeys.isEmpty)
+    store.fetchCompleted()
+    #expect(!store.isFormatFinished)
+    try empty.addKeys(keys.allKeys)
+    _ = try store.catchUp()
+    #expect(store.isFormatFinished)
+    #expect(try store.item(id: "v1")?.fields["name"]?.stringValue == "from an old build")
+  }
+
+  /// A migration mustn't count a keychain error as a row that won't rewrite.
+  @Test func aKeychainErrorDuringTheBuildStopsItAndLeavesNoFile() throws {
+    let base = MemoryKeyProvider()
+    let old = try oldStore(keys: base)
+    let keys = FailingAfter(base, reads: 2)
+    let store = try open(old.directory, keys: keys)
+    #expect(store.isWaitingToMigrate)
+    #expect(!FileManager.default.fileExists(atPath: store.fileURL.path))
+    keys.reads = -1
+    _ = try store.catchUp()
+    #expect(!store.isWaitingToMigrate)
+    #expect(store.formatStatus.notRewritten == 0)
+    #expect(store.formatStatus.resealed == everyKind.count)
+    try expectEverythingReadable(store)
+  }
+
   // MARK: Attacks
 
   private func twoHosts() throws -> (VaultStore, MemoryKeyProvider) {
@@ -1137,6 +1357,38 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     #expect(try storeB.item(id: "h")?.fields["hostname"]?.stringValue == "from a")
     #expect(try storeA.item(id: "b1")?.fields["hostname"]?.stringValue == "from b")
   }
+}
+
+/// A keychain that goes out of reach after some reads.
+final class FailingAfter: VaultKeyProvider, @unchecked Sendable {
+  let base: MemoryKeyProvider
+  /// Reads left. Negative: never fails.
+  var reads: Int
+
+  init(_ base: MemoryKeyProvider, reads: Int) {
+    self.base = base
+    self.reads = reads
+  }
+
+  private func check() throws {
+    if reads == 0 { throw VaultKeychain.KeychainError.status(-25308) }
+    if reads > 0 { reads -= 1 }
+  }
+
+  func primary() throws -> (id: String, key: SymmetricKey) { try base.primary() }
+  func key(id: String) throws -> SymmetricKey? { try check(); return try base.key(id: id) }
+  var allKeys: [String: SymmetricKey] { get throws { base.allKeys } }
+  var keyEpochs: [VaultKeyEpoch] { get throws { try base.keyEpochs } }
+  func rotate(kitCheck: String?) throws -> VaultKeyEpoch { try base.rotate(kitCheck: kitCheck) }
+  func kitCheck(forKey id: String) throws -> String? { try base.kitCheck(forKey: id) }
+  func isRetired(_ id: String) throws -> Bool { try base.isRetired(id) }
+  func addKeys(_ keys: [String: SymmetricKey]) throws { try base.addKeys(keys) }
+  func stableIDKey() throws -> SymmetricKey { try base.stableIDKey() }
+  func stableIDKeySource() throws -> String? { try base.stableIDKeySource() }
+  func restoreStableIDKey(_ key: SymmetricKey) throws { try base.restoreStableIDKey(key) }
+  func marks(prefix: String, synced: Bool) throws -> [(name: String, data: Data)] { try base.marks(prefix: prefix, synced: synced) }
+  func setMark(_ name: String, data: Data, synced: Bool) throws { try base.setMark(name, data: data, synced: synced) }
+  func removeMark(_ name: String, synced: Bool) throws { try base.removeMark(name, synced: synced) }
 }
 
 final class LockedList: @unchecked Sendable {

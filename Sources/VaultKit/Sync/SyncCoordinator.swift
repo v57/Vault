@@ -38,6 +38,10 @@ public final class SyncCoordinator: @unchecked Sendable {
   /// left: one the engine never reported back on counts as gone after five minutes.
   private var inFlight: [String: (record: OutgoingRecord, sent: Date)] = [:]
 
+  private var heldRecords: [String: RemoteRecord] = [:]
+  private var heldDeletions: Set<String> = []
+  private var fetchHasCompleted = false
+
   public init(store: VaultStore) {
     self.store = store
   }
@@ -45,6 +49,7 @@ public final class SyncCoordinator: @unchecked Sendable {
   /// Outbox rows this process may send now (leasing them).
   public func idsToSend(limit: Int = 400) -> [String] {
     store.catchUpIfDue()
+    retryHeld()
     return (try? store.claimOutbox(limit: limit)) ?? []
   }
 
@@ -82,9 +87,12 @@ public final class SyncCoordinator: @unchecked Sendable {
     _ = takeRecord(id)
     switch failure {
     case .conflict(let server):
-      // Merge their copy in; the merged item goes up again with the server's change tag.
-      _ = try? store.apply(server)
-      return (try? store.pendingIDs().contains(id)) == true ? .resend : .done
+      // Merge their copy in; the merged item goes up again with the server's change tag. If it couldn't be read now, a
+      // send would only meet the same conflict.
+      switch try? store.apply(server) {
+      case nil, .deferred: return .retryLater
+      default: return (try? store.pendingIDs().contains(id)) == true ? .resend : .done
+      }
     case .unknownItem:
       try? store.forgetServerRecord(id: id)
       return .resend
@@ -98,9 +106,13 @@ public final class SyncCoordinator: @unchecked Sendable {
     }
   }
 
-  /// A fetch from the start reached the end (`VaultStore.fetchCompleted`).
+  /// A fetch from the start reached the end (`VaultStore.fetchCompleted`), which it hasn't with records still held here.
   public func fetchCompleted() {
-    store.fetchCompleted()
+    let isHolding = lock.withLock {
+      fetchHasCompleted = !heldRecords.isEmpty || !heldDeletions.isEmpty
+      return fetchHasCompleted
+    }
+    if !isHolding { store.fetchCompleted() }
   }
 
   /// Records fetched from the server.
@@ -109,14 +121,41 @@ public final class SyncCoordinator: @unchecked Sendable {
       store.withKeySweep {
         var toSend: [String] = []
         for record in modified {
-          switch (try? store.apply(record)) ?? .unchanged {
-          case .merged(needsSend: true), .refused(needsSend: true): toSend.append(record.id)
-          default: break
+          do {
+            switch try store.apply(record) {
+            case .merged(needsSend: true), .refused(needsSend: true): toSend.append(record.id)
+            default: break
+            }
+            lock.withLock { _ = heldRecords.removeValue(forKey: record.id) }
+          } catch {
+            lock.withLock { heldRecords[record.id] = record }
           }
         }
-        for id in deleted { try? store.applyDeletion(id: id) }
+        for id in deleted {
+          do {
+            try store.applyDeletion(id: id)
+            lock.withLock { _ = heldDeletions.remove(id) }
+          } catch {
+            lock.withLock { _ = heldDeletions.insert(id) }
+          }
+        }
         return toSend
       }
     }
+  }
+
+  /// `apply` threw only when it couldn't even write the record down (`VaultStore.apply`), or while the store waits to
+  /// migrate. The sync engine's position has moved past those, so they're tried again here. A process that ends first
+  /// loses them, which a store still to finish makes up for with its next full fetch.
+  private func retryHeld() {
+    let (records, deletions) = lock.withLock { (heldRecords, heldDeletions) }
+    guard !records.isEmpty || !deletions.isEmpty else { return }
+    _ = fetched(modified: Array(records.values), deleted: Array(deletions))
+    let isDone = lock.withLock {
+      guard heldRecords.isEmpty, heldDeletions.isEmpty, fetchHasCompleted else { return false }
+      fetchHasCompleted = false
+      return true
+    }
+    if isDone { store.fetchCompleted() }
   }
 }
