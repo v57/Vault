@@ -132,11 +132,11 @@ public final class HubDirectory {
   /// Starts and stops connections to match the records.
   public func refresh() {
     guard isStarted else { return }
-    // Hosts of a Hub record that is gone (removed, or folded into its twin) go too.
-    let live = Set(vault.hubs.map(\.id))
-    let orphaned = Set(vault.hubHosts.compactMap(\.hub?.hubID)).subtracting(live)
-    if !orphaned.isEmpty {
-      vault.perform { store in for hubID in orphaned { try store.forgetHubHosts(hubID: hubID) } }
+    // Hosts of a Hub this store knows was removed, or folded into its twin, go too. A Hub that's merely not here doesn't
+    // count (`VaultStore.removedHubs`).
+    let unlisted = Set(vault.hubHosts.compactMap(\.hub?.hubID)).subtracting(vault.hubs.map(\.id))
+    if !unlisted.isEmpty, let removed = vault.store?.removedHubs(among: unlisted), !removed.isEmpty {
+      vault.perform { store in for hubID in removed { try store.forgetHubHosts(hubID: hubID) } }
     }
     let wanted = Set(vault.hubs.filter { $0.connects(on: vault.deviceID) }.map(\.id))
     for (id, connection) in connections where !wanted.contains(id) {
@@ -203,7 +203,11 @@ public final class HubDirectory {
 
   /// Refreshes when another app or device changes the Hub records.
   private func observeHubs() {
-    withObservationTracking { _ = vault.hubs } onChange: { [weak self] in
+    withObservationTracking {
+      _ = vault.hubs
+      // A host of a Hub removed elsewhere can land after the Hub's tombstone.
+      _ = vault.hubHosts
+    } onChange: { [weak self] in
       Task { @MainActor in self?.refresh() }
     }
   }

@@ -683,6 +683,17 @@ extension VaultStore {
     }
   }
 
+  /// Of these Hubs, the ones whose hosts go: Hubs this store holds a tombstone for. A Hub record that's just not here says
+  /// nothing, as a fresh device's first fetch brings a Hub's hosts before the Hub, or the Hub waits for its key, and a
+  /// host deleted now would be deleted on every device. Nothing goes until the store is settled, for the same reason.
+  public func removedHubs(among ids: Set<String>) -> Set<String> {
+    guard isSettled else { return [] }
+    return ids.filter { id in
+      guard let item = try? item(id: id) else { return false }
+      return item.kind == VaultHubServer.kind && item.isDeleted
+    }
+  }
+
   /// Whether Personal holds the account's record, not deleted.
   func isLive(account id: String) throws -> Bool {
     guard let item = try item(id: id) else { return false }

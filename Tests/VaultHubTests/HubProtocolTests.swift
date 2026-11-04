@@ -336,6 +336,34 @@ struct HubProtocolTests {
     #expect(HubDirectory.normalized("") == nil)
   }
 
+  /// Finding U2 of the second review: a host's record lands before its Hub's on a fresh device, whose first fetch comes in
+  /// batches. Its absence says nothing, and a tombstone written now would reach every device.
+  @MainActor
+  @Test func aHostWhoseHubHasntArrivedStays() throws {
+    let (directory, store, vault) = try directory()
+    let device = VaultHubDevice(
+      id: "studio", name: "Mac Studio", platform: "macos", isOnline: true, address: "100.96.0.4", ssh: .init(port: 22))
+    try store.mirrorHubDevices([device], hubID: "not-here-yet")
+    vault.reload()
+    directory.start()
+    #expect(vault.hubHosts.count == 1)
+    #expect(try store.items(kind: "host").count == 1)
+
+    // A store that finished doesn't change that: a later batch can still bring the Hub.
+    store.fetchCompleted()
+    directory.refresh()
+    vault.reload()
+    #expect(vault.hubHosts.count == 1)
+
+    // Only a Hub this store holds a tombstone for has gone.
+    try store.save(VaultHubServer(id: "not-here-yet", url: "ws://localhost:1"))
+    try store.delete(id: "not-here-yet")
+    vault.reload()
+    directory.refresh()
+    vault.reload()
+    #expect(vault.hubHosts.isEmpty)
+  }
+
   @MainActor
   @Test func aDirectoryUpdateMirrorsHosts() throws {
     VaultSecrets.useInMemoryStore()

@@ -24,6 +24,16 @@ struct HubMirrorTests {
     try VaultStore(directory: temporaryDirectory(), keys: keys, deviceID: device, notifier: nil, owner: device)
   }
 
+  /// A device isn't a host for itself, so its mirror leaves out what the others keep for it, rather than deleting that and
+  /// having them make it again.
+  @Test func aDevicesMirrorLeavesTheHostOthersKeepForIt() throws {
+    let store = try store("mac")
+    try store.mirrorHubDevices([studio()], hubID: "hub1", thisDevice: "me")
+    let id = try #require(try store.records(VaultHost.self).first?.id)
+    #expect(try store.mirrorHubDevices([studio()], hubID: "hub1", thisDevice: studio().id).removed.isEmpty)
+    #expect(try store.record(VaultHost.self, id: id) != nil)
+  }
+
   @Test func sshDevicesBecomeTrustedHosts() throws {
     let store = try store()
     let phone = VaultHubDevice(id: "phone", name: "iPhone", platform: "ios", isOnline: true, address: "100.96.0.9")

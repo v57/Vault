@@ -206,7 +206,9 @@ extension VaultStore {
     -> HubMirrorChanges
   {
     var changes = HubMirrorChanges()
-    let existing = try records(VaultHost.self).filter { $0.hub?.hubID == hubID }
+    // This device isn't a host for itself here, which says nothing about the one other devices keep for it: deleting that
+    // would have each device undo the other's mirror.
+    let existing = try records(VaultHost.self).filter { $0.hub?.hubID == hubID && $0.hub?.deviceID != thisDevice }
     var kept = Set<String>()
     for device in Self.onePerAddress(devices.filter { $0.isSSHTarget && $0.id != thisDevice }) {
       guard let ssh = device.ssh, let address = device.address else { continue }
