@@ -33,6 +33,11 @@ struct SecretsTests {
     #expect(VaultSecrets.password(for: id) == "kept")
   }
 
+  @Test func aDebugBuildMayUseTheFileKeychain() {
+    // A Release build refuses it; `swift test` can't show that, so it was run by hand (Ideas/Security V9).
+    #expect(VaultKeychain.isAvailable)
+  }
+
   @Test func addNewKeepsTheFirstValue() throws {
     let memory = MemorySecretBacking()
     #expect(try memory.addNew(Data([1]), named: "a", label: ""))

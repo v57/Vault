@@ -9,8 +9,14 @@ import Security
 /// processes without the entitlement get nothing (no prompt to click through, unlike the old login
 /// keychain).
 ///
-/// A build without the entitlement (an ad-hoc signed debug build) falls back to the app's own items, so it
-/// still works on its own; `isShared` tells.
+/// A build signed by another team, without the entitlement, falls back to the app's own items in the data-protection
+/// keychain, so it still works on its own; `isShared` tells.
+///
+/// A build with no application identifier at all (ad-hoc signed, or a plain `swift test` binary) can't use the
+/// data-protection keychain, only the old file keychain, where items don't sync and an access list guards them. A Debug
+/// build does that, so it can run while being worked on. **A Release build refuses:** every call throws
+/// `errSecMissingEntitlement`, so a signing mistake shows up as an error rather than as secrets quietly kept somewhere
+/// weaker. `isAvailable` tells.
 public struct VaultKeychain: Sendable {
   public let service: String
   public let accessGroup: String?
@@ -48,12 +54,32 @@ public struct VaultKeychain: Sendable {
   }
 
   /// Whether the shared group is usable (the app is entitled), checked once per process.
-  public static let isShared: Bool = {
+  public static let isShared: Bool = isEntitled(to: VaultConfiguration.keychainGroup)
+
+  /// Whether this app lists an access group. Asks with a read of an item that doesn't exist, which answers
+  /// `errSecMissingEntitlement` for a group the app doesn't list, so it reads nothing either way.
+  public static func isEntitled(to group: String) -> Bool {
     guard dataProtection else { return false }
-    let probe = VaultKeychain(service: "dev.v57.vault.probe")
-    let status = SecItemCopyMatching(probe.query(account: "probe", options: .thisDevice, group: probe.accessGroup) as CFDictionary, nil)
+    let probe = VaultKeychain(service: "dev.v57.vault.probe", accessGroup: group)
+    let status = SecItemCopyMatching(probe.query(account: "probe", options: .thisDevice, group: group) as CFDictionary, nil)
     return status != errSecMissingEntitlement
-  }()
+  }
+
+  /// Whether keychain calls work at all in this build: false only for a Release build with no application identifier.
+  public static var isAvailable: Bool { dataProtection || fileKeychainIsAllowed }
+
+  /// The old file keychain is for builds being worked on.
+  static var fileKeychainIsAllowed: Bool {
+    #if DEBUG
+      true
+    #else
+      false
+    #endif
+  }
+
+  private func checkAvailable() throws {
+    guard Self.isAvailable else { throw KeychainError.status(errSecMissingEntitlement) }
+  }
 
   private var effectiveGroup: String? { Self.isShared ? accessGroup : nil }
 
@@ -90,6 +116,7 @@ public struct VaultKeychain: Sendable {
   }()
 
   public func read(_ account: String, options: Options) throws -> Data? {
+    try checkAvailable()
     var query = query(account: account, options: options, group: effectiveGroup)
     query[kSecReturnData as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -100,8 +127,23 @@ public struct VaultKeychain: Sendable {
     return result as? Data
   }
 
+  /// An item's label and when it last changed, without its data; nil when there's no such item.
+  public func attributes(of account: String, options: Options) throws -> (label: String?, modified: Date?)? {
+    try checkAvailable()
+    var query = query(account: account, options: options, group: effectiveGroup)
+    query[kSecReturnAttributes as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
+    var result: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    if status == errSecItemNotFound { return nil }
+    guard status == errSecSuccess else { throw KeychainError.status(status) }
+    let item = result as? [String: Any]
+    return (item?[kSecAttrLabel as String] as? String, item?[kSecAttrModificationDate as String] as? Date)
+  }
+
   /// Every item's account and data in this service.
   public func readAll(options: Options) throws -> [(account: String, data: Data)] {
+    try checkAvailable()
     // The file keychain can't return the data of several items at once (-50): list the accounts, then read each.
     guard Self.dataProtection else {
       return try accounts(options: options).compactMap { account in
@@ -125,6 +167,7 @@ public struct VaultKeychain: Sendable {
   }
 
   private func accounts(options: Options) throws -> [String] {
+    try checkAvailable()
     var query = query(account: nil, options: options, group: effectiveGroup)
     query[kSecReturnAttributes as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitAll
@@ -137,6 +180,7 @@ public struct VaultKeychain: Sendable {
 
   /// Adds the item, or replaces its data.
   public func write(_ data: Data, account: String, options: Options) throws {
+    try checkAvailable()
     let base = query(account: account, options: options, group: effectiveGroup)
     let update: [String: Any] = [kSecValueData as String: data]
     var status = SecItemUpdate(base as CFDictionary, update as CFDictionary)
@@ -149,6 +193,7 @@ public struct VaultKeychain: Sendable {
   /// Adds the item and fails with `errSecDuplicateItem` if it exists: for values that must not be replaced,
   /// like a key another device may already have used.
   public func addNew(_ data: Data, account: String, options: Options) throws {
+    try checkAvailable()
     let status = add(data, account: account, options: options)
     guard status == errSecSuccess else { throw KeychainError.status(status) }
   }
@@ -166,6 +211,7 @@ public struct VaultKeychain: Sendable {
   }
 
   public func delete(_ account: String, options: Options) throws {
+    try checkAvailable()
     let status = SecItemDelete(query(account: account, options: options, group: effectiveGroup) as CFDictionary)
     guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError.status(status) }
   }

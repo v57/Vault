@@ -18,9 +18,16 @@
   public let errSecNotAvailable: OSStatus = -25291
 
   /// Generic-password items for the vault where Apple's keychain is missing: the Windows Credential Manager
-  /// (encrypted for the user, like the login keychain), on Linux the freedesktop Secret Service (the login keyring,
-  /// through v57/SwiftUI's SecretService), and elsewhere a file only the user can read. Items are never synced;
-  /// `synchronizable` items are kept apart from this-device ones, as on Apple platforms.
+  /// (encrypted for the user, like the login keychain) and on Linux the freedesktop Secret Service (the login keyring,
+  /// through v57/SwiftUI's SecretService). When those are out of reach calls throw; neither falls back to a file. Items
+  /// are never synced; `synchronizable` items are kept apart from this-device ones, as on Apple platforms.
+  ///
+  /// There are no access groups here: `accessGroup` is ignored, and every program of the user can ask for any item. So
+  /// the split between what every app reads and what only Vault reads (`VaultConfiguration.secretsGroup`) means nothing
+  /// off Apple platforms, and `isEntitled(to:)` is always true.
+  ///
+  /// Anywhere else (Android, say) there's no backend yet: a Debug build keeps items in a JSON file only the user can read,
+  /// and a Release build refuses (`errSecNotAvailable`), so a release can't quietly keep passwords in a plain file.
   public struct VaultKeychain: Sendable {
     public let service: String
     public let accessGroup: String?
@@ -56,6 +63,17 @@
     /// Every app of the user shares the items.
     public static let isShared = true
 
+    /// Nothing tells one program of the user from another here.
+    public static func isEntitled(to group: String) -> Bool { true }
+
+    /// Whether keychain calls can work in this build.
+    public static var isAvailable: Bool { Store.isAvailable }
+
+    /// There's no label or date to read back from these stores.
+    public func attributes(of account: String, options: Options) throws -> (label: String?, modified: Date?)? {
+      try read(account, options: options).map { _ in (nil, nil) }
+    }
+
     /// The items' group: service and kind (an item's name is the group, then its account).
     private func prefix(_ options: Options) -> String {
       "\(service)|\(options.synchronizable ? "synced" : "device")|"
@@ -88,6 +106,7 @@
     /// Generic credentials in the Windows Credential Manager. Failures carry the Windows error code as the status
     /// (the manager needs an interactive logon: over SSH with a key it fails with ERROR_NO_SUCH_LOGON_SESSION).
     private enum Store {
+      static let isAvailable = true
       private static var failure: VaultKeychain.KeychainError { .status(OSStatus(truncatingIfNeeded: GetLastError())) }
 
       static func read(_ prefix: String, _ account: String) throws -> Data? {
@@ -155,6 +174,8 @@
     /// Items in the Secret Service's login collection, named by the group (service and kind) and the account. A
     /// failure (no D-Bus session or keyring daemon) carries `errSecNotAvailable` as the status.
     private enum Store {
+      static let isAvailable = true
+
       static func read(_ prefix: String, _ account: String) throws -> Data? {
         do { return try SecretService.read(service: prefix, account: account) } catch { throw failure(error) }
       }
@@ -178,8 +199,21 @@
       }
     }
   #else
-    /// A JSON file of base64 items in the user's data folder, readable by the user only.
+    /// A JSON file of base64 items in the user's data folder, readable by the user only, in a Debug build. A Release
+    /// build refuses: this is no place for passwords, and it must not be somewhere they end up unnoticed.
     private enum Store {
+      static var isAvailable: Bool {
+        #if DEBUG
+          true
+        #else
+          false
+        #endif
+      }
+
+      private static func checkAvailable() throws {
+        guard isAvailable else { throw VaultKeychain.KeychainError.status(errSecNotAvailable) }
+      }
+
       private static let lock = NSLock()
       private static var url: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("dev.v57.vault/keychain.json")
@@ -197,11 +231,13 @@
       }
 
       static func read(_ prefix: String, _ account: String) throws -> Data? {
+        try checkAvailable()
         lock.lock(); defer { lock.unlock() }
         return load()[prefix + account].flatMap { Data(base64Encoded: $0) }
       }
 
       static func all(_ prefix: String) throws -> [(account: String, data: Data)] {
+        try checkAvailable()
         lock.lock(); defer { lock.unlock() }
         return load().filter { $0.key.hasPrefix(prefix) }.compactMap { key, value in
           Data(base64Encoded: value).map { (String(key.dropFirst(prefix.count)), $0) }
@@ -209,6 +245,7 @@
       }
 
       static func write(_ prefix: String, _ account: String, _ data: Data, label: String?) throws {
+        try checkAvailable()
         lock.lock(); defer { lock.unlock() }
         var items = load()
         items[prefix + account] = data.base64EncodedString()
@@ -216,6 +253,7 @@
       }
 
       static func delete(_ prefix: String, _ account: String) throws {
+        try checkAvailable()
         lock.lock(); defer { lock.unlock() }
         var items = load()
         items[prefix + account] = nil

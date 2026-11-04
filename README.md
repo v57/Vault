@@ -46,8 +46,22 @@ Every app on a device shares one store, and an item one app sends is sent for al
 CloudKit's Production environment: a debug build left in Development would send the others' writes where none of them
 looks. On the Mac, sync stays off in a build without it.
 
-A build without them (ad-hoc signed) still runs: the store falls back to the app's own Application Support and
-keychain, and sync stays off.
+A build signed by another team, without these, still runs: the store falls back to the app's own Application Support
+and keychain items, and sync stays off. A build with no application identifier at all (ad-hoc signed) can only reach the
+old file keychain: a Debug build uses it, so it runs while being worked on, and a **Release build refuses**
+(`VaultKeychain.isAvailable`; every keychain call throws), so a signing mistake is an error and not secrets quietly kept
+somewhere weaker. It opens with no vault keys, device key or passwords. To run from source, use Debug or sign with your
+own team.
+
+**Off Apple platforms** nothing syncs through iCloud, and no group separates one app from another:
+
+| Platform | Where items go | Who can read them | When it isn't there |
+|---|---|---|---|
+| Windows | Credential Manager, per machine (`CRED_PERSIST_LOCAL_MACHINE`), encrypted for the user | Any program of the user | Calls throw (over SSH with a key it has no logon session) |
+| Linux | Secret Service, the login collection (GNOME Keyring, KWallet, KeePassXC) | Any program of the user while it's unlocked; a locked one asks | Calls throw (no D-Bus session or keyring daemon) |
+| Anything else (Android today) | No backend yet. Debug: a 0600 JSON file of base64 items. Release: nothing | The user, in Debug | Release calls throw `errSecNotAvailable` |
+
+Neither Windows nor Linux falls back to a file. Hub's `HUB_DEVICE_KEY` and `~/.hub/device.key` are separate: see Hub below.
 
 ## How it works
 
