@@ -232,6 +232,27 @@ struct DeviceHostTests {
     #expect(try keys.lines() == [other])
   }
 
+  /// Keys and names come from synced records: neither may add a line, which sshd would read with its own options.
+  @Test func aRecordCantAddAnotherLineToAuthorizedKeys() throws {
+    let file = temporaryDirectory().appendingPathComponent(".ssh/authorized_keys")
+    let keys = VaultAuthorizedKeys(url: file)
+    let forged = VaultDeviceKey(
+      id: "forged", deviceName: "iPhone", publicKey: "ssh-x\ncommand=\"touch /tmp/x\" ssh-rsa AAAA", platform: "iOS")
+    #expect(throws: VaultAuthorizedKeys.AuthorizedKeysError.self) { try keys.allow(forged) }
+    #expect(try keys.lines().isEmpty)
+
+    let phone = VaultDeviceKey(
+      id: "phone", deviceName: "iPhone\ncommand=\"touch /tmp/x\" ssh-rsa AAAA\r\u{0}", publicKey: Self.phoneKey,
+      platform: "iOS")
+    try keys.allow(phone)
+    #expect(try keys.lines().count == 1)
+    var renamed = phone
+    renamed.deviceName = "Phone\nssh-rsa AAAA"
+    try keys.removeStale(keeping: [renamed])
+    #expect(try keys.lines().count == 1)
+    #expect(try keys.allowedDevices(among: [phone]) == ["phone"])
+  }
+
   @Test func aNewKeyNeedsAllowingAgain() throws {
     let keys = VaultAuthorizedKeys(url: temporaryDirectory().appendingPathComponent("authorized_keys"))
     var phone = VaultDeviceKey(id: "phone", deviceName: "iPhone", publicKey: Self.phoneKey, platform: "iOS")

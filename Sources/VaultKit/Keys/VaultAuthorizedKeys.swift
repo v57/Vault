@@ -133,14 +133,20 @@ public struct VaultAuthorizedKeys: Sendable {
 
   /// Vault's line for a device: its key, the marker and its name.
   static func line(material: String, for key: VaultDeviceKey) -> String {
-    "\(material) \(marker)\(key.id) \(key.deviceName.replacingOccurrences(of: "\n", with: " "))"
+    "\(material) \(marker)\(key.id) \(oneLine(key.deviceName))"
+  }
+
+  /// A name for a line's comment: names come from synced records, and a line break would start another line in the
+  /// file, one sshd reads as a key with whatever options it says.
+  static func oneLine(_ name: String) -> String {
+    String(name.map { $0.isNewline || $0.unicodeScalars.contains { $0.properties.generalCategory == .control } ? " " : $0 })
   }
 
   /// A line Vault added with `name` after its marker; what comes before (options, the key) stays.
   static func renamed(_ line: String, to name: String) -> String {
     guard let marker = line.range(of: " \(marker)") else { return line }
     let end = line[marker.upperBound...].firstIndex(of: " ") ?? line.endIndex
-    return "\(line[..<end]) \(name.replacingOccurrences(of: "\n", with: " "))"
+    return "\(line[..<end]) \(oneLine(name))"
   }
 
   // MARK: The file
@@ -168,10 +174,11 @@ public struct VaultAuthorizedKeys: Sendable {
 
   // MARK: Lines
 
-  /// "ecdsa-sha2-nistp256 AAAA…": the key's type and blob, after any options, without the comment.
+  /// "ecdsa-sha2-nistp256 AAAA…": the key's type and blob, after any options, without the comment. Nil for text of
+  /// more than one line: what a synced record calls a key must not put a second line in the file.
   public static func keyMaterial(of line: String) -> String? {
-    let line = line.trimmingCharacters(in: .whitespaces)
-    guard !line.isEmpty, !line.hasPrefix("#") else { return nil }
+    let line = line.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !line.isEmpty, !line.hasPrefix("#"), !line.contains(where: \.isNewline) else { return nil }
     let words = line.split(separator: " ", omittingEmptySubsequences: true)
     guard let index = words.firstIndex(where: isKeyType), index + 1 < words.count else { return nil }
     return "\(words[index]) \(words[index + 1])"
