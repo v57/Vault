@@ -191,6 +191,9 @@ key the apps connect with, pins the Hub's key from `hub/info` and uses v1 auth f
 `hub/devices` and mirrors every approved device that offers SSH and has a Hub Network address into a `VaultHost` with
 a `hub` route (`HubRoute`: device id, name, platform, the host key the device signed, last seen to the hour). The
 host key is trusted for every app (`VaultKnownHost`) only when the device's own key signed it (`ssh1:<hostKey>`).
+A pin belongs to a route as well as an address (`VaultHost.pinRoute`: Hub and device, this device's device record, or
+the host's id for a `.local` name), so two Hubs' overlay addresses and repeated `.local` names keep their own pins, and
+a Hub's trust reaches only its own routes. Pins from before routes stay readable until the route has its own.
 A revoked or removed device's host and its trust go on the next update. The mirror's updates keep what the user
 set on a host, such as `buildSigning`: how builds that Code starts there over SSH sign, since the login keychain stays locked
 in an SSH session. Other apps read these hosts through VaultKit
