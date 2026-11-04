@@ -7,13 +7,20 @@ import Foundation
 final class FlakyKeys: VaultKeyProvider, @unchecked Sendable {
   let base: MemoryKeyProvider
   var failing = false
+  /// Keys that can't be read while the rest can.
+  var failingIDs: Set<String> = []
   var reads = 0
 
   init(_ base: MemoryKeyProvider) { self.base = base }
 
   private func check() throws { if failing { throw VaultKeychain.KeychainError.status(-25308) } }
   func primary() throws -> (id: String, key: SymmetricKey) { try check(); return try base.primary() }
-  func key(id: String) throws -> SymmetricKey? { try check(); reads += 1; return try base.key(id: id) }
+  func key(id: String) throws -> SymmetricKey? {
+    try check()
+    if failingIDs.contains(id) { throw VaultKeychain.KeychainError.status(-25308) }
+    reads += 1
+    return try base.key(id: id)
+  }
   var allKeys: [String: SymmetricKey] { get throws { try check(); reads += 1; return base.allKeys } }
   var keyEpochs: [VaultKeyEpoch] { get throws { try check(); return try base.keyEpochs } }
   func rotate(kitCheck: String?) throws -> VaultKeyEpoch { try check(); return try base.rotate(kitCheck: kitCheck) }

@@ -266,6 +266,8 @@ extension VaultStore {
     }
     let legacy = database
     let building = try SQLiteConnection(url: temporary, mode: .building)
+    // Before the files go, by the defer above: Windows doesn't remove an open file.
+    defer { building.close() }
     try Self.createTables(in: building)
     database = building
     defer { if database === building { database = legacy } }
@@ -694,27 +696,44 @@ extension VaultStore {
     }
   }
 
-  /// What was deferred, again. Stops at the first failure: the next one would meet the same keychain.
+  /// What was deferred, again, each on its own: one that can't be applied doesn't keep the rest waiting. Anything that
+  /// couldn't even be written down is thrown at the end.
   private func retryDeferred() throws -> [String] {
     var toSend: [String] = []
+    var failure: Error?
     for record in try deferredRecords() {
-      if let unreadSince = record.unreadSince {
-        if formatTesting.now().timeIntervalSince1970 - unreadSince > Self.serverFormat1Window { try forgetDeferred(id: record.id) }
-        continue
-      }
-      if record.isDeletion {
-        try applyDeletion(id: record.id)
-        continue
-      }
-      let remote = RemoteRecord(
-        id: record.id, keyID: record.keyID, payload: record.payload, changeTag: record.changeTag, systemFields: record.systemFields)
-      switch try apply(remote) {
-      case .deferred: return toSend
-      case .merged(needsSend: true), .refused(needsSend: true): toSend.append(record.id)
-      default: break
+      do {
+        if let unreadSince = record.unreadSince {
+          if formatTesting.now().timeIntervalSince1970 - unreadSince > Self.serverFormat1Window { try forgetDeferred(id: record.id) }
+        } else if record.isDeletion {
+          try applyDeletion(id: record.id)
+        } else {
+          let remote = RemoteRecord(
+            id: record.id, keyID: record.keyID, payload: record.payload, changeTag: record.changeTag, systemFields: record.systemFields)
+          switch try apply(remote) {
+          case .merged(needsSend: true), .refused(needsSend: true): toSend.append(record.id)
+          default: break
+          }
+        }
+      } catch {
+        failure = failure ?? error
       }
     }
+    if let failure { throw failure }
     return toSend
+  }
+
+  /// See `resetServerState`.
+  func keepDeferredForAnotherServer() throws {
+    for var record in try deferredRecords() {
+      if record.isDeletion || record.unreadSince != nil {
+        try forgetDeferred(id: record.id)
+      } else {
+        record.changeTag = nil
+        record.systemFields = nil
+        try deferRecord(record)
+      }
+    }
   }
 
   // MARK: Refusals

@@ -30,6 +30,8 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   private var attached: [String: VaultStore] = [:]
   /// The engine started without saved state: every zone is made again (saving an existing zone changes nothing).
   private var isFreshEngine = false
+  /// `start` got past the entitlement check.
+  private var wasStarted = false
   /// Zones whose last fetch failed: they haven't seen everything, whatever the fetch as a whole said.
 
   private var accountsToken: UUID?
@@ -96,6 +98,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         "Not entitled for \(VaultConfiguration.cloudContainer, privacy: .public) in Production: the vault stays on this device")
       return
     }
+    lock.withLock { wasStarted = true }
     observers.append(
       NotificationCenter.default.addObserver(forName: .CKAccountChanged, object: nil, queue: .main) { [weak self] _ in
         self?.startIfSignedIn()
@@ -262,10 +265,10 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   /// arrive by push (the app's own subscription) within a minute or so, and at launch.
   public func syncNow() {
     guard let engine = currentEngine else {
-      if store.isWaitingToMigrate {
-        _ = try? store.catchUp()
-        startIfSignedIn()
-      }
+      if store.isWaitingToMigrate { _ = try? store.catchUp() }
+      // Whatever moved the store on, a save or a Hub's catch-up or a restore as much as this, CloudKit starts now. Only
+      // once `start` has seen the entitlement: asking without it traps.
+      if lock.withLock({ wasStarted }) { startIfSignedIn() }
       return
     }
     queueOutbox()
@@ -328,7 +331,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         queueOutbox()
       case .switchAccounts, .signOut:
         // What the old account's server held means nothing now; everything goes up again on the next account.
-        for store in activeStores { try? store.resetServerState() }
+        for store in activeStores { try? store.resetServerState(forAnotherAccount: true) }
       @unknown default:
         break
       }

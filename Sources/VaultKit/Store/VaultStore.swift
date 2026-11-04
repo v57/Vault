@@ -513,8 +513,10 @@ public final class VaultStore: @unchecked Sendable {
     let isOldFormat = VaultItemSeal.parse(record.payload) == nil
     let keyID = VaultItemSeal.parse(record.payload)?.keyID ?? record.keyID
     let remote: VaultItem
+    var opened: VaultItem?
     do {
       remote = try decode(id: record.id, keyID: keyID, payload: record.payload, from: .network)
+      opened = remote
       try checkHighWater(id: record.id, remote)
     } catch VaultCrypto.CryptoError.missingKey {
       // Keep the server's copy until the key arrives. A row stays as it is, whether this device can read it or it's
@@ -536,6 +538,8 @@ public final class VaultStore: @unchecked Sendable {
       }
       return .undecryptable
     } catch where Self.payloadIsWrong(error) {
+      // A tombstone this store purged, still on the server until the delete lands, isn't anything to tell the user about.
+      if opened?.isDeleted == true { return .refused(needsSend: false) }
       try noteRefused(id: record.id, tag: record.changeTag, isOldFormat: isOldFormat)
       guard let local = row?.item else { return .refused(needsSend: false) }
       // The writer's copy, which it merges when it migrates: only an edit waiting here goes up over it, as a normal
@@ -664,12 +668,15 @@ public final class VaultStore: @unchecked Sendable {
       try requireOpen()
       return try database.transaction {
         let remote: VaultItem
+        var opened: VaultItem?
         do {
           remote = try decode(id: id, keyID: keyID, payload: payload, from: .network)
+          opened = remote
           try checkHighWater(id: id, remote)
         } catch VaultCrypto.CryptoError.missingKey {
           return .undecryptable
         } catch where Self.payloadIsWrong(error) {
+          if opened?.isDeleted == true { return .refused }
           try noteRefused(id: id, tag: nil, isOldFormat: VaultItemSeal.parse(payload) == nil)
           return .refused
         }
@@ -691,17 +698,29 @@ public final class VaultStore: @unchecked Sendable {
     return result
   }
 
-  /// Forgets everything CloudKit knew and queues every item to go up again (the iCloud data was reset, or
-  /// another account signed in).
-  public func resetServerState() throws {
+  /// Forgets everything CloudKit knew and queues every item to go up again (the iCloud data was reset, or another account
+  /// signed in). What was fetched and is still to be read stays, as it's the user's data whichever server it came from,
+  /// without what it said about that server: a deletion, or a record with nothing read of it, says nothing here.
+  ///
+  /// With `forAnotherAccount`, this store hasn't seen that server, so it goes back to reading format 1 there during its next
+  /// complete fetch, if the vault's month is still on, rather than refusing a device's edits and writing over them. Only
+  /// CloudKit's own account change says so. A zone being deleted doesn't, as anyone who can write to CloudKit can do that.
+  public func resetServerState(forAnotherAccount: Bool = false) throws {
     try withLock {
       try database.transaction {
         try database.execute(
-          "UPDATE items SET change_tag = NULL, system_fields = NULL; DELETE FROM engines; DELETE FROM server_copies;")
+          "UPDATE items SET change_tag = NULL, system_fields = NULL; DELETE FROM engines WHERE name NOT LIKE 'retry:%'; DELETE FROM server_copies;")
         let now = Date.now.timeIntervalSince1970
         try database.query(
           "INSERT OR REPLACE INTO outbox(id, version, queued, owner, until) SELECT id, version, ?, NULL, 0 FROM items WHERE \(Self.format2Rows)",
           [.double(now)])
+        try keepDeferredForAnotherServer()
+        // The copies that waited for a key are gone with the rest.
+        try database.query("DELETE FROM meta WHERE key = 'format.waiting'")
+        if forAnotherAccount {
+          try database.query("DELETE FROM meta WHERE key IN ('format', 'format.fetched')")
+          _formatFinished = false
+        }
       }
     }
   }
