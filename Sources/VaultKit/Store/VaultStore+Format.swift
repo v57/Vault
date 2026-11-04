@@ -761,6 +761,11 @@ extension VaultStore {
         guard !_isWaiting else { return [] }
       }
       _vaultMark = nil
+      // What an open couldn't do, with the keychain out of reach.
+      if _formatError != nil {
+        _formatError = nil
+        settle()
+      }
       return try withKeySweep {
         var written: [String] = try retryDeferred()
         written += try moveLegacyRows()

@@ -992,6 +992,10 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     #expect(stopped.formatStatus.error != nil)
     #expect(stopped.formatStatus.refused == 0)
     keys.reads = -1
+    // The store that's open tries again too, and says so.
+    _ = try stopped.catchUp()
+    #expect(stopped.formatStatus.error == nil)
+    #expect(try stopped.item(id: "later")?.fields["a"]?.stringValue == "1")
     #expect(try open(old.directory, keys: keys).item(id: "later")?.fields["a"]?.stringValue == "1")
   }
 
