@@ -64,9 +64,11 @@ public final class HubDirectory {
   ///
   /// A second address of a Hub this device knows counts as a new Hub, also when it proves the same key: a proof can be
   /// relayed. Use `sameHubAs` only when the address came from that Hub over its authenticated connection, or the user
-  /// said so; the new record then uses that Hub's keys.
+  /// said so; the new record then uses that Hub's keys. `keys` names them directly, for the app holding them.
   @discardableResult
-  public func add(url text: String, name: String = "", sameHubAs original: VaultHubServer? = nil) throws -> VaultHubServer {
+  public func add(
+    url text: String, name: String = "", sameHubAs original: VaultHubServer? = nil, keys: HubKeyScope? = nil
+  ) throws -> VaultHubServer {
     guard let url = Self.normalized(text) else { throw HubDirectoryError.badAddress }
     guard let store = vault.store else { throw HubDirectoryError.noVault }
     if let existing = vault.hubs.first(where: { Self.normalized($0.url) == url })
@@ -78,7 +80,7 @@ public final class HubDirectory {
     let hub = VaultHubServer(
       id: VaultHubServer.newID(url: url, in: store), name: name, url: url, connects: [vault.deviceID],
       order: vault.hubs.count)
-    guard let scope = original.flatMap(keyScope) ?? HubAddress.canonical(url).map(HubKeyScope.address) else {
+    guard let scope = keys ?? original.flatMap(keyScope) ?? HubAddress.canonical(url).map(HubKeyScope.address) else {
       throw HubDirectoryError.badAddress
     }
     try store.save(hub)
@@ -163,7 +165,7 @@ public final class HubDirectory {
 
   /// Which keys a record uses, written to it the first time: a record pinned before the field existed was approved with
   /// the shared keys and keeps them, and every other record gets keys of its own before anything connects.
-  func keyScope(of hub: VaultHubServer) -> HubKeyScope? {
+  public func keyScope(of hub: VaultHubServer) -> HubKeyScope? {
     guard let store = vault.store else { return nil }
     if case .string(let field)? = (try? store.item(id: hub.id))?.values[Self.keysField] { return HubKeyScope(field: field) }
     let scope: HubKeyScope

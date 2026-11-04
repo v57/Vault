@@ -84,11 +84,12 @@ public enum HubKeyScope: Hashable, Sendable {
   /// Keys of their own, derived from the device key and this canonical address.
   case address(String)
 
-  init(field: String) {
+  /// As a record's `keys` field holds it.
+  public init(field: String) {
     self = field == Self.sharedField ? .shared : .address(field)
   }
 
-  var field: String {
+  public var field: String {
     switch self {
     case .shared: Self.sharedField
     case .address(let address): address
