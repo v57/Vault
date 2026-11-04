@@ -252,7 +252,7 @@ private struct HubPane: View {
 
 #if os(macOS)
   private struct UpdatesPane: View {
-    @ObservedObject var updater: AppUpdater
+    @Bindable var updater: AppUpdater
 
     var body: some View {
       FormCard(footer: "Vault checks GitHub Releases only once this is on.") {
