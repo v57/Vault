@@ -177,8 +177,50 @@ folder key to it (HPKE) without the secret: one `VaultRecoveryBlob` record per k
 sealed with a key derived from the recovery public key instead of the vault key, so a device that lost the vault
 keys can still read them. A synced folder's remote keeps its folder keys' blobs too, in `<folder>/recovery/` next to
 `members`, so the folder comes back with only the remote and the kit. `recover` opens every blob with the typed or
-scanned kit and `RecoveredKeys.restore` writes the vault keys and identity back to iCloud Keychain; `replace` makes
-a new kit and deletes the old blobs, `turnOff` deletes them everywhere.
+scanned kit, and `restore` writes back what it can vouch for: a vault key only if it opens a record here (or a record's
+history names it), and never as the current key, because a blob is sealed with the public key alone and says nothing
+about who sealed it. A new key is made and rotated to instead, which retires every restored key. Identity and secrets are written
+only where this device has none. `replace` makes a new kit, deletes the old blobs and rotates the vault key, so an old kit
+gets nothing newer than what it already held; `turnOff` deletes them everywhere.
+
+The kit also covers the keychain's secrets: logins, one-time codes, cards, passkeys, saved connection passwords and
+imported SSH keys (`VaultSecrets`). Each is sealed to the recovery public key, never to the vault key, because every
+app reads the vault key and these are for the kit alone. They follow every change, and a deleted secret's box is
+emptied before its tombstone syncs. Not covered: device SSH keys (they never leave their Secure Enclave), Hub keys,
+the GitHub sign-in, and what Shell keeps in its own keychain service.
+
+**Payload format.** A record's payload is `"V57I" 0x02`, its key's id, then its kind and its fields in two AES-GCM
+boxes, both bound to the store (`accountID`, or `personal`) and the record's id, and the fields to the kind too
+(`VaultItemSeal`). So a payload copied to another record, kind or store fails to open. The version lives in the payload
+because the schema never changes. A store moves to format 2 once, on open, in every app (`VaultStore+Format`): it
+copies itself to `<file>.format1-backup` with `VACUUM INTO`, kept and never deleted automatically (ciphertext under the
+old keys), rewrites rows in batches a kill can't hurt, and then refuses format 1 from CloudKit and Hubs. A row it can't
+open yet stays on a sealed list until its key arrives. A fresh, empty store with no sign that the vault has moved reads
+format 1 for an hour from its first open, then finishes at the next open; every other store finishes in the same open.
+
+Devices update at different times. Format 2 CloudKit records carry no `keyID` field, so an old build skips them rather
+than storing them over its copy (given a key id it would blank the row). A device that migrates later re-sends every
+row, which converges through the field merge, and asks Hub members to send theirs again. What an old build can't be
+protected from is itself on the same device: apps share a store, so an old app on a migrated store sees unreadable
+rows. Update every v57 app on a device together.
+
+**Key epochs.** The current key is an explicit claim in the synced keychain next to the keys: `keyepoch.<n>.<id>`
+names the key and the keys it retires (`VaultKeyRing`). It's there and not in CloudKit because whoever can write
+CloudKit records must not be able to choose the key. The highest epoch wins, then the id, so concurrent rotations
+converge. A vault that never rotated has no claim, and its smallest id is current with nothing rewritten. `derivedID`
+hashes with a synced id key (`idkey`), made once from the same key as before, so ids don't change now or at a rotation.
+
+`rotateKeys` adds a key, seals every row and folder key under it in every store, and from then on anything under a
+retired key is refused; a device that hears of a rotation does the same (`catchUp`). Retired keys stay in the keychain
+for the notes and backups under them. A rotation doesn't reach `.mdenc` files until their next write, or Linux, Windows
+and Hub-only devices, which have no iCloud Keychain. **iCloud Keychain gives a new key to every device in the Apple
+account, so a rotation keeps out only a device that has left it.**
+
+**Lost Device.** `VaultLostDeviceSheet`, in the order that works: (1) remove it from the Apple account, which only the
+user can do; (2) `revokeDevice` plus each Hub; (3) take its lines out of `authorized_keys`, here and over SSH on each
+server the user clicks; (4) `rotateKeys`; (5) a list of secrets to change by hand. Each step runs at its click and can
+be skipped or tried again. A `VaultRevokedDevice` record keeps it out: what it publishes is ignored and it shows as not
+trusted until the user trusts it again. Plain Remove only tidies up, and a device running a v57 app comes back.
 
 **Hub.** `VaultHub` (a library of its own, so VaultKit doesn't depend on Hub) connects this device to the user's own
 Hub (`~/Developer/Hub`, wire contract `Docs/Devices/protocol.md`). Nothing connects until the user adds one: a
