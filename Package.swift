@@ -34,7 +34,8 @@ let package = Package(
       ]),
     .testTarget(name: "VaultHubTests", dependencies: ["VaultHub"], resources: [.copy("Fixtures")]),
     // The accounts' screens every app shows, on ComponentKit: the window's account (VaultAccountScope), its picker,
-    // New Account, Settings ▸ Accounts and Your Name (VaultProfileRequest asks for it when an app needs it).
+    // New Account, Settings ▸ Accounts and Your Name (VaultProfileRequest asks for it when an app needs it), and the
+    // question about a server's SSH key on first contact (VaultHostKeyRequest).
     .target(name: "VaultUI", dependencies: ["VaultKit", .product(name: "ComponentKit", package: "Component")]),
     .testTarget(name: "VaultUITests", dependencies: ["VaultUI"]),
   ]
