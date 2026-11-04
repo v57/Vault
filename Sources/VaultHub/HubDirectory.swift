@@ -1,4 +1,5 @@
 import Foundation
+import HubService
 import Observation
 import VaultKit
 
@@ -16,7 +17,7 @@ public final class HubDirectory {
   public private(set) var error: String?
 
   @ObservationIgnored public let vault: Vault
-  @ObservationIgnored private var keys: (device: HubKey, client: HubKey)?
+  @ObservationIgnored private var keys: [HubKeyScope: (device: HubKey, client: HubKey)] = [:]
   @ObservationIgnored private var isStarted = false
 
   public init(vault: Vault) {
@@ -45,17 +46,27 @@ public final class HubDirectory {
     hubID.flatMap { connections[$0] }
   }
 
-  /// This device on the Hubs (the same on all of them), once its key exists.
+  /// This device on a Hub, once its key exists. A Hub added since auth v2 knows it by an id and safety code of its own.
+  public func thisDevice(on hub: VaultHubServer) -> HubThisDevice? {
+    guard let scope = keyScope(of: hub), let key = try? loadKeys(scope).device else { return nil }
+    return HubThisDevice(key: key)
+  }
+
+  /// This device on the Hubs that keep the keys from before auth v2.
   public var thisDevice: HubThisDevice? {
-    guard let key = try? loadKeys().device else { return nil }
+    guard let key = try? loadKeys(.shared).device else { return nil }
     return HubThisDevice(key: key)
   }
 
   // MARK: Changing Hubs
 
-  /// Adds a Hub at a WebSocket address and connects this device to it.
+  /// Adds a Hub at a WebSocket address and connects this device to it, with keys of its own for this address.
+  ///
+  /// A second address of a Hub this device knows counts as a new Hub, also when it proves the same key: a proof can be
+  /// relayed. Use `sameHubAs` only when the address came from that Hub over its authenticated connection, or the user
+  /// said so; the new record then uses that Hub's keys.
   @discardableResult
-  public func add(url text: String, name: String = "") throws -> VaultHubServer {
+  public func add(url text: String, name: String = "", sameHubAs original: VaultHubServer? = nil) throws -> VaultHubServer {
     guard let url = Self.normalized(text) else { throw HubDirectoryError.badAddress }
     guard let store = vault.store else { throw HubDirectoryError.noVault }
     if let existing = vault.hubs.first(where: { Self.normalized($0.url) == url })
@@ -67,7 +78,11 @@ public final class HubDirectory {
     let hub = VaultHubServer(
       id: VaultHubServer.newID(url: url, in: store), name: name, url: url, connects: [vault.deviceID],
       order: vault.hubs.count)
+    guard let scope = original.flatMap(keyScope) ?? HubAddress.canonical(url).map(HubKeyScope.address) else {
+      throw HubDirectoryError.badAddress
+    }
     try store.save(hub)
+    try store.save(id: hub.id, kind: VaultHubServer.kind, changes: [Self.keysField: .string(scope.field)])
     vault.reload()
     refresh()
     return hub
@@ -98,11 +113,15 @@ public final class HubDirectory {
     }
   }
 
-  /// Forgets the pinned key, for a Hub whose key changed on purpose (it was reinstalled).
+  /// Forgets the pinned key, for a Hub whose key changed on purpose (it was reinstalled). Whatever answers there next is
+  /// a new Hub to this device, so a record on the old shared keys moves to keys of its own.
   public func forgetKey(of hub: VaultHubServer) {
     var hub = vault.hub(id: hub.id) ?? hub
     hub.hubKey = nil
     vault.save(hub)
+    if keyScope(of: hub) == .shared, let address = HubAddress.canonical(hub.url), let store = vault.store {
+      try? store.save(id: hub.id, kind: VaultHubServer.kind, changes: [Self.keysField: .string(HubKeyScope.address(address).field)])
+    }
     connections[hub.id]?.stop()
     connections[hub.id] = nil
     refresh()
@@ -124,9 +143,10 @@ public final class HubDirectory {
     }
     guard !wanted.isEmpty else { return }
     do {
-      let keys = try loadKeys()
       error = nil
       for hub in vault.hubs where wanted.contains(hub.id) && connections[hub.id] == nil {
+        guard let scope = keyScope(of: hub) else { continue }
+        let keys = try loadKeys(scope)
         let connection = HubConnection(
           hub: hub, vault: vault, device: HubThisDevice(key: keys.device), deviceKey: keys.device, clientKey: keys.client)
         connections[hub.id] = connection
@@ -138,10 +158,30 @@ public final class HubDirectory {
     observeHubs()
   }
 
-  private func loadKeys() throws -> (device: HubKey, client: HubKey) {
-    if let keys { return keys }
-    let loaded = (device: try HubKeyStore.deviceKey(), client: try HubKeyStore.clientKey())
-    keys = loaded
+  /// The field of a Hub record that says which keys it uses. A record's other fields survive any app saving it.
+  nonisolated static let keysField = "keys"
+
+  /// Which keys a record uses, written to it the first time: a record pinned before the field existed was approved with
+  /// the shared keys and keeps them, and every other record gets keys of its own before anything connects.
+  func keyScope(of hub: VaultHubServer) -> HubKeyScope? {
+    guard let store = vault.store else { return nil }
+    if case .string(let field)? = (try? store.item(id: hub.id))?.values[Self.keysField] { return HubKeyScope(field: field) }
+    let scope: HubKeyScope
+    if hub.hubKey != nil {
+      scope = .shared
+    } else if let address = HubAddress.canonical(hub.url) {
+      scope = .address(address)
+    } else {
+      return nil
+    }
+    try? store.save(id: hub.id, kind: VaultHubServer.kind, changes: [Self.keysField: .string(scope.field)])
+    return scope
+  }
+
+  private func loadKeys(_ scope: HubKeyScope) throws -> (device: HubKey, client: HubKey) {
+    if let keys = keys[scope] { return keys }
+    let loaded = try HubKeyStore.keys(for: scope)
+    keys[scope] = loaded
     return loaded
   }
 

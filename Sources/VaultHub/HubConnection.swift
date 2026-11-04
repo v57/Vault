@@ -7,10 +7,6 @@ import VaultKit
 #if canImport(UIKit)
   import UIKit
 #endif
-#if canImport(FoundationNetworking)
-  import FoundationNetworking
-#endif
-
 /// One Hub, while this app runs: connected as this device, its device directory mirrored into the vault's hosts, and
 /// the requests of devices waiting to join.
 ///
@@ -29,6 +25,8 @@ public final class HubConnection: Identifiable {
     case wrongHub
     /// The Hub turns this device away (it was revoked, or its key isn't allowed): it stopped trying.
     case revoked
+    /// The address is plain `ws://` beyond this network: nothing is sent to it. It needs `wss://`.
+    case notEncrypted
     case offline
   }
 
@@ -56,8 +54,11 @@ public final class HubConnection: Identifiable {
 
   public private(set) var recordSync = RecordSync.off
 
-  /// This device on the Hub.
+  /// This device on the Hub. A Hub added since auth v2 knows it by an id and safety code of its own.
   public let device: HubThisDevice
+
+  /// Plain `ws://` on the local network: allowed, and the UI says that the connection isn't encrypted.
+  public var isUnencrypted: Bool { hub.map { HubTransport(address: $0.url).isUnencryptedNetwork } ?? false }
 
   @ObservationIgnored private let vault: Vault
   @ObservationIgnored private let deviceKey: HubKey
@@ -80,13 +81,18 @@ public final class HubConnection: Identifiable {
 
   func start() {
     guard client == nil, let hub, let url = URL(string: hub.url) else { return }
+    guard HubTransport(url) != .refused else {
+      status = .notEncrypted
+      return
+    }
     let channel = Channel<Void>()
     let client = channel.connect(
       url,
       options: ClientOptions(
-        headers: { [weak self] in self?.headers() ?? [:] },
+        headers: { [weak self] in await self?.headers() ?? [:] },
         onConnect: { [weak self] _ in await self?.didConnect() }))
     self.client = client
+    client.ws.onRefused = { [weak self] _ in self?.refused() }
     stateObserver = client.onStateChange { [weak self] state in self?.stateChanged(state) }
     tasks = [
       Task { [weak self] in await self?.followDevices() },
@@ -105,17 +111,50 @@ public final class HubConnection: Identifiable {
     status = .offline
   }
 
-  /// Headers for each connection attempt: v1 auth once the Hub's key is pinned, and this device's certificate.
-  private func headers() -> [String: String] {
-    let now = Int(Date().timeIntervalSince1970)
-    let hubKey = hub?.hubKey
-    return [
-      "v": hubKey == nil ? "0" : "1",
-      "auth": HubWire.auth(clientKey, hubKey: hubKey, expiry: now + 60),
+  /// Bumped by every connection attempt, so a handshake still waiting for an older one ends.
+  @ObservationIgnored private var handshake = 0
+
+  /// Headers for each connection attempt, once the server at the address proves its key (protocol §2). Nothing of this
+  /// device reaches a server before that, and only a key it proves gets pinned. While nothing answers with a proof the
+  /// attempt waits; `stop()` or a new attempt ends the wait.
+  private func headers() async -> [String: String] {
+    handshake += 1
+    let handshake = handshake
+    var delay = Duration.milliseconds(500)
+    while handshake == self.handshake, client != nil, !Task.isCancelled, let hub, let url = URL(string: hub.url) {
+      switch await HubHandshake.ask([url], pinned: hub.hubKey) {
+      case .proven(let info, let challenge, _):
+        guard handshake == self.handshake, client != nil else { return [:] }
+        securityMode = info.mode
+        pin(info.key)
+        return headers(hubKey: info.key, nonce: challenge)
+      case .mismatch:
+        guard handshake == self.handshake, client != nil else { return [:] }
+        stop()
+        status = .wrongHub
+        return [:]
+      case .none:
+        try? await Task.sleep(for: delay)
+        delay = min(delay * 2, .seconds(5))
+      }
+    }
+    return [:]
+  }
+
+  func headers(hubKey: String, nonce: String, now: Int = Int(Date().timeIntervalSince1970)) -> [String: String] {
+    [
+      "v": "1",
+      "auth": HubWire.auth(clientKey, hubKey: hubKey, nonce: nonce, expiry: now + HubAuth.tokenLifetime),
       "device": HubWire.certificate(
         device: deviceKey, service: clientKey.spki, instance: "v57", deviceName: device.name,
         platform: device.platform, issued: now),
     ]
+  }
+
+  private func pin(_ key: String) {
+    guard var hub, hub.hubKey == nil else { return }
+    hub.hubKey = key
+    vault.save(hub)
   }
 
   private func stateChanged(_ state: ConnectionState) {
@@ -125,7 +164,6 @@ public final class HubConnection: Identifiable {
       if status == .offline || status == .connecting { status = .connected }
     case .disconnected:
       status = .offline
-      checkRefusal()
     default:
       status = .connecting
     }
@@ -133,84 +171,32 @@ public final class HubConnection: Identifiable {
 
   // MARK: Refused connections
 
-  @ObservationIgnored private var refusalCheck: Task<Void, Never>?
-  @ObservationIgnored private var lastRefusalCheck = Date.distantPast
+  /// One refused connect asks for a new challenge at once: it can be gone after a Hub restart.
+  @ObservationIgnored private var retriedRefusal = false
 
-  /// When the connection drops or doesn't open, asks why, at most twice a minute: a Hub that refuses the upgrade
-  /// (HTTP 4xx) has either another key than the one pinned (`.wrongHub`) or turned this device away (`.revoked`).
-  /// Either way retrying can't help, so the connection stops.
-  private func checkRefusal() {
-    guard refusalCheck == nil, Date().timeIntervalSince(lastRefusalCheck) > 30, let hub, let url = URL(string: hub.url)
-    else { return }
-    lastRefusalCheck = Date()
-    let headers = headers()
-    refusalCheck = Task { [weak self] in
-      defer { self?.refusalCheck = nil }
-      guard await Self.upgradeIsRefused(url: url, headers: headers) else { return }
-      let key = await Self.hubKey(at: url)
-      guard let self, self.client != nil else { return }
-      let pinned = self.hub?.hubKey
-      self.stop()
-      self.status = pinned != nil && key != nil && key != pinned ? .wrongHub : .revoked
+  /// The Hub refused an upgrade with a token for the key it just proved: it turned this device away. Retrying can't
+  /// help, so the connection stops.
+  private func refused() {
+    guard client != nil else { return }
+    guard retriedRefusal else {
+      retriedRefusal = true
+      client?.reconnectNow()
+      return
     }
-  }
-
-  /// Opens one WebSocket with the connection's headers: true when the server answers the upgrade with an HTTP
-  /// client error instead of opening it. (Channel's client retries without saying why.)
-  nonisolated static func upgradeIsRefused(url: URL, headers: [String: String], timeout: TimeInterval = 8) async -> Bool {
-    var request = URLRequest(url: url, timeoutInterval: timeout)
-    for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
-    let task = URLSession.shared.webSocketTask(with: request)
-    task.resume()
-    let watchdog = Task {
-      try? await Task.sleep(for: .seconds(timeout))
-      task.cancel(with: .goingAway, reason: nil)
-    }
-    defer {
-      watchdog.cancel()
-      task.cancel(with: .goingAway, reason: nil)
-    }
-    do {
-      _ = try await task.receive()
-      return false
-    } catch {
-      guard let status = (task.response as? HTTPURLResponse)?.statusCode else { return false }
-      return (400..<500).contains(status)
-    }
-  }
-
-  /// The key of the server at the address, asked without signing in (`hub/info` is public). Nil when it doesn't say.
-  static func hubKey(at url: URL, timeout: TimeInterval = 8) async -> String? {
-    let client = Channel<Void>().connect(url)
-    defer { client.stop() }
-    let options = SendOptions<EmptyCodable>(timeout: timeout, replay: false)
-    let info: HubWire.Info? = try? await client.send("hub/info", Optional<EmptyCodable>.none, options: options)
-    return info?.key
+    stop()
+    status = .revoked
   }
 
   private func didConnect() async {
     guard let client else { return }
+    retriedRefusal = false
     if status != .needsApproval { status = .connected }
     try? await client.send("hub/profile/update", HubWire.Profile(name: device.name, icon: .plain(symbol: "lock.shield")))
-    // Pin the Hub's key on the first connection and use v1 from the next (protocol §2).
-    guard let info: HubWire.Info = try? await client.send("hub/info") else { return }
-    securityMode = info.mode
     guard var hub else { return }
     // Tell the other devices which Hub device this vault device is (a project's folder on it, for remote builds).
     if hub.members[vault.deviceID] != device.id {
       hub.members[vault.deviceID] = device.id
       vault.save(hub)
-    }
-    if let pinned = hub.hubKey {
-      if pinned != info.key {
-        status = .wrongHub
-        stop()
-        status = .wrongHub
-      }
-    } else {
-      hub.hubKey = info.key
-      vault.save(hub)
-      client.reconnectNow()
     }
   }
 
@@ -353,7 +339,7 @@ public final class HubConnection: Identifiable {
   }
 }
 
-/// This device as the Hub sees it.
+/// This device as a Hub sees it.
 public struct HubThisDevice: Sendable, Hashable {
   /// The Hub's device id.
   public var id: String

@@ -5,19 +5,6 @@ import VaultKit
 /// What the Hub sends and takes, as `Docs/Devices/protocol.md` (§2, §3, §6) defines it. Decoding is lenient: a field
 /// this version doesn't know, or one a Hub leaves out, never fails a whole list.
 enum HubWire {
-  /// `hub/info`.
-  struct Info: Decodable, Sendable {
-    var key: String
-    var proto: Int?
-    var pro: Bool?
-    var mode: String?
-
-    enum CodingKeys: String, CodingKey {
-      case key, pro, mode
-      case proto = "protocol"
-    }
-  }
-
   /// `hub/devices`.
   struct Device: Decodable, Sendable {
     var id: String
@@ -169,11 +156,9 @@ enum HubWire {
 
   // MARK: Signed strings
 
-  /// The `auth` header: `key.<SPKI>.<signature>.<expiry>`, signing `hub1:<hub SPKI>:<expiry>` once the Hub's key is
-  /// pinned (v1), else the expiry alone (v0).
-  static func auth(_ key: HubKey, hubKey: String?, expiry: Int) -> String {
-    let signed = hubKey.map { "hub1:\($0):\(expiry)" } ?? "\(expiry)"
-    return "key.\(key.spki).\(key.sign(signed)).\(expiry)"
+  /// The `auth` header (protocol §2): works once on one Hub, signing `hub1:<hub SPKI>:<challenge>:<expiry>`.
+  static func auth(_ key: HubKey, hubKey: String, nonce: String, expiry: Int) -> String {
+    "key.\(key.spki).\(key.sign(HubAuth.signedData(expiry: expiry, hubKey: hubKey, nonce: nonce))).\(expiry).\(nonce)"
   }
 
   /// The `device` header: the device key's certificate for the key the app connects with.

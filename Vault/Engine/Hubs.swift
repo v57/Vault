@@ -8,7 +8,7 @@ struct HubItem: Identifiable, Hashable {
   enum Status: Hashable {
     /// This device doesn't connect to it (another one does).
     case off
-    case connecting, connected, needsApproval, wrongHub, revoked, offline
+    case connecting, connected, needsApproval, wrongHub, revoked, notEncrypted, offline
   }
 
   var record: VaultHubServer
@@ -16,6 +16,10 @@ struct HubItem: Identifiable, Hashable {
   var devices: [VaultHubDevice] = []
   var pending: [HubPendingDevice] = []
   var isOwner = false
+  /// This device on this Hub: a Hub added since auth v2 knows it by an id and safety code of its own
+  var identity: HubIdentity?
+  /// Plain `ws://` on the local network
+  var isUnencrypted = false
   var securityMode: String?
   var error: String?
   /// Record sync through this Hub on this device, and how it went ("Synced just now · 3 in").
@@ -74,7 +78,9 @@ final class LiveHubs: HubEngine {
       }
       return HubItem(
         record: record, status: Self.status(connection.status), devices: connection.devices,
-        pending: connection.pending, isOwner: connection.isOwner, securityMode: connection.securityMode,
+        pending: connection.pending, isOwner: connection.isOwner,
+        identity: HubIdentity(id: connection.device.id, safetyCode: connection.device.safetyCode),
+        isUnencrypted: connection.isUnencrypted, securityMode: connection.securityMode,
         error: connection.error, syncsRecords: record.syncs.contains(directory.vault.deviceID),
         recordSyncLine: Self.line(connection.recordSync))
     }
@@ -125,6 +131,7 @@ final class LiveHubs: HubEngine {
     case .needsApproval: .needsApproval
     case .wrongHub: .wrongHub
     case .revoked: .revoked
+    case .notEncrypted: .notEncrypted
     case .offline: .offline
     }
   }

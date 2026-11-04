@@ -1,9 +1,10 @@
 import CryptoKit
 import Foundation
+import HubService
 import VaultKit
 
-/// An Ed25519 key in Hub's encodings (`Docs/Devices/protocol.md` §1): this device's key on every Hub, or the key the
-/// apps connect with.
+/// An Ed25519 key in Hub's encodings (`Docs/Devices/protocol.md` §1): this device's key, or the key the apps connect
+/// with.
 public struct HubKey: Sendable {
   let privateKey: Curve25519.Signing.PrivateKey
 
@@ -13,6 +14,11 @@ public struct HubKey: Sendable {
 
   /// The seed (32 bytes).
   public var seed: Data { privateKey.rawRepresentation }
+
+  /// This device's key for `role` on the Hub at `address` (canonical, see `HubAddress`), when this is its device key.
+  public func credential(_ role: HubCredentials.Role, address: String) throws -> HubKey {
+    try HubKey(seed: HubCredentials.seed(deviceSeed: seed, role: role, address: address))
+  }
 
   /// The public key as base64 SubjectPublicKeyInfo DER, as Hub writes every key.
   public var spki: String { (Self.spkiPrefix + privateKey.publicKey.rawRepresentation).base64EncodedString() }
@@ -71,6 +77,27 @@ public enum HubKeyError: LocalizedError {
   public var errorDescription: String? { "The Hub key file isn’t an Ed25519 key." }
 }
 
+/// Which keys a Hub record uses (protocol §2, "Credentials per hub address"), kept in the record's `keys` field.
+public enum HubKeyScope: Hashable, Sendable {
+  /// The keys this device had for every Hub before auth v2. A Hub pinned then was approved with them, and keeps them.
+  case shared
+  /// Keys of their own, derived from the device key and this canonical address.
+  case address(String)
+
+  init(field: String) {
+    self = field == Self.sharedField ? .shared : .address(field)
+  }
+
+  var field: String {
+    switch self {
+    case .shared: Self.sharedField
+    case .address(let address): address
+    }
+  }
+
+  private static let sharedField = "shared"
+}
+
 /// Where this device keeps its Hub keys. They never leave the device: a key that synced would let a stolen backup
 /// connect as this device.
 ///
@@ -79,6 +106,8 @@ public enum HubKeyError: LocalizedError {
 ///   it has, the apps use `~/.hub/device.key` (or `HUB_DEVICE_KEY`, which also wins over the keychain), the file
 ///   Hub's launcher and services use.
 /// - The key the v57 apps connect with: a this-device-only item in the v57 keychain group.
+/// - On a Hub added since auth v2, neither: keys derived from the device key and the address (`keys(for:)`), so what
+///   that Hub receives, relays or claims means nothing on another Hub. They are derived when needed and never stored.
 ///
 /// Demo runs and tests (`VaultSecrets.useInMemoryStore()`) keep both in memory.
 public enum HubKeyStore {
@@ -116,6 +145,17 @@ public enum HubKeyStore {
       try keychain.write(key.seed, account: deviceKeyAccount, options: .init(synchronizable: false, label: deviceKeyLabel))
     }
     return key
+  }
+
+  /// The keys this device connects with for a scope.
+  public static func keys(for scope: HubKeyScope) throws -> (device: HubKey, client: HubKey) {
+    switch scope {
+    case .shared:
+      return (try deviceKey(), try clientKey())
+    case .address(let address):
+      let device = try deviceKey()
+      return (try device.credential(.device, address: address), try device.credential(.client, address: address))
+    }
   }
 
   static let deviceKeyAccount = "hub.device-key"

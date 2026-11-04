@@ -1,4 +1,5 @@
 import Foundation
+import HubService
 import Testing
 import VaultKit
 
@@ -16,11 +17,20 @@ struct HubProtocolTests {
     }
     struct Auth: Decodable {
       struct Header: Decodable { var header: String }
+      var nonce: String
       var expiry: Int
       var v0: Header
       var v1: Header
     }
     struct Certificate: Decodable { var json: String; var header: String }
+    struct Credentials: Decodable {
+      struct Canonical: Decodable { var input: String; var address: String }
+      struct Derived: Decodable { var role: String; var address: String; var seed: String; var publicKey: String }
+      var deviceSeed: String
+      var canonical: [Canonical]
+      var keys: [Derived]
+    }
+    var credentials: Credentials
     var keys: [String: Key]
     var auth: Auth
     var certificate: Certificate
@@ -32,13 +42,16 @@ struct HubProtocolTests {
     return try! JSONDecoder().decode(Vectors.self, from: Data(contentsOf: url))
   }()
 
-  func key(_ name: String) throws -> HubKey {
-    let hex = Self.vectors.keys[name]!.seed
+  static func hex(_ hex: String) -> Data {
     let bytes = stride(from: 0, to: hex.count, by: 2).map { offset -> UInt8 in
       let start = hex.index(hex.startIndex, offsetBy: offset)
       return UInt8(hex[start..<hex.index(start, offsetBy: 2)], radix: 16)!
     }
-    return try HubKey(seed: Data(bytes))
+    return Data(bytes)
+  }
+
+  func key(_ name: String) throws -> HubKey {
+    try HubKey(seed: Self.hex(Self.vectors.keys[name]!.seed))
   }
 
   @Test func keysAndDeviceIdentity() throws {
@@ -73,12 +86,116 @@ struct HubProtocolTests {
     let service = try key("service")
     let hub = Self.vectors.keys["hub"]!.publicKey
     let expiry = Self.vectors.auth.expiry
+    let nonce = Self.vectors.auth.nonce
     expectSigned(
-      HubWire.auth(service, hubKey: nil, expiry: expiry), like: Self.vectors.auth.v0.header, signed: "\(expiry)",
-      spki: service.spki)
-    expectSigned(
-      HubWire.auth(service, hubKey: hub, expiry: expiry), like: Self.vectors.auth.v1.header,
-      signed: "hub1:\(hub):\(expiry)", spki: service.spki)
+      HubWire.auth(service, hubKey: hub, nonce: nonce, expiry: expiry), like: Self.vectors.auth.v1.header,
+      signed: "hub1:\(hub):\(nonce):\(expiry)", spki: service.spki)
+  }
+
+  /// The keys for a Hub come from the device key and the address, the same as Hub's vectors and as the Hub app.
+  @Test func credentialsMatchTheVectors() throws {
+    let credentials = Self.vectors.credentials
+    let device = try HubKey(seed: Self.hex(credentials.deviceSeed))
+    for vector in credentials.canonical {
+      #expect(HubAddress.canonical(vector.input) == vector.address)
+    }
+    for vector in credentials.keys {
+      let role = try #require(HubCredentials.Role(rawValue: vector.role))
+      let key = try device.credential(role, address: vector.address)
+      #expect(key.seed == Self.hex(vector.seed))
+      #expect(key.spki == vector.publicKey)
+    }
+  }
+
+  @MainActor
+  func directory(deviceID: String = "mac") throws -> (HubDirectory, VaultStore, Vault) {
+    VaultSecrets.useInMemoryStore()
+    let store = try VaultStore(
+      directory: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString), keys: MemoryKeyProvider(),
+      deviceID: deviceID, notifier: nil, owner: deviceID)
+    let vault = Vault(store: store)
+    return (HubDirectory(vault: vault), store, vault)
+  }
+
+  @MainActor
+  @Test func aNewHubGetsItsOwnKeysAndAPinnedOneKeepsTheShared() throws {
+    let (directory, store, vault) = try directory()
+    let shared = try HubKeyStore.keys(for: .shared)
+
+    let new = try directory.add(url: "wss://Hub.Example.com/")
+    let newKeys = try HubKeyStore.keys(for: try #require(directory.keyScope(of: new)))
+    #expect(directory.keyScope(of: new) == .address("wss://hub.example.com"))
+    #expect(newKeys.device.spki != shared.device.spki)
+    #expect(newKeys.client.spki != shared.client.spki)
+    #expect(newKeys.device.spki != newKeys.client.spki)
+    #expect(directory.thisDevice(on: new)?.id == HubKey.deviceID(spki: newKeys.device.spki))
+
+    // A record from before auth v2: pinned, no `keys`. It was approved with the shared keys, so nobody pairs again.
+    let old = VaultHubServer(id: "old", url: "wss://old.example.com", hubKey: "pinned")
+    try store.save(old)
+    vault.reload()
+    #expect(directory.keyScope(of: old) == .shared)
+    // Another app saving the record doesn't lose it, and the pin of a new record doesn't turn it into an old one
+    vault.save(old)
+    #expect(directory.keyScope(of: old) == .shared)
+    var pinned = try #require(vault.hub(id: new.id))
+    pinned.hubKey = "pinned"
+    vault.save(pinned)
+    #expect(directory.keyScope(of: pinned) == .address("wss://hub.example.com"))
+
+    // A record another device or app made, unpinned and without `keys`: keys of its own before anything connects
+    let bare = VaultHubServer(id: "bare", url: "ws://192.168.1.5:1997")
+    try store.save(bare)
+    vault.reload()
+    #expect(directory.keyScope(of: bare) == .address("ws://192.168.1.5:1997"))
+  }
+
+  @MainActor
+  @Test func aSecondAddressIsANewHubUnlessToldOtherwise() throws {
+    let (directory, _, vault) = try directory()
+    let first = try directory.add(url: "wss://hub.example.com")
+    var pinned = try #require(vault.hub(id: first.id))
+    pinned.hubKey = "same-key"
+    vault.save(pinned)
+
+    // It proves the same key, and that alone doesn't reuse credentials: a malicious Hub can relay the proof
+    var second = try directory.add(url: "ws://192.168.1.5:1997")
+    second.hubKey = "same-key"
+    vault.save(second)
+    #expect(directory.keyScope(of: second) == .address("ws://192.168.1.5:1997"))
+
+    // The address came from that Hub, or from the user
+    let third = try directory.add(url: "ws://100.96.0.4:1997", sameHubAs: pinned)
+    #expect(directory.keyScope(of: third) == directory.keyScope(of: pinned))
+  }
+
+  @MainActor
+  @Test func forgettingAKeyEndsTheSharedKeys() throws {
+    let (directory, store, vault) = try directory()
+    let old = VaultHubServer(id: "old", url: "wss://old.example.com", hubKey: "pinned")
+    try store.save(old)
+    vault.reload()
+    #expect(directory.keyScope(of: old) == .shared)
+    directory.forgetKey(of: old)
+    let forgotten = try #require(vault.hub(id: "old"))
+    #expect(forgotten.hubKey == nil)
+    #expect(directory.keyScope(of: forgotten) == .address("wss://old.example.com"))
+  }
+
+  /// Plain `ws://` beyond this network never gets a connection, and on the LAN the UI can say so.
+  @MainActor
+  @Test func aPlainPublicAddressIsNotDialed() async throws {
+    let (directory, _, vault) = try directory()
+    directory.start()
+    defer { directory.stop() }
+    let hub = try directory.add(url: "ws://hub.example.com:1997")
+    let connection = try #require(directory.connection(for: hub.id))
+    #expect(connection.status == .notEncrypted)
+    #expect(vault.hub(id: hub.id)?.hubKey == nil)
+    let local = try directory.add(url: "ws://192.168.1.5:1")
+    #expect(try #require(directory.connection(for: local.id)).isUnencrypted)
+    let tls = try directory.add(url: "wss://secure.example.com")
+    #expect(try #require(directory.connection(for: tls.id)).isUnencrypted == false)
   }
 
   @Test func certificates() throws {

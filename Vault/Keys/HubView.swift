@@ -144,7 +144,11 @@ private struct HubSection: View {
             .kitFont(.caption).padding(.horizontal, 8)
         }
       }
-      if let identity = app.hubs.identity, hub.status == .needsApproval || hub.status == .connecting {
+      if hub.isUnencrypted {
+        Text("This connection isn’t encrypted. Anyone on this network can see what this \(ThisDevice.word) sends the Hub.")
+          .kitFont(.caption)
+      }
+      if let identity = hub.identity ?? app.hubs.identity, hub.status == .needsApproval || hub.status == .connecting {
         VStack(alignment: .leading, spacing: 6) {
           Text("Approve this \(ThisDevice.word) on your Hub (the Hub app, another device’s Vault, or `hub device approve`), comparing this code:")
             .kitFont(.caption)
@@ -384,6 +388,7 @@ enum HubStatusText {
     case .needsApproval: "waiting for approval"
     case .wrongHub: "different server"
     case .revoked: "revoked"
+    case .notEncrypted: "not encrypted"
     case .offline: "offline"
     }
   }
@@ -396,6 +401,7 @@ enum HubStatusText {
     case .needsApproval: "Connected, waiting for an owner to approve this device"
     case .wrongHub: "A different server answers at this address than the Hub you added. Not connected."
     case .revoked: "This \(ThisDevice.word) was revoked on the Hub. Not connected."
+    case .notEncrypted: "This address isn’t encrypted and isn’t on your network, so nothing is sent to it. Use a wss:// address."
     case .offline: "Can’t reach the Hub; trying again"
     }
   }
@@ -404,7 +410,7 @@ enum HubStatusText {
     switch status {
     case .connected: .green
     case .connecting, .needsApproval: .orange
-    case .wrongHub, .revoked: .red
+    case .wrongHub, .revoked, .notEncrypted: .red
     case .off, .offline: .gray
     }
   }

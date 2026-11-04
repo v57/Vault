@@ -109,7 +109,7 @@ struct HubRecordSyncLiveTests {
     try await wait("revoked", timeout: 60) { lost.status == .revoked }
   }
 
-  /// Another server at the pinned address: the wrong-Hub state, not offline forever.
+  /// Another Hub at the pinned address, proving its own key: the wrong-Hub state, not offline forever.
   @Test func aDifferentKeyAtTheAddressIsTheWrongHub() async throws {
     VaultSecrets.useInMemoryStore()
     let url = try #require(Self.url)
