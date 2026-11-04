@@ -45,8 +45,10 @@ public struct VaultRecoveryKey: VaultRecord, Hashable {
   }
 }
 
-/// One key sealed to the recovery key (HPKE, X25519): a vault key, the personal identity or a folder key. Any
-/// device makes them from the public key alone; only the secret opens them.
+/// One key or secret sealed to the recovery key (HPKE, X25519): a vault key, the personal identity, a folder key, or a
+/// secret from the keychain (a password, a one-time-code seed, a card, a passkey, an imported SSH key). Any device makes
+/// them from the public key alone; only the secret opens them, so a secret here is not readable with the vault key, and
+/// an app that can only read the vault key gets nothing from it.
 ///
 /// They sync like every record (that is the copy in CloudKit), sealed with a key derived from the recovery
 /// public key rather than the vault key, so a device that lost the vault keys still reads them. A folder's
@@ -58,6 +60,9 @@ public struct VaultRecoveryBlob: VaultRecord, Hashable {
     case vaultKey
     case identity
     case folderKey
+    case secret
+    /// What ids are hashed with (`VaultKeyProvider.stableIDKey`), so a restored vault finds its records and mailboxes.
+    case idKey
   }
 
   public var id: String
@@ -65,13 +70,16 @@ public struct VaultRecoveryBlob: VaultRecord, Hashable {
   public var recoveryKey: String
   /// Nil for a kind of key this build doesn't know.
   public var content: Content?
-  /// The vault key's id, the identity's (its agreement key's fingerprint), or the folder key's.
+  /// The vault key's id, the identity's (its agreement key's fingerprint), the folder key's, or the secret's name
+  /// (`password.<id>`). The record is sealed for whoever holds the public key; CloudKit sees none of it.
   public var keyID: String
   /// The `VaultFolder` a folder key belongs to.
   public var folderID: String?
   /// The HPKE box: a version byte, the encapsulated key and the ciphertext.
   public var sealed: Data
   public var created: Date?
+  /// A secret's keyed hash, to tell whether it changed without opening the box (`VaultRecovery`).
+  public var digest: String?
 
   init(
     publicKey: Data, content: Content, keyID: String, folderID: String?, sealed: Data, created: Date? = .now
@@ -95,6 +103,7 @@ public struct VaultRecoveryBlob: VaultRecord, Hashable {
     folderID = read.string("folderID")
     sealed = read.data("sealed") ?? Data()
     created = read.date("created")
+    digest = read.string("digest")
   }
 
   /// The content as written, kept for kinds this build doesn't know.
@@ -104,7 +113,7 @@ public struct VaultRecoveryBlob: VaultRecord, Hashable {
     [
       "recoveryKey": .string(recoveryKey), "content": .string(content?.rawValue ?? contentName),
       "keyID": .string(keyID), "folderID": .init(folderID), "sealed": .string(sealed.base64EncodedString()),
-      "created": .init(created),
+      "created": .init(created), "digest": .init(digest),
     ]
   }
 

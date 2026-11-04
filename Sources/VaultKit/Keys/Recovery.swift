@@ -2,16 +2,23 @@ import CryptoKit
 import Foundation
 
 /// The optional recovery key: if iCloud Keychain loses the keys, it brings back the vault keys, the personal
-/// identity and every folder key.
+/// identity, every folder key and the secrets kept in the keychain.
 ///
 /// - `create` makes a random secret (`RecoverySecret`), keeps only its public key (`VaultRecoveryKey`), seals every
 ///   key there is to it (`VaultRecoveryBlob`) and returns the kit, the only time the secret is shown.
 /// - Any device then seals new keys to the public key without the secret: call the `wrap` hooks when a vault key,
 ///   the identity or a folder key appears, or `wrapMissing` (cheap, idempotent) after a sync.
-/// - `check` tells whether typed words are the current key; `replace` makes a new kit and deletes the old blobs;
-///   `turnOff` deletes every blob, in the store (and so in CloudKit) and on the remotes given.
-/// - `recover` opens every blob with the secret, from the synced records and from folders' remotes; the caller
-///   writes the keys back (`RecoveredKeys.restore`).
+/// - `check` tells whether typed words are the current key; `replace` makes a new kit, rotates the vault key so an old
+///   kit doesn't give the current one, and deletes the old blobs; `turnOff` deletes every blob, in the store (and so in
+///   CloudKit) and on the remotes given.
+/// - `recover` opens every blob with the secret, from the synced records and from folders' remotes; `restore` writes
+///   back the keys that open records here, and makes a new key current.
+/// - A secret's blob follows it: `VaultSecrets.didChange` (from `VaultStore.shared`) and `wrapMissing` seal a new value,
+///   and a deleted secret's blob is emptied before it's deleted.
+///
+/// What it covers: `VaultSecrets` (logins, one-time codes, cards, passkeys, connection passwords, imported SSH keys kept
+/// by Database as `database.sshkey.<uuid>`). What it doesn't: a device's own key (it stays on the device), Hub keys and
+/// the GitHub sign-in (kept elsewhere; signing in again replaces them), and what Shell keeps in its own keychain service.
 ///
 /// Off until the user creates it. Nothing here prompts, schedules or reminds: `isOn` is all the state there is.
 public struct VaultRecovery: Sendable {
@@ -20,13 +27,17 @@ public struct VaultRecovery: Sendable {
   public let keys: any VaultKeyProvider
   /// Where the personal identity is read from (`VaultPersonalIdentity.backing` by default).
   public let identityBacking: any VaultSecretBacking
+  /// Where the secrets to seal are (`VaultSecrets.backing` by default).
+  public let secretBacking: any VaultSecretBacking
 
   public init(
-    store: VaultStore, keys: (any VaultKeyProvider)? = nil, identity: (any VaultSecretBacking)? = nil
+    store: VaultStore, keys: (any VaultKeyProvider)? = nil, identity: (any VaultSecretBacking)? = nil,
+    secrets: (any VaultSecretBacking)? = nil
   ) {
     self.store = store
     self.keys = keys ?? store.keys
     identityBacking = identity ?? VaultPersonalIdentity.backing
+    secretBacking = secrets ?? VaultSecrets.backing
   }
 
   // MARK: State
@@ -61,13 +72,25 @@ public struct VaultRecovery: Sendable {
     return try start(folderKeys: folderKeys)
   }
 
-  /// A new kit, for a lost or leaked one: re-wraps everything to the new key, deletes the old key's blobs from the
-  /// store and rewrites the blob files on `remotes`.
-  public func replace(folderKeys: [RecoveryFolderKey] = [], remotes: [RecoveryRemoteFolder] = []) async throws
-    -> RecoveryKit
-  {
+  /// A new kit, for a lost or leaked one: makes a new current vault key tied to the new kit and seals every record again
+  /// under it (`others`: the account stores beside Personal), re-wraps everything to the new kit, deletes the old
+  /// kit's blobs from the store and rewrites the blob files on `remotes`.
+  ///
+  /// An old kit, with blobs copied before this, no longer gives the current key, and no device seals the new key to it,
+  /// even one that hasn't heard of the new kit yet. It still opens what those blobs held then: old vault keys, the
+  /// identity, folder keys and the secrets as they were. If a kit leaked, those secrets have to change too.
+  public func replace(
+    folderKeys: [RecoveryFolderKey] = [], remotes: [RecoveryRemoteFolder] = [], alongWith others: [VaultStore] = []
+  ) async throws -> RecoveryKit {
     guard try current() != nil else { throw RecoveryKeyError.off }
-    let kit = try start(folderKeys: folderKeys)
+    let secret = RecoverySecret.random()
+    let key = VaultRecoveryKey(publicKey: secret.publicKey)
+    // The record first: killed after it, the new kit was never shown, and the user replaces it again.
+    try store.save(key)
+    try current()
+    try store.rotateKeys(kitCheck: key.check, alongWith: others)
+    try wrapMissing(folderKeys: folderKeys)
+    let kit = RecoveryKit(secret: secret, created: key.created ?? .now)
     try deleteBlobs(except: kit.check)
     for folder in remotes { try await writeBlobs(to: folder) }
     return kit
@@ -104,8 +127,14 @@ public struct VaultRecovery: Sendable {
 
   private func deleteBlobs(except check: String?) throws {
     for blob in try store.records(VaultRecoveryBlob.self) where blob.recoveryKey != check {
-      try store.delete(id: blob.id)
+      try scrub(blob)
     }
+  }
+
+  /// Deletes a blob with nothing in it: a tombstone keeps its fields and syncs, and the box must not outlive the record.
+  private func scrub(_ blob: VaultRecoveryBlob) throws {
+    try store.save(id: blob.id, kind: VaultRecoveryBlob.kind, changes: ["sealed": .null, "digest": .null])
+    try store.delete(id: blob.id)
   }
 
   // MARK: Wrapping new keys
@@ -115,6 +144,12 @@ public struct VaultRecovery: Sendable {
   @discardableResult
   public func wrap(vaultKey: SymmetricKey, id: String) throws -> Bool {
     guard let key = try current() else { return false }
+    return try wrapVaultKey(vaultKey, id: id, to: key)
+  }
+
+  /// A key a kit's replacement made is sealed to that kit alone, so a device still on the old kit leaves it out.
+  private func wrapVaultKey(_ vaultKey: SymmetricKey, id: String, to key: VaultRecoveryKey) throws -> Bool {
+    if let bound = try keys.kitCheck(forKey: id), bound != key.check { return false }
     return try wrap(vaultKey.withUnsafeBytes { Data($0) }, content: .vaultKey, keyID: id, folderID: nil, to: key)
   }
 
@@ -132,17 +167,19 @@ public struct VaultRecovery: Sendable {
     return try wrap(folderKey.keyData, content: .folderKey, keyID: folderKey.keyID, folderID: folderKey.folderID, to: key)
   }
 
-  /// Seals every vault key this device has, the identity and `folderKeys`, skipping those sealed already.
-  /// Returns how many it sealed; 0 when the recovery key is off.
+  /// Seals every vault key this device has, the identity, `folderKeys` and the secrets, skipping those sealed already.
+  /// A secret whose value changed is sealed again; one that's gone goes, once its record is deleted (one missing while
+  /// its record lives may simply not have arrived here). Reads the keychain only with a kit on. Returns how many it
+  /// sealed; 0 when the recovery key is off.
   @discardableResult
   public func wrapMissing(folderKeys: [RecoveryFolderKey] = []) throws -> Int {
     guard let key = try current() else { return 0 }
     var count = 0
     for (id, vaultKey) in try keys.allKeys.sorted(by: { $0.key < $1.key }) {
-      if try wrap(vaultKey.withUnsafeBytes { Data($0) }, content: .vaultKey, keyID: id, folderID: nil, to: key) {
-        count += 1
-      }
+      if try wrapVaultKey(vaultKey, id: id, to: key) { count += 1 }
     }
+    let idKey = try keys.stableIDKey().withUnsafeBytes { Data($0) }
+    if try wrap(idKey, content: .idKey, keyID: "id", folderID: nil, to: key) { count += 1 }
     if let identity = try identityBacking.read(VaultPersonalIdentity.account).map(PersonalIdentity.init),
       try wrap(identity.rawRepresentation, content: .identity, keyID: Self.keyID(of: identity), folderID: nil, to: key)
     {
@@ -152,7 +189,65 @@ public struct VaultRecovery: Sendable {
     where try wrap(folderKey.keyData, content: .folderKey, keyID: folderKey.keyID, folderID: folderKey.folderID, to: key) {
       count += 1
     }
+    let secrets = try secretBacking.all().filter { Self.isCovered(secret: $0.name) }
+    for secret in secrets.sorted(by: { $0.name < $1.name }) where try wrap(secret: secret.data, name: secret.name, to: key) {
+      count += 1
+    }
+    let names = Set(secrets.map(\.name))
+    for blob in try store.records(VaultRecoveryBlob.self)
+    where blob.recoveryKey == key.check && blob.content == .secret && !names.contains(blob.keyID) {
+      if let owner = Self.owner(ofSecret: blob.keyID), try store.item(id: owner)?.isDeleted == true { try scrub(blob) }
+    }
     return count
+  }
+
+  /// Keeps a secret's blob up to date when it's set, or empties and deletes it when it's gone. Does nothing with the
+  /// recovery key off.
+  public func secretChanged(_ name: String, value: Data?) throws {
+    guard Self.isCovered(secret: name), let key = try current() else { return }
+    if let value {
+      try wrap(secret: value, name: name, to: key)
+    } else {
+      let id = VaultRecoveryBlob.id(publicKey: key.publicKey, content: .secret, keyID: name, folderID: nil)
+      if let blob = try store.record(VaultRecoveryBlob.self, id: id) { try scrub(blob) }
+    }
+  }
+
+  /// The secret that keys the digests: in the keychain with the secrets, not under the vault key, so the digest says
+  /// nothing to whoever has the vault key but not the secrets.
+  static let digestSecret = "recovery.digest"
+
+  /// Whether a keychain item is one of the secrets the kit covers. The identity has a blob of its own.
+  static func isCovered(secret name: String) -> Bool {
+    name != digestSecret && name != VaultPersonalIdentity.account
+  }
+
+  /// The record a secret belongs to, for those named after one.
+  static func owner(ofSecret name: String) -> String? {
+    for prefix in ["password.", "otp.", "card.number.", "card.code.", "passkey."] where name.hasPrefix(prefix) {
+      return String(name.dropFirst(prefix.count))
+    }
+    return nil
+  }
+
+  private func digestKey() throws -> SymmetricKey {
+    if let stored = try secretBacking.read(Self.digestSecret) { return SymmetricKey(data: stored) }
+    let made = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+    if try secretBacking.addNew(made, named: Self.digestSecret, label: "v57 recovery digest") { return SymmetricKey(data: made) }
+    return SymmetricKey(data: try secretBacking.read(Self.digestSecret) ?? made)
+  }
+
+  /// Seals a secret unless the blob already holds this value. Returns whether it wrote.
+  @discardableResult
+  private func wrap(secret value: Data, name: String, to key: VaultRecoveryKey) throws -> Bool {
+    let digest = Data(HMAC<SHA256>.authenticationCode(for: Data(name.utf8) + [0] + value, using: try digestKey()))
+      .map { String(format: "%02x", $0) }.joined()
+    let id = VaultRecoveryBlob.id(publicKey: key.publicKey, content: .secret, keyID: name, folderID: nil)
+    if try store.record(VaultRecoveryBlob.self, id: id)?.digest == digest { return false }
+    var blob = try VaultRecoveryBlob.seal(value, publicKey: key.publicKey, content: .secret, keyID: name, folderID: nil)
+    blob.digest = digest
+    try store.save(blob)
+    return true
   }
 
   private func wrap(
@@ -261,6 +356,12 @@ public struct VaultRecovery: Sendable {
       case .folderKey where plaintext.count == 32:
         let key = RecoveryFolderKey(folderID: blob.folderID ?? "", keyID: blob.keyID, keyData: plaintext)
         if !result.folderKeys.contains(key) { result.folderKeys.append(key) }
+      case .secret:
+        result.secrets[blob.keyID] = plaintext
+      case .idKey where plaintext.count == 32:
+        result.idKey = SymmetricKey(data: plaintext)
+      case .idKey:
+        result.damaged += 1
       case .vaultKey, .folderKey:
         result.damaged += 1
       case nil:
@@ -271,6 +372,89 @@ public struct VaultRecovery: Sendable {
     result.folderKeys.sort { ($0.folderID, $0.keyID) < ($1.folderID, $1.keyID) }
     return result
   }
+
+  // MARK: Restoring
+
+  /// Writes back what `recover` opened, to iCloud Keychain by default, from where it syncs to the user's other devices.
+  ///
+  /// A blob is sealed with the public key alone, so anyone who has that key could add one naming a key of their own. So:
+  /// - A vault key comes back only if it opens a record that's here, in this store or `others` (the account stores), or
+  ///   if a key that does vouches for it (a rotation's history: files may still be under a retired key). It's counted in
+  ///   `refusedKeys` otherwise.
+  /// - Nothing recovered becomes current: a new key is made and rotated to, which retires every restored key. Records
+  ///   here under a restored key are sealed again under it, and new ones under a restored key are refused.
+  /// - An identity or secret is written only where there's none: it can't replace what this device has.
+  ///
+  /// Folder keys aren't written: they are in their folders' records, sealed by the vault key, and the caller uses
+  /// `folderKeys` only for a folder whose record is gone.
+  ///
+  /// What's left: someone who kept the public key and can write to CloudKit can add a blob *and* a record under the same
+  /// made-up key. That record then opens, as the kit can't tell who sealed a blob. It doesn't become current, and it
+  /// needs the public key, which only the user's devices and their copies of the kit have.
+  @discardableResult
+  public func restore(_ recovered: RecoveredKeys, alongWith others: [VaultStore] = []) throws -> VaultRestoreResult {
+    let stores = [store] + others
+    var result = VaultRestoreResult()
+    var adding: [String: SymmetricKey] = [:]
+    for (id, key) in recovered.vaultKeys.sorted(by: { $0.key < $1.key }) {
+      if let existing = try keys.key(id: id) {
+        if existing == key { result.restoredKeys.append(id) } else { result.refusedKeys.append(id) }
+      } else if try stores.contains(where: { try $0.opensARecord(key: key, id: id) }) {
+        adding[id] = key
+        result.restoredKeys.append(id)
+      } else {
+        result.refusedKeys.append(id)
+      }
+    }
+    try keys.addKeys(adding)
+    // A device that had none of the keys lost its id key too, and may have made another by now.
+    if let idKey = recovered.idKey, !adding.isEmpty, adding.count == result.restoredKeys.count {
+      try keys.restoreStableIDKey(idKey)
+    }
+    // Now the history opens, as the keys above read it, placeholder or not.
+    _ = try store.resealRows(sealedWith: Set(adding.keys), adopting: true)
+    let vouched = try store.keysInHistory(among: recovered.vaultKeys.filter { result.refusedKeys.contains($0.key) })
+      .filter { try keys.key(id: $0.key) == nil }
+    try keys.addKeys(vouched)
+    result.refusedKeys.removeAll { vouched[$0] != nil }
+    result.restoredKeys = (result.restoredKeys + vouched.keys).sorted()
+    let epoch = try keys.rotate(kitCheck: nil)
+    result.currentKey = epoch.keyID
+    for store in stores {
+      _ = try store.resealRows(sealedWith: Set(adding.keys), adopting: true)
+      try store.catchUp()
+    }
+    if let identity = recovered.identity, try identityBacking.read(VaultPersonalIdentity.account) == nil {
+      try identityBacking.write(
+        identity.rawRepresentation, named: VaultPersonalIdentity.account, label: "v57 identity (sharing keys)")
+      result.identityRestored = true
+    }
+    for (name, value) in recovered.secrets.sorted(by: { $0.key < $1.key }) where Self.isCovered(secret: name) {
+      if try secretBacking.addNew(value, named: name, label: "v57 secret") {
+        result.restoredSecrets.append(name)
+      } else {
+        result.keptSecrets += 1
+      }
+    }
+    try wrapMissing()
+    return result
+  }
+}
+
+/// What `VaultRecovery.restore` did.
+public struct VaultRestoreResult: Sendable, Equatable {
+  /// The vault keys that are back, by id.
+  public var restoredKeys: [String] = []
+  /// Vault keys left out: they open no record here, or an id here names another key.
+  public var refusedKeys: [String] = []
+  /// The new key, current now.
+  public var currentKey = ""
+  public var identityRestored = false
+  public var restoredSecrets: [String] = []
+  /// Secrets left as they are: this device has its own.
+  public var keptSecrets = 0
+
+  public init() {}
 }
 
 /// A folder key for the recovery key, as `VaultFiles` holds it: the `VaultFolder` it belongs to, the key's own id
@@ -315,28 +499,12 @@ public struct RecoveredKeys: Sendable {
   public var vaultKeys: [String: SymmetricKey] = [:]
   public var identity: PersonalIdentity?
   public var folderKeys: [RecoveryFolderKey] = []
+  /// The secrets from the keychain, by name.
+  public var secrets: [String: Data] = [:]
+  /// What ids are hashed with.
+  public var idKey: SymmetricKey?
   /// Blobs sealed to this key that didn't open (damaged or changed); the others still did.
   public var damaged = 0
 
   public init() {}
-
-  /// Where `KeychainKeyProvider` keeps the vault keys: synchronizable items `key.<id>` of the shared keychain group.
-  public static var keychainVaultKeys: any VaultSecretBacking { KeychainSecretBacking(keychain: VaultKeychain()) }
-
-  /// Writes the vault keys and the identity back, to iCloud Keychain by default, from where they sync to the
-  /// user's other devices. Folder keys aren't written: they are in their folders' records, sealed by the vault key,
-  /// and the caller uses `folderKeys` only for a folder whose record is gone. Tests pass memory backings.
-  public func restore(
-    vaultKeys vaultKeyBacking: any VaultSecretBacking = RecoveredKeys.keychainVaultKeys,
-    identity identityBacking: any VaultSecretBacking = VaultPersonalIdentity.backing
-  ) throws {
-    for (id, key) in vaultKeys.sorted(by: { $0.key < $1.key }) {
-      try vaultKeyBacking.write(
-        key.withUnsafeBytes { Data($0) }, named: KeychainKeyProvider.prefix + id, label: "v57 Vault key")
-    }
-    if let identity {
-      try identityBacking.write(
-        identity.rawRepresentation, named: VaultPersonalIdentity.account, label: "v57 identity (sharing keys)")
-    }
-  }
 }

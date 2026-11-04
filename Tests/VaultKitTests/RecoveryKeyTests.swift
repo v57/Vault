@@ -163,6 +163,7 @@ struct RecoveryKitTests {
 struct RecoveryKeyTests {
   let keys = MemoryKeyProvider(keys: ["0000000000000001": SymmetricKey(size: .bits256), "0000000000000002": SymmetricKey(size: .bits256)])
   let identityBacking = MemorySecretBacking()
+  let secretBacking = MemorySecretBacking()
   let identity = PersonalIdentity()
   let folderKeys = [
     RecoveryFolderKey(folderID: "folder-a", keyID: "aaaa", keyData: Data(repeating: 1, count: 32)),
@@ -179,7 +180,7 @@ struct RecoveryKeyTests {
   }
 
   func recovery(_ store: VaultStore) -> VaultRecovery {
-    VaultRecovery(store: store, identity: identityBacking)
+    VaultRecovery(store: store, identity: identityBacking, secrets: secretBacking)
   }
 
   /// Sends every pending record of `from` to `to`, as CloudKit would.
@@ -212,7 +213,7 @@ struct RecoveryKeyTests {
     #expect(recovery.key?.check == kit.check)
     #expect(kit.words.count == 24)
     // Two vault keys, the identity, two folder keys.
-    #expect(try recovery.blobs().count == 5)
+    #expect(try recovery.blobs().count == 6)
     #expect(throws: RecoveryKeyError.alreadyOn) { try recovery.create() }
 
     expectAllKeys(try await recovery.recover(kit.words.joined(separator: " ")))
@@ -265,7 +266,8 @@ struct RecoveryKeyTests {
     #expect(new.check != old.check)
     #expect(recovery.key?.check == new.check)
     let blobs = try recovery.blobs()
-    #expect(blobs.count == 5)
+    // And the new vault key that replacing rotated to.
+    #expect(blobs.count == 7)
     #expect(blobs.allSatisfy { $0.recoveryKey == new.check })
     let newFiles = try await remote.list(folder.directory).map(\.name)
     #expect(newFiles.count == 1)
@@ -309,14 +311,14 @@ struct RecoveryKeyTests {
     // On again: a new key, and the blobs come back.
     let again = try recovery.create(folderKeys: folderKeys)
     #expect(again.check != kit.check)
-    #expect(try recovery.blobs().count == 5)
+    #expect(try recovery.blobs().count == 6)
   }
 
   @Test func hooksWrapNewKeys() async throws {
     let store = try makeStore()
     let recovery = recovery(store)
     let kit = try recovery.create(folderKeys: [folderKeys[0]])
-    #expect(try recovery.blobs().count == 4)
+    #expect(try recovery.blobs().count == 5)
 
     // A rotated vault key and a new folder.
     let newKey = SymmetricKey(size: .bits256)
@@ -351,7 +353,7 @@ struct RecoveryKeyTests {
     let phone = try makeStore("phone", keys: newKeys)
     try sync(mac, to: phone)
     let newIdentity = MemorySecretBacking()
-    let phoneRecovery = VaultRecovery(store: phone, identity: newIdentity)
+    let phoneRecovery = VaultRecovery(store: phone, identity: newIdentity, secrets: MemorySecretBacking())
     #expect(try phone.records(VaultHost.self).isEmpty)
     #expect(!phoneRecovery.isOn)  // the public key record is sealed by the lost vault key
     #expect(try phoneRecovery.blobs().isEmpty)
@@ -359,13 +361,13 @@ struct RecoveryKeyTests {
     let recovered = try await phoneRecovery.recover(kit.words.joined(separator: " "))
     expectAllKeys(recovered)
 
-    // Written back: the vault keys as the keychain names them, the identity where VaultPersonalIdentity reads it.
-    let vaultKeyBacking = MemorySecretBacking()
-    try recovered.restore(vaultKeys: vaultKeyBacking, identity: newIdentity)
-    #expect(vaultKeyBacking.names.sorted() == keys.allKeys.keys.sorted().map { "key.\($0)" })
-    for name in vaultKeyBacking.names {
-      newKeys.add(SymmetricKey(data: try #require(try vaultKeyBacking.read(name))), id: String(name.dropFirst(4)))
-    }
+    // Written back: the vault keys, the identity where VaultPersonalIdentity reads it. A new key is current.
+    let restored = try phoneRecovery.restore(recovered)
+    // The spare key from a first-key race seals nothing here: nothing vouches for it.
+    let used = try keys.primary().id
+    #expect(restored.restoredKeys == [used])
+    #expect(restored.refusedKeys == keys.allKeys.keys.sorted().filter { $0 != used })
+    #expect(try newKeys.primary().id == restored.currentKey)
     #expect(try newIdentity.read(VaultPersonalIdentity.account) == identity.rawRepresentation)
 
     // The synced items open now, the recovery key included.
@@ -403,7 +405,7 @@ struct RecoveryKeyTests {
     #expect(String(decoding: file, as: UTF8.self).contains("folderKey"))
 
     let fresh = try makeStore("new", keys: MemoryKeyProvider(keys: ["00000000000000ff": SymmetricKey(size: .bits256)]))
-    let recovered = try await VaultRecovery(store: fresh, identity: MemorySecretBacking())
+    let recovered = try await VaultRecovery(store: fresh, identity: MemorySecretBacking(), secrets: MemorySecretBacking())
       .recover(kit.qrText, remotes: [folder])
     #expect(recovered.folderKeys == [folderKeys[1]])
     #expect(recovered.vaultKeys.isEmpty)
@@ -413,7 +415,7 @@ struct RecoveryKeyTests {
     tampered["keyID"] = "other"
     try await remote.write(try JSONSerialization.data(withJSONObject: tampered), to: files[0].path)
     await #expect(throws: RecoveryKeyError.damaged) {
-      try await VaultRecovery(store: fresh, identity: MemorySecretBacking()).recover(kit.qrText, remotes: [folder])
+      try await VaultRecovery(store: fresh, identity: MemorySecretBacking(), secrets: MemorySecretBacking()).recover(kit.qrText, remotes: [folder])
     }
   }
 }

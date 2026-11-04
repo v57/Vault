@@ -171,7 +171,14 @@ public final class VaultStore: @unchecked Sendable {
   /// The process's store at the default location (the app group container), opened on first use; nil when
   /// it can't open. `Vault.shared` uses it, and code off the main actor (an SSH engine checking a host key)
   /// can too.
-  public static let shared: VaultStore? = try? VaultStore()
+  public static let shared: VaultStore? = {
+    guard let store = try? VaultStore() else { return nil }
+    // The kit follows the secrets, whichever app changes them. Touches the keychain only with a kit on.
+    VaultSecrets.didChange = { name, value in
+      try? VaultRecovery(store: store).secretChanged(name, value: value)
+    }
+    return store
+  }()
 
   /// Removes a store's file, SQLite's journal beside it and the backup its format migration left. A connection still
   /// open keeps reading the removed file until it closes.

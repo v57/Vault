@@ -19,6 +19,14 @@ public enum VaultSecrets {
     set { lock.withLock { _backing = newValue } }
   }
 
+  /// Told of every secret set (with its value) or deleted (nil) through this type: the recovery kit keeps up
+  /// (`VaultStore.shared` installs it).
+  public static var didChange: (@Sendable (_ name: String, _ value: Data?) -> Void)? {
+    get { lock.withLock { _didChange } }
+    set { lock.withLock { _didChange = newValue } }
+  }
+  nonisolated(unsafe) private static var _didChange: (@Sendable (String, Data?) -> Void)?
+
   /// Whether secrets live in memory (a demo run or a test).
   public static var isInMemory: Bool { backing is MemorySecretBacking }
 
@@ -40,8 +48,10 @@ public enum VaultSecrets {
   public static func setPassword(_ password: String?, for id: String) throws {
     if let password, !password.isEmpty {
       try backing.write(Data(password.utf8), named: "password.\(id)", label: "v57 password")
+      didChange?("password.\(id)", Data(password.utf8))
     } else {
       try backing.delete("password.\(id)")
+      didChange?("password.\(id)", nil)
     }
   }
 
@@ -56,6 +66,7 @@ public enum VaultSecrets {
     } else {
       try backing.delete(name)
     }
+    didChange?(name, data)
   }
 
   /// Deletes every secret kept for an item: its password, a login's one-time-code secret, a card's number and code,
@@ -86,6 +97,8 @@ public protocol VaultSecretBacking: Sendable {
   /// Adds the secret unless one exists; returns whether it was added.
   func addNew(_ data: Data, named name: String, label: String) throws -> Bool
   func delete(_ name: String) throws
+  /// Every secret, for the recovery kit to seal.
+  func all() throws -> [(name: String, data: Data)]
 }
 
 /// Synchronizable items of a keychain service.
@@ -116,6 +129,10 @@ public struct KeychainSecretBacking: VaultSecretBacking {
   public func delete(_ name: String) throws {
     try keychain.delete(name, options: .synced)
   }
+
+  public func all() throws -> [(name: String, data: Data)] {
+    try keychain.readAll(options: .synced).map { ($0.account, $0.data) }
+  }
 }
 
 /// Secrets in memory, gone when the process ends: for demo runs, previews and tests.
@@ -145,6 +162,10 @@ public final class MemorySecretBacking: VaultSecretBacking, @unchecked Sendable 
 
   public func delete(_ name: String) throws {
     _ = lock.withLock { items.removeValue(forKey: name) }
+  }
+
+  public func all() throws -> [(name: String, data: Data)] {
+    lock.withLock { items.map { ($0.key, $0.value) } }
   }
 
   /// Every secret's name.
