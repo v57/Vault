@@ -97,7 +97,16 @@ public final class HubSync: @unchecked Sendable {
     var sent: [String: Int64] = [:]
     /// The members when this device last synced.
     var members: [String] = []
+    /// This store told the others it moved to format 2. Optional: state saved before it must still decode.
+    var formatAnnounced: Bool?
+    /// How many times another device asked for a resend: envelope ids carry it, as the mailbox stores an id once while
+    /// another member still waits for it, and this resend is for a device that already acknowledged it.
+    var resends: Int?
   }
+
+  /// The `keyID` of an envelope that asks every device to send everything again, with no record in it. An old build sees
+  /// a key it lacks and skips it. A Hub could make one up, which only costs some traffic.
+  static let resendMarker = "format2-resend"
 
   public struct Result: Sendable, Equatable {
     public var sent = 0
@@ -154,6 +163,7 @@ public final class HubSync: @unchecked Sendable {
     guard start else { return Result() }
     defer { lock.withLock { running = false } }
 
+    store.catchUpIfDue()
     let vault = try vaultID()
     var state = loadState()
     var result = Result()
@@ -177,6 +187,14 @@ public final class HubSync: @unchecked Sendable {
         guard let data = Data(base64Encoded: envelope.payload),
           let sealed = try? JSONDecoder().decode(Sealed.self, from: data)
         else { continue }
+        // A device that moved to format 2 refused or skipped what the others sent while it was on an old build, and
+        // acknowledged it, so it needs it all again.
+        if sealed.keyID == Self.resendMarker {
+          state.sent = [:]
+          state.resends = (state.resends ?? 0) + 1
+          result.resent = true
+          continue
+        }
         switch try store.applyFromPeer(id: sealed.id, keyID: sealed.keyID, payload: sealed.payload) {
         case .merged(let version, let hasNewerFields):
           // When the sender's copy has everything, the peers have it: it goes up again only once it changes here.
@@ -184,7 +202,7 @@ public final class HubSync: @unchecked Sendable {
           result.received += 1
         case .unchanged(let version):
           if state.sent[sealed.id] == nil { state.sent[sealed.id] = version }
-        case .undecryptable: break
+        case .undecryptable, .refused: break
         }
       }
       let highest = pulled.envelopes.map(\.seq).max() ?? state.pulled
@@ -196,12 +214,21 @@ public final class HubSync: @unchecked Sendable {
       if pulled.envelopes.count < batch { break }
     }
 
+    if state.formatAnnounced != true, store.isFormatFinished {
+      let sealed = Sealed(id: Self.resendMarker, keyID: Self.resendMarker, payload: Data())
+      let envelope = HubEnvelope(
+        id: "\(deviceID):\(Self.resendMarker)", payload: try JSONEncoder().encode(sealed).base64EncodedString())
+      _ = try await call("push") { try await mailbox.push(vault: vault, envelopes: [envelope]) }
+      state.formatAnnounced = true
+      saveState(state)
+    }
+
     let changed = try store.sealedRecords().filter { state.sent[$0.id] != $0.version }
     for chunk in stride(from: 0, to: changed.count, by: batch).map({ Array(changed[$0..<min($0 + batch, changed.count)]) }) {
       let envelopes = try chunk.map { record in
         let sealed = Sealed(id: record.id, keyID: record.keyID, payload: record.payload)
         return HubEnvelope(
-          id: "\(deviceID):\(record.id):\(record.version)",
+          id: "\(deviceID):\(record.id):\(record.version)" + (state.resends.map { ":\($0)" } ?? ""),
           payload: try JSONEncoder().encode(sealed).base64EncodedString())
       }
       _ = try await call("push") { try await mailbox.push(vault: vault, envelopes: envelopes) }

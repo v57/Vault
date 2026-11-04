@@ -437,7 +437,9 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   static func makeRecord(_ outgoing: OutgoingRecord, id: CKRecord.ID) -> CKRecord {
     let record =
       outgoing.systemFields.flatMap(unarchive) ?? CKRecord(recordType: recordType, recordID: id)
-    record["keyID"] = outgoing.keyID as NSString
+    // Empty for format 2, whose payload names its key: it's what makes an old build skip the record instead of storing
+    // what it can't read over its own copy (Ideas/Security V1). The field stays in the schema for format 1.
+    record["keyID"] = VaultItemSeal.parse(outgoing.payload) == nil ? outgoing.keyID as NSString : nil
     if outgoing.payload.count > assetThreshold, let file = try? assetFile(for: outgoing) {
       record["payload"] = nil
       record["payloadAsset"] = CKAsset(fileURL: file)
@@ -464,7 +466,6 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   }
 
   static func remote(_ record: CKRecord) -> RemoteRecord? {
-    guard let keyID = record["keyID"] as? String else { return nil }
     let payload: Data
     if let data = record["payload"] as? Data {
       payload = data
@@ -473,6 +474,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     } else {
       return nil
     }
+    guard let keyID = VaultItemSeal.parse(payload)?.keyID ?? record["keyID"] as? String else { return nil }
     return RemoteRecord(
       id: record.recordID.recordName, keyID: keyID, payload: payload, changeTag: record.recordChangeTag,
       systemFields: archive(record))

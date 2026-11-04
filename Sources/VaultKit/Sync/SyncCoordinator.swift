@@ -44,7 +44,8 @@ public final class SyncCoordinator: @unchecked Sendable {
 
   /// Outbox rows this process may send now (leasing them).
   public func idsToSend(limit: Int = 400) -> [String] {
-    (try? store.claimOutbox(limit: limit)) ?? []
+    store.catchUpIfDue()
+    return (try? store.claimOutbox(limit: limit)) ?? []
   }
 
   /// The record for an id, or nil when this process shouldn't send it now: another app holds the lease,
@@ -101,8 +102,9 @@ public final class SyncCoordinator: @unchecked Sendable {
   public func fetched(modified: [RemoteRecord], deleted: [String]) -> [String] {
     var toSend: [String] = []
     for record in modified {
-      if case .merged(let needsSend) = (try? store.apply(record)) ?? .unchanged, needsSend {
-        toSend.append(record.id)
+      switch (try? store.apply(record)) ?? .unchanged {
+      case .merged(needsSend: true), .refused(needsSend: true): toSend.append(record.id)
+      default: break
       }
     }
     for id in deleted { try? store.applyDeletion(id: id) }
