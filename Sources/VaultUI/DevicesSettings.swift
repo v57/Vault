@@ -3,7 +3,8 @@ import SwiftUI
 import VaultKit
 
 /// The user's devices, the same in every app: this one first, then the others. A row's context menu has Rename…, and
-/// on the others Remove… (`Vaults.removeDevice`) for one they don't use any more, such as a Mac before its reinstall.
+/// on the others Remove… (`Vaults.removeDevice`) for one they don't use any more, such as a Mac before its reinstall, and
+/// Lost Device… (`VaultLostDeviceSheet`) for one they lost. Devices taken out that way are listed as not trusted.
 /// Settings ▸ Remote shows it on the Mac, with a switch on each device (`control`); iPhone and iPad put it in their
 /// settings.
 ///
@@ -15,6 +16,8 @@ public struct VaultDevicesSettings<Control: View>: View {
   @State private var vaults: Vaults
   @State private var renaming: VaultDeviceKey?
   @State private var removing: VaultDeviceKey?
+  @State private var lost: VaultDeviceKey?
+  @State private var trusting: VaultRevokedDevice?
   /// The accounts' vaults, opened outside the body (opening one writes `Vaults` state).
   @State private var opened: [Vault] = []
   private let note: String?
@@ -46,13 +49,26 @@ public struct VaultDevicesSettings<Control: View>: View {
     return [
       note,
       "\(idiom == .mac ? "Right-click" : "Touch and hold") a device to rename or remove it. Removing tidies up after one "
-        + "you don’t use any more. It doesn’t lock it out of your iCloud account.",
+        + "you don’t use any more. It doesn’t cut it off: it keeps the keys and passwords it has, and it can come back. For "
+        + "one that’s lost or stolen, use Lost Device.",
     ].compactMap { $0 }.joined(separator: " ")
   }
 
   public var body: some View {
     FormCard("Your Devices", footer: footer) {
       ForEach(devices) { row($0) }
+    }
+    if !vault.revokedDevices.isEmpty {
+      FormCard(
+        "Not Trusted",
+        footer: "Taken out through Lost Device. What they publish is ignored, and Macs don’t let them in."
+      ) {
+        ForEach(vault.revokedDevices) { device in
+          FormRow(device.name, help: notTrustedDetails(device), systemImage: "exclamationmark.shield", hue: .red) {
+            Button("Trust Again…") { trusting = device }.buttonStyle(.kit)
+          }
+        }
+      }
     }
     if let error = vault.error {
       Text(error).kitFont(.caption).foregroundStyle(Hue.red.text)
@@ -63,6 +79,15 @@ public struct VaultDevicesSettings<Control: View>: View {
         opened = vaults.allAccounts.compactMap { vaults.vault(for: $0) }
       }
       .kitSheet(item: $renaming) { VaultDeviceNameSheet(vault: vault, device: $0) }
+      .kitSheet(item: $lost) { VaultLostDeviceSheet(device: $0, vaults: vaults) }
+      .kitConfirmation(
+        "Trust \(trusting?.name ?? "this device") again?",
+        isPresented: Binding { trusting != nil } set: { if !$0 { trusting = nil } },
+        message: "It comes back the next time a v57 app runs on it. Do this only if you have it back.",
+        systemImage: "checkmark.shield", confirm: "Trust Again"
+      ) { [trusting] in
+        if let trusting { vaults.trustAgain(trusting) }
+      }
       .kitConfirmation(
         "Remove \(removing?.deviceName ?? "this device")?",
         isPresented: Binding { removing != nil } set: { if !$0 { removing = nil } },
@@ -81,6 +106,7 @@ public struct VaultDevicesSettings<Control: View>: View {
       .kitContextMenu {
         Button("Rename…") { renaming = device }
         if device.id != vault.deviceID {
+          Button("Lost Device…") { lost = device }
           Button("Remove…", role: .destructive) { removing = device }
         }
       }
@@ -89,8 +115,14 @@ public struct VaultDevicesSettings<Control: View>: View {
   private func message(_ device: VaultDeviceKey) -> String {
     let onHub = vault.hubHosts.contains { vault.vaultDevice(of: $0) == device.id }
     return "It goes from every v57 app and can’t sign in to your Macs any more. Projects only on it go too, unless "
-      + "their folders are on this \(KitDevice.name). If it still runs a v57 app, it comes back when that app opens."
+      + "their folders are on this \(KitDevice.name). This doesn’t cut it off: it keeps the keys and passwords it has, and if "
+      + "it still runs a v57 app, it comes back when that app opens. For one that’s lost or stolen, use Lost Device."
       + (onHub ? " Its Hub keeps listing it until you remove it there." : "")
+  }
+
+  private func notTrustedDetails(_ device: VaultRevokedDevice) -> String {
+    let hasKey = vault.untrustedDeviceKeys.contains { $0.id == device.deviceID }
+    return hasKey ? "It has published itself since. It’s ignored." : "It hasn’t been heard from since."
   }
 
   /// "This Mac · macOS · 77 projects".
