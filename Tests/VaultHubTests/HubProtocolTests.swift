@@ -13,7 +13,6 @@ struct HubProtocolTests {
       var keyFile: String
       var publicKey: String
       var deviceId: String?
-      var safetyCode: String?
     }
     struct Auth: Decodable {
       struct Header: Decodable { var header: String }
@@ -30,6 +29,11 @@ struct HubProtocolTests {
       var canonical: [Canonical]
       var keys: [Derived]
     }
+    struct SafetyCode: Decodable {
+      struct Case: Decodable { var hubKey: String; var deviceKey: String; var codeValue: String; var code: String }
+      var cases: [Case]
+    }
+    var safetyCode: SafetyCode
     var credentials: Credentials
     var keys: [String: Key]
     var auth: Auth
@@ -63,7 +67,9 @@ struct HubProtocolTests {
     }
     let device = Self.vectors.keys["device"]!
     #expect(HubKey.deviceID(spki: device.publicKey) == device.deviceId)
-    #expect(HubKey.safetyCode(spki: device.publicKey) == device.safetyCode)
+    for code in Self.vectors.safetyCode.cases {
+      #expect(HubKey.safetyCode(hubKey: code.hubKey, deviceKey: code.deviceKey, codeValue: code.codeValue) == code.code)
+    }
   }
 
   // CryptoKit's Ed25519 signatures are randomized, so the vectors' signature strings can't be reproduced on Apple
@@ -297,14 +303,28 @@ struct HubProtocolTests {
     #expect(VaultHubDevice(try #require(oldWire.first)).ssh?.hostKey == ed25519)
   }
 
-  @Test func pendingCodesComeFromTheKey() throws {
+  @Test func pendingCodesAreComputedFromThePinnedKey() throws {
     let key = Self.vectors.keys["device"]!
-    let json = """
-      [{"id":"\(key.deviceId!)","key":"\(key.publicKey)","name":"iPad","safetyCode":"000 000","firstSeen":"2026-10-20T19:00:00Z"}]
-      """
-    let pending = try JSONDecoder().decode([HubWire.PendingDevice].self, from: Data(json.utf8)).map(HubPendingDevice.init)
-    #expect(pending.first?.safetyCode == "474 971")
-    #expect(pending.first?.codeChecks == false)
+    let hubKey = Self.vectors.keys["hub"]!.publicKey
+    let value = Self.vectors.safetyCode.cases[0].codeValue
+    func pending(_ code: String, value: String?, pinned: String?) throws -> HubPendingDevice? {
+      let codeValue = value.map { ",\"codeValue\":\"\($0)\"" } ?? ""
+      let json = """
+        [{"id":"\(key.deviceId!)","key":"\(key.publicKey)","name":"iPad","safetyCode":"\(code)"\(codeValue),"firstSeen":"2026-10-20T19:00:00Z"}]
+        """
+      return try JSONDecoder().decode([HubWire.PendingDevice].self, from: Data(json.utf8)).map { HubPendingDevice($0, hubKey: pinned) }.first
+    }
+    let computed = HubKey.safetyCode(hubKey: hubKey, deviceKey: key.publicKey, codeValue: value)
+    // What the Hub says doesn't count: the code comes from the pinned key, and a different claim shows
+    let altered = try pending("000 000", value: value, pinned: hubKey)
+    #expect(altered?.safetyCode == computed && altered?.codeChecks == false)
+    let agreed = try pending(computed, value: value, pinned: hubKey)
+    #expect(agreed?.safetyCode == computed && agreed?.codeChecks == true)
+    // Another Hub's key gives another code, which doesn't check
+    #expect(try pending(computed, value: value, pinned: key.publicKey)?.codeChecks == false)
+    // A Hub with no value gives no code at all, never one computed from the device's key alone
+    let old = try pending("474 971", value: nil, pinned: hubKey)
+    #expect(old?.safetyCode == "" && old?.codeChecks == false)
   }
 
   @Test func addresses() {

@@ -150,10 +150,15 @@ private struct HubSection: View {
       }
       if let identity = hub.identity ?? app.hubs.identity, hub.status == .needsApproval || hub.status == .connecting {
         VStack(alignment: .leading, spacing: 6) {
-          Text("Approve this \(ThisDevice.word) on your Hub (the Hub app, another device’s Vault, or `hub device approve`), comparing this code:")
-            .kitFont(.caption)
-          KitSafetyCode(groups: identity.safetyCode.split(separator: " ").map(String.init), columns: 2)
-            .fixedSize()
+          if let code = identity.safetyCode {
+            Text("Approve this \(ThisDevice.word) on your Hub (the Hub app, another device’s Vault, or `hub device approve`), comparing this code:")
+              .kitFont(.caption)
+            KitSafetyCode(groups: code.split(separator: " ").map(String.init), columns: 2)
+              .fixedSize()
+          } else {
+            Text("Waiting for the Hub. It gives this \(ThisDevice.word) the code to compare once it has its request.")
+              .kitFont(.caption)
+          }
         }
         .padding(8)
       }
@@ -236,11 +241,16 @@ private struct PendingRow: View {
         Spacer(minLength: 8)
         Chip("Waiting", hue: .orange).controlSize(.small)
       }
-      KitSafetyCode(groups: waiting.safetyCode.split(separator: " ").map(String.init), columns: 2)
-        .fixedSize()
-      if !waiting.codeChecks {
-        Text("The Hub sent a different code than this device’s key gives. Don’t approve it unless the code on its screen matches the one above.")
+      if waiting.safetyCode.isEmpty {
+        Text("This Hub gives no code to compare, so this device can’t be checked. Update the Hub first.")
           .kitFont(.caption).foregroundStyle(Hue.red.text)
+      } else {
+        KitSafetyCode(groups: waiting.safetyCode.split(separator: " ").map(String.init), columns: 2)
+          .fixedSize()
+        if !waiting.codeChecks {
+          Text("The Hub sent a different code than this device computes. Don’t approve it unless the code on its screen matches the one above.")
+            .kitFont(.caption).foregroundStyle(Hue.red.text)
+        }
       }
       HStack {
         Button("Deny") { Task { await app.hubs.deny(waiting.id, on: hub.id) } }.buttonStyle(.kit).controlSize(.small)

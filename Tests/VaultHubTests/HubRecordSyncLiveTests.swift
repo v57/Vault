@@ -99,7 +99,8 @@ struct HubRecordSyncLiveTests {
       lost.stop()
     }
     try await wait("waiting for approval") { owner.pending.contains { $0.id == lost.device.id } }
-    #expect(owner.pending.first { $0.id == lost.device.id }?.safetyCode == lost.device.safetyCode)
+    try await wait("its code") { lost.safetyCode != nil }
+    #expect(owner.pending.first { $0.id == lost.device.id }?.safetyCode == lost.safetyCode)
     await owner.approve(lost.device.id)
     try await wait("approved and connected") {
       lost.status == .connected && owner.devices.contains { $0.id == lost.device.id && $0.isApproved }
@@ -132,7 +133,7 @@ struct HubRecordSyncLiveTests {
     let seed = UInt8(ProcessInfo.processInfo.environment["HUB_E2E_SEED"] ?? "90") ?? 0x5a
     let (vault, connection) = try device("solo", seed: seed, keys: MemoryKeyProvider(), url: url)
     vault.save(VaultHost(name: "solo host", hostname: "solo.example.com"))
-    print("device", connection.device.id, connection.device.safetyCode)
+    print("device", connection.device.id)
     connection.start()
     defer { connection.stop() }
     try await wait("synced", timeout: 180) {

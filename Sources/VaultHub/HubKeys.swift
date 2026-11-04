@@ -34,10 +34,11 @@ public struct HubKey: Sendable {
     return String(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined().prefix(32))
   }
 
-  /// The code shown on the device and the one approving it ("474 971").
-  public static func safetyCode(spki: String) -> String? {
-    guard let data = Data(base64Encoded: spki) else { return nil }
-    let value = SHA256.hash(data: data).prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) } % 1_000_000
+  /// The code shown on the device and the one approving it ("741 709"): a hash of the Hub's key as this device pinned
+  /// it, the device's key and the value the Hub picked once it had that key (protocol §1).
+  public static func safetyCode(hubKey: String, deviceKey: String, codeValue: String) -> String {
+    let hash = SHA256.hash(data: Data("hubcode1:\(hubKey):\(deviceKey):\(codeValue)".utf8))
+    let value = hash.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) } % 1_000_000
     let digits = String(format: "%06d", value)
     return "\(digits.prefix(3)) \(digits.suffix(3))"
   }

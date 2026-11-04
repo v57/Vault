@@ -42,7 +42,8 @@ struct HubItem: Identifiable, Hashable {
 /// This device as every Hub sees it.
 struct HubIdentity: Hashable {
   var id: String
-  var safetyCode: String
+  /// Nil until the Hub gave this device the value its code covers.
+  var safetyCode: String?
 }
 
 /// The user's Hubs: adding one, turning it on for this device, approving and revoking devices.
@@ -79,7 +80,7 @@ final class LiveHubs: HubEngine {
       return HubItem(
         record: record, status: Self.status(connection.status), devices: connection.devices,
         pending: connection.pending, isOwner: connection.isOwner,
-        identity: HubIdentity(id: connection.device.id, safetyCode: connection.device.safetyCode),
+        identity: HubIdentity(id: connection.device.id, safetyCode: connection.safetyCode),
         isUnencrypted: connection.isUnencrypted, securityMode: connection.securityMode,
         error: connection.error, syncsRecords: record.syncs.contains(directory.vault.deviceID),
         recordSyncLine: Self.line(connection.recordSync))
@@ -97,7 +98,7 @@ final class LiveHubs: HubEngine {
     }
   }
 
-  var identity: HubIdentity? { directory.thisDevice.map { HubIdentity(id: $0.id, safetyCode: $0.safetyCode) } }
+  var identity: HubIdentity? { directory.thisDevice.map { HubIdentity(id: $0.id, safetyCode: nil) } }
   var error: String? { directory.error }
 
   func add(url: String, name: String) throws { try directory.add(url: url, name: name) }

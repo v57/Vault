@@ -54,8 +54,11 @@ public final class HubConnection: Identifiable {
 
   public private(set) var recordSync = RecordSync.off
 
-  /// This device on the Hub. A Hub added since auth v2 knows it by an id and safety code of its own.
+  /// This device on the Hub. A Hub added since auth v2 knows it by an id of its own.
   public let device: HubThisDevice
+  /// The code an owner compares when approving this device, once the Hub gave the value it covers. It's never shown
+  /// before that: without the Hub's value this device would only be vouching for itself.
+  public private(set) var safetyCode: String?
 
   /// Plain `ws://` on the local network: allowed, and the UI says that the connection isn't encrypted.
   public var isUnencrypted: Bool { hub.map { HubTransport(address: $0.url).isUnencryptedNetwork } ?? false }
@@ -97,6 +100,7 @@ public final class HubConnection: Identifiable {
     tasks = [
       Task { [weak self] in await self?.followDevices() },
       Task { [weak self] in await self?.followPending() },
+      Task { [weak self] in await self?.followRequest() },
       Task { [weak self] in await self?.syncRecords() },
       Task { [weak self] in await self?.followVaultChanges() },
     ]
@@ -109,6 +113,7 @@ public final class HubConnection: Identifiable {
     client?.stop()
     client = nil
     status = .offline
+    safetyCode = nil
   }
 
   /// Bumped by every connection attempt, so a handshake still waiting for an older one ends.
@@ -222,7 +227,8 @@ public final class HubConnection: Identifiable {
       do {
         for try await list in client.values("hub/devices/pending", as: [HubWire.PendingDevice].self) {
           isOwner = true
-          pending = list.map(HubPendingDevice.init)
+          let hubKey = hub?.hubKey
+          pending = list.map { HubPendingDevice($0, hubKey: hubKey) }
         }
       } catch {
         if Self.isPermission(error) {
@@ -231,6 +237,25 @@ public final class HubConnection: Identifiable {
         }
       }
       try? await Task.sleep(for: .seconds(60))
+    }
+  }
+
+  /// This device's request: the value its safety code covers, from a Hub that has its key.
+  private func followRequest() async {
+    while !Task.isCancelled, let client {
+      do {
+        for try await request in client.values("hub/device/request", as: HubWire.DeviceRequest.self) {
+          if let hubKey = hub?.hubKey, let codeValue = request.codeValue {
+            safetyCode = HubKey.safetyCode(hubKey: hubKey, deviceKey: deviceKey.spki, codeValue: codeValue)
+          } else {
+            safetyCode = nil
+          }
+        }
+      } catch {
+        // A Hub from before these has no such stream, and no code it could vouch for
+        safetyCode = nil
+      }
+      try? await Task.sleep(for: .seconds(20))
     }
   }
 
@@ -343,15 +368,12 @@ public final class HubConnection: Identifiable {
 public struct HubThisDevice: Sendable, Hashable {
   /// The Hub's device id.
   public var id: String
-  /// The code an owner compares when approving it.
-  public var safetyCode: String
   public var name: String
   public var platform: String
 
   @MainActor
   init(key: HubKey) {
     id = HubKey.deviceID(spki: key.spki) ?? ""
-    safetyCode = HubKey.safetyCode(spki: key.spki) ?? ""
     name = VaultDevice.name
     #if os(macOS)
       platform = "macos"

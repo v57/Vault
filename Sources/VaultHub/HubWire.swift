@@ -139,7 +139,17 @@ enum HubWire {
     var platform: String?
     var parent: String?
     var safetyCode: String
+    /// What the code covers besides the two keys. A Hub from before these sends none.
+    var codeValue: String?
     var firstSeen: String?
+  }
+
+  /// `hub/device/request`: where this connection's device stands.
+  struct DeviceRequest: Decodable, Sendable {
+    var id: String
+    var status: String
+    var name: String?
+    var codeValue: String?
   }
 
   /// `hub/profile/update`: how the Hub's own app lists this connection.
@@ -225,9 +235,11 @@ public struct HubPendingDevice: Sendable, Hashable, Identifiable {
   public var name: String
   public var platform: String
   public var parent: String?
+  /// The code to compare, computed here from the pinned Hub key. Empty when the Hub sent no value to compute it from.
   public var safetyCode: String
   public var firstSeen: Date?
-  /// Whether the code the Hub sent is the one its key gives: a mismatch means the Hub altered the request.
+  /// Whether the code the Hub sent is the one this device computes: a mismatch means the Hub altered the request, or
+  /// isn't the Hub that was pinned.
   public var codeChecks: Bool
 
   public init(
@@ -243,12 +255,16 @@ public struct HubPendingDevice: Sendable, Hashable, Identifiable {
     self.codeChecks = codeChecks
   }
 
-  init(_ wire: HubWire.PendingDevice) {
-    // The code shown is always the one this device computes from the key, never the Hub's own claim.
-    let computed = HubKey.safetyCode(spki: wire.key)
+  init(_ wire: HubWire.PendingDevice, hubKey: String?) {
+    // The code shown is always the one this device computes, never the Hub's own claim. Without what it takes to compute
+    // one there's no code to show.
+    var computed: String?
+    if let hubKey, let codeValue = wire.codeValue {
+      computed = HubKey.safetyCode(hubKey: hubKey, deviceKey: wire.key, codeValue: codeValue)
+    }
     self.init(
       id: wire.id, name: wire.name ?? "", platform: wire.platform ?? "other", parent: wire.parent,
-      safetyCode: computed ?? wire.safetyCode, firstSeen: HubWire.date(wire.firstSeen),
+      safetyCode: computed ?? "", firstSeen: HubWire.date(wire.firstSeen),
       codeChecks: computed == wire.safetyCode && HubKey.deviceID(spki: wire.key) == wire.id)
   }
 }

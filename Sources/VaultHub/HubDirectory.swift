@@ -46,7 +46,7 @@ public final class HubDirectory {
     hubID.flatMap { connections[$0] }
   }
 
-  /// This device on a Hub, once its key exists. A Hub added since auth v2 knows it by an id and safety code of its own.
+  /// This device on a Hub, once its key exists. A Hub added since auth v2 knows it by an id of its own.
   public func thisDevice(on hub: VaultHubServer) -> HubThisDevice? {
     guard let scope = keyScope(of: hub), let key = try? loadKeys(scope).device else { return nil }
     return HubThisDevice(key: key)
