@@ -17,7 +17,9 @@ let package = Package(
   targets: [
     // The shared, encrypted store every v57 app reads and writes: items, keys, sync, notes.
     .target(name: "VaultKit"),
-    .testTarget(name: "VaultKitTests", dependencies: ["VaultKit"]),
+    .testTarget(name: "VaultKitTests", dependencies: ["VaultKit", "VaultStoreCrashHelper"]),
+    // Opens a store so that a test can kill a real process during its migration. No app links it.
+    .executableTarget(name: "VaultStoreCrashHelper", dependencies: ["VaultKit"], path: "Tests/VaultStoreCrashHelper"),
     // Encrypted folders: chunked file contents, encrypted names, folder keys, temporary decryption.
     .target(name: "VaultFiles", dependencies: ["VaultKit"]),
     .testTarget(name: "VaultFilesTests", dependencies: ["VaultFiles"]),
@@ -65,7 +67,7 @@ for target in package.targets where target.name == "VaultKit" {
     .product(name: "CryptoKit", package: "SwiftUI"), .product(name: "SQLite3", package: "SwiftUI"),
   ]
 }
-for target in package.targets where ["VaultFiles", "VaultSync", "VaultHub"].contains(target.name) {
+for target in package.targets where ["VaultFiles", "VaultSync", "VaultHub", "VaultStoreCrashHelper"].contains(target.name) {
   target.dependencies.append(.product(name: "CryptoKit", package: "SwiftUI"))
 }
 #if os(Linux)

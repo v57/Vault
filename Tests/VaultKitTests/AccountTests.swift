@@ -272,6 +272,22 @@ struct AccountTests {
     #expect(phone.files == ["Vault.v2.sqlite"])
   }
 
+  /// The account's old file goes with it, and Personal's old file isn't an account.
+  @Test func aDeletedAccountsOldFileGoesAndPersonalsStays() async throws {
+    let mac = try device("mac")
+    let phone = try device("phone")
+    let acme = try mac.vaults.createAccount(name: "Acme")
+    mac.sync(database)
+    phone.sync(database)
+    try Data().write(to: phone.directory.appendingPathComponent("\(acme.id).sqlite"))
+    try Data().write(to: phone.directory.appendingPathComponent("Vault.sqlite"))
+
+    try await mac.vaults.delete(acme)
+    mac.sync(database)
+    phone.sync(database)
+    #expect(phone.files == ["Vault.sqlite", "Vault.v2.sqlite"])
+  }
+
   @Test func personalCantBeDeleted() async throws {
     let mac = try device("mac")
     await #expect(throws: VaultAccountStores.AccountError.personal) { try await mac.vaults.delete(.personal) }

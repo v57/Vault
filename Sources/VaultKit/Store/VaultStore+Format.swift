@@ -27,10 +27,11 @@ public struct VaultFormatStatus: Sendable, Equatable {
 
   /// What to tell the user, when there's anything to tell.
   public var note: String? {
+    if isWaiting { return "Waiting for this device’s keys to finish updating this vault. Everything here stays readable." }
     switch fromOldDevices {
-    case 0: nil
-    case 1: "1 record came from a device that hasn’t updated yet. It will merge once that device updates."
-    default: "\(fromOldDevices) records came from a device that hasn’t updated yet. They will merge once it updates."
+    case 0: return nil
+    case 1: return "1 record came from a device that hasn’t updated yet. It will merge once that device updates."
+    default: return "\(fromOldDevices) records came from a device that hasn’t updated yet. They will merge once it updates."
     }
   }
 }
@@ -249,6 +250,11 @@ extension VaultStore {
   // MARK: Building the new file
 
   private func buildFormat2File() throws {
+    // Another app got here first: its file is as good as this one's would be.
+    if FileManager.default.fileExists(atPath: fileURL.path) {
+      try switchToNewFile()
+      return
+    }
     let available = try keys.allKeys
     guard !available.isEmpty else { throw FormatWait.noKeys }
     let manager = FileManager.default
@@ -260,7 +266,7 @@ extension VaultStore {
     let building = try SQLiteConnection(url: temporary, mode: .building)
     try Self.createTables(in: building)
     database = building
-    defer { if _isWaiting { database = legacy } }
+    defer { if database === building { database = legacy } }
     try withKeySweep { try copyRows(from: legacy, into: building) }
     try formatTesting.stage?(.copied)
     guard (try building.query("PRAGMA quick_check").first?.first?.text) == "ok" else {
@@ -273,12 +279,19 @@ extension VaultStore {
     // False when another app won: its file is as good as this one.
     _ = try StoreFiles.moveWithoutReplacing(temporary, to: fileURL)
     StoreFiles.syncFolder(directory)
+    database = legacy
+    try switchToNewFile()
+    try formatTesting.stage?(.moved)
+  }
+
+  private func switchToNewFile() throws {
+    let legacy = database
     database = try SQLiteConnection(url: fileURL)
     _isWaiting = false
     legacy.close()
     _legacyAllowed = nil
+    _legacyAllowedSource = nil
     notifier?.post()
-    try formatTesting.stage?(.moved)
   }
 
   /// Every row of the old file, read from one snapshot, into the one transaction of the new file.
@@ -645,7 +658,6 @@ extension VaultStore {
   /// A row's format 1 payload is accepted in the new file only if it's on this list, sealed so that nobody
   /// without the keys can add to it: `id → SHA-256(payload)`.
   func setLegacyAllowed(_ allowed: [String: Data]) throws {
-    _legacyAllowed = allowed
     guard !allowed.isEmpty else {
       try database.query("DELETE FROM meta WHERE key = 'format.legacy'")
       return
@@ -668,9 +680,11 @@ extension VaultStore {
 
   /// The list. A keychain out of reach throws, and so does a list whose own key is gone: neither says anything about a row.
   func legacyAllowed() throws -> [String: Data] {
-    if let cached = _legacyAllowed { return cached }
+    // Another app can change it, so the row is read each time, and opened only when it's changed.
+    let stored = try meta("format.legacy")
+    if stored == _legacyAllowedSource, let cached = _legacyAllowed { return cached }
     var allowed: [String: Data] = [:]
-    if let stored = try meta("format.legacy") {
+    if let stored {
       let parts = stored.split(separator: ":", maxSplits: 1).map(String.init)
       guard parts.count == 2 else { throw VaultCrypto.CryptoError.missingKey("") }
       guard let key = try vaultKey(id: parts[0]) else { throw VaultCrypto.CryptoError.missingKey(parts[0]) }
@@ -681,6 +695,7 @@ extension VaultStore {
       allowed = decoded
     }
     _legacyAllowed = allowed
+    _legacyAllowedSource = stored
     return allowed
   }
 
@@ -764,13 +779,13 @@ extension VaultStore {
   }
 
   private func moveLegacyRows() throws -> [String] {
-    let allowed = try legacyAllowed()
-    guard !allowed.isEmpty else { return [] }
+    guard try !legacyAllowed().isEmpty else { return [] }
     if let row = try record(VaultRecoveryKey.self, id: VaultRecoveryKey.recordID), row.publicKey.count == 32 {
       let recordKey = row.recordKey
       useKey(recordKey.key, id: recordKey.id, sealing: VaultRecoveryBlob.kind)
     }
     return try database.transaction {
+      let allowed = try legacyAllowed()
       var moved: [String] = []
       for id in allowed.keys.sorted() {
         guard let row = try database.query("SELECT key_id, payload FROM items WHERE id = ?", [.text(id)]).first,
@@ -798,9 +813,9 @@ extension VaultStore {
   }
 
   private func mergeWaitingServerCopies() throws -> [String] {
-    let waiting = try waitingServerCopies()
-    guard !waiting.isEmpty else { return [] }
+    guard try !waitingServerCopies().isEmpty else { return [] }
     return try database.transaction {
+      let waiting = try waitingServerCopies()
       var written: [String] = []
       var left = waiting
       for id in waiting.sorted() {

@@ -115,6 +115,9 @@ private struct SyncPane: View {
       ) {
         Toggle("iCloud", isOn: $iCloud).toggleStyle(.kitSwitch).kitLabelsHidden()
       }
+      if let note = app.vault.store?.formatStatus.note {
+        FormRow("Other devices", help: note, systemImage: "clock", hue: .orange)
+      }
     }
     FormCard("Remotes") {
       FormRow("Check remotes", help: "When Vault opens, then on this schedule while it’s open. Only remotes your folders use.", systemImage: "clock", hue: .indigo) {

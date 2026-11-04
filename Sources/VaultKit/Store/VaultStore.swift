@@ -80,6 +80,7 @@ public final class VaultStore: @unchecked Sendable {
   /// The store reads the old file, read-only, until it can build the new one.
   var _isWaiting = false
   var _legacyAllowed: [String: Data]?
+  var _legacyAllowedSource: String?
   var _lastCatchUp: Date?
   var _vaultMark: Date?
   /// While a sweep runs: `withKeySweep`.

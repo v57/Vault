@@ -66,10 +66,11 @@ Neither Windows nor Linux falls back to a file. Hub's `HUB_DEVICE_KEY` and `~/.h
 
 ## How it works
 
-**One store per device.** `VaultStore` is a SQLite file in the app group container. Each item is one row: an id,
-its kind, and its fields sealed with AES-GCM. The table never changes shape. Fields live inside the payload, so
-apps of any version share the file, and an app that knows fewer fields than another (Shell's view of a Database
-connection) keeps the ones it doesn't know.
+**One store per device.** `VaultStore` is a SQLite file in the app group container (`Vault.v2.sqlite`, and
+`<account id>.v2.sqlite` for each account). Each item is one row: an id, its kind, and its fields sealed with AES-GCM.
+The table never changes shape. Fields live inside the payload, so an app that knows fewer fields than another (Shell's
+view of a Database connection) keeps the ones it doesn't know. The one format change so far took a new file, because an
+old build can't be asked to leave a row it can't read alone: see Payload format.
 
 **Encryption.** The AES-256 keys are iCloud Keychain items in the shared access group `dev.v57.shared`, which only
 the team's apps that list it can read. Other apps, other users and CloudKit see ciphertext. Each item names its key,
@@ -253,17 +254,56 @@ the GitHub sign-in, and what Shell keeps in its own keychain service.
 **Payload format.** A record's payload is `"V57I" 0x02`, its key's id, then its kind and its fields in two AES-GCM
 boxes, both bound to the store (`accountID`, or `personal`) and the record's id, and the fields to the kind too
 (`VaultItemSeal`). So a payload copied to another record, kind or store fails to open. The version lives in the payload
-because the schema never changes. A store moves to format 2 once, on open, in every app (`VaultStore+Format`): it
-copies itself to `<file>.format1-backup` with `VACUUM INTO`, kept and never deleted automatically (ciphertext under the
-old keys), rewrites rows in batches a kill can't hurt, and then refuses format 1 from CloudKit and Hubs. A row it can't
-open yet stays on a sealed list until its key arrives. A fresh, empty store with no sign that the vault has moved reads
-format 1 for an hour from its first open, then finishes at the next open; every other store finishes in the same open.
+because the schema never changes.
 
-Devices update at different times. Format 2 CloudKit records carry no `keyID` field, so an old build skips them rather
-than storing them over its copy (given a key id it would blank the row). A device that migrates later re-sends every
-row, which converges through the field merge, and asks Hub members to send theirs again. What an old build can't be
-protected from is itself on the same device: apps share a store, so an old app on a migrated store sees unreadable
-rows. Update every v57 app on a device together.
+Format 2 has its own file, and the old file (`Vault.sqlite`, `<account id>.sqlite`) is never written. Old builds keep
+opening it and never meet a format 2 row, so an old app on an updated device can't store one over its own copy, send
+one up with a key id, or see an empty store and trash note files. It's also the backup: removing the new file migrates
+again from it. It stays until the store is removed (ciphertext under the old keys, at the size it was).
+
+A store builds the new file on open, in whichever app opens first (`VaultStore+Format`). A temporary file with a unique
+name gets every row with its clocks and fields exact, each format 1 row sealed again and read back. It's forced to disk
+(`wal_checkpoint(TRUNCATE)`, `F_FULLFSYNC`) and moved into place without overwriting, so a kill or a power cut leaves the
+old state or the new one, and two processes get one winner. The file being there means migrated. A row whose key hasn't
+arrived, or that won't rewrite, comes over as it is on a sealed list, is counted, and never stops the rest; `catchUp`
+moves it when it can, and it never goes up in format 1. Until the keychain can be read and has a key, the store reads
+the old file and doesn't sync. A save on a keychain with no keys at all makes a key, as it always did, because a save
+that failed would lose what the user typed, and ids wait until the vault's id key is here.
+
+An old app on an updated device can't reach the new file, so for 30 days from the store's migration each open merges in
+what it wrote: the old file's rows with outbox entries, which are local edits it couldn't send, and fields stamped by
+this device since the migration, as it can send some of them. What it fetched from CloudKit stays behind. After the 30
+days the old file is ignored, so update every v57 app on a device within that time.
+
+A store reads format 1 from CloudKit and Hubs during its own first complete fetch after migrating, so a v1 edit waiting
+on the server merges by clock rather than being overwritten, and only within 30 days of a vault-wide mark. The mark is a
+synced keychain item holding the date the first device migrated, out of CloudKit's reach; if two devices set one, every
+device counts from the earliest. A store finishes when that fetch completes, not on a timer: an offline one stays
+unfinished rather than refusing what it hasn't seen, and an engine starts from nothing until then. Past the 30 days it
+finishes as soon as it opens. A device with no CloudKit counts a Hub pull as that fetch.
+
+After that, format 1 from elsewhere is refused. The record stays on the server with its tag untouched, since it's its
+writer's copy and comes back when that device migrates; a local edit may still go up over it as a normal conflict. Each
+refusal is counted once per id across restarts and apps, and goes when a record the store can read arrives there, and
+the Vault app's Sync settings say so (`VaultFormatStatus.note`). A device that never updates leaves its later edits on
+the server and on itself.
+
+Only an authentication or format failure refuses. A keychain out of reach or a busy database leaves the row and its tag
+untouched: reads throw, and a fetched record waits in the store (`engines`, `retry:<id>`) for `catchUp`, because the sync
+engine's position has already moved past it. A store doesn't finish with one waiting.
+
+Format 2 CloudKit records carry no `keyID` field, so an old build on another device skips them rather than storing them
+over its copy (given a key id it would blank the row). A device that migrates later re-sends every row, which converges
+through the field merge, and asks Hub members to send theirs again.
+
+**CloudKit deletions.** They can't be authenticated, so they get less trust than the records. A row dropped by one leaves
+the highest clock it held (`meta`, `hw.<id>`), and a payload at or below it is refused until something later arrives, so a
+delete followed by a replay can't roll back a host pin. A device that has never held the record has no such clock.
+Revocations are marks in the synced keychain (`revoked.<store>.<device id>`), with the record staying for display, so a
+deleted record un-revokes nothing; a revocation an old build makes after a store's migration has only the record. A
+record deleted elsewhere can come back from a device that was offline for about 30 days, when its tombstone is purged.
+That's left as it is, because deleting data on a misread `.unknownItem` is worse. On a device that dropped it, it's
+refused if nothing in it is newer, and a resurrected device key still doesn't trust a revoked device.
 
 **Key epochs.** The current key is an explicit claim in the synced keychain next to the keys: `keyepoch.<n>.<id>`
 names the key and the keys it retires (`VaultKeyRing`). It's there and not in CloudKit because whoever can write
