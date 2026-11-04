@@ -105,6 +105,9 @@ public final class VaultStore: @unchecked Sendable {
   /// Personal's file; an account's is `<account id>.sqlite` beside it.
   public static let fileName = "Vault.sqlite"
 
+  /// What this device's clock says. A test sets a wrong one.
+  var wallClock: @Sendable () -> Date = { .now }
+
   /// The SQLite file.
   public let fileURL: URL
   /// The account whose records the store holds (`VaultAccount`); nil for Personal.
@@ -260,7 +263,9 @@ public final class VaultStore: @unchecked Sendable {
           // A row this store refuses (an old build's write after the migration) opens for nobody: it's replaced.
         }
         let wasDeleted = fields.isDeleted
-        let clock = try nextClock()
+        var clock = try nextClock()
+        // Bringing a deleted item back takes a write later than its delete, whatever the delete's clock says.
+        if wasDeleted, let deleted = fields.stamped[ItemFields.deletedKey] { clock = clock.after(deleted.clock) }
         var changed = fields.apply(changes, clock: clock)
         // Saving a deleted item brings it back: the new writes are later than the delete.
         if wasDeleted && !changed, !changes.isEmpty {
@@ -284,7 +289,7 @@ public final class VaultStore: @unchecked Sendable {
       try database.transaction {
         guard let row = try loadRow(id: id), let item = row.item, !item.isDeleted else { return false }
         var fields = item.fields
-        fields.stamped[ItemFields.deletedKey] = StampedValue(true, clock: try nextClock())
+        fields.stamped[ItemFields.deletedKey] = StampedValue(true, clock: try nextClock().after(fields.latestClock))
         try writeRow(id: id, kind: item.kind, fields: fields, queue: true)
         try bumpRevision()
         return true
@@ -816,24 +821,41 @@ public final class VaultStore: @unchecked Sendable {
     }
     for loser in all.dropFirst() {
       var tombstone = loser.fields
-      tombstone.stamped[ItemFields.deletedKey] = StampedValue(true, clock: try nextClock())
+      tombstone.stamped[ItemFields.deletedKey] = StampedValue(true, clock: try nextClock().after(tombstone.latestClock))
       try writeRow(id: loser.id, kind: kind, fields: tombstone, queue: true)
     }
     return survivor.id == id ? fields != survivor.fields : true
   }
 
-  /// The next clock for a local write: later than every clock this device issued or saw.
+  /// How far ahead of this device's wall clock another device's clock may pull this device's. A clock further ahead still
+  /// merges as it says, on every device, so all of them keep the same value; it just stays with the fields it's on
+  /// (`observe`). Past the bound nothing breaks: a write to such a field goes just past it (`ItemFields.apply`).
+  public static let clockSkewBound: TimeInterval = 3600
+
+  /// The next clock for a local write: later than every clock this device issued or saw within the bound.
+  ///
+  /// A remembered clock past the bound can't be used: it came from before the bound existed, or from this device's own
+  /// wall clock while it was wrong. It's dropped here, so a store that saw a far-future clock recovers at its next write.
   private func nextClock() throws -> HybridClock {
-    let last = try meta("clock").flatMap(HybridClock.init) ?? .zero
-    let next = last.next(now: .now, device: deviceID)
+    let now = wallClock()
+    var last = try meta("clock").flatMap(HybridClock.init) ?? .zero
+    if last.millis > Self.millis(now.addingTimeInterval(Self.clockSkewBound)) { last = .zero }
+    let next = last.next(now: now, device: deviceID)
     try setMeta("clock", next.description)
     return next
   }
 
-  /// Remembers a clock seen from another device, so later local writes outrank it.
+  /// Remembers a clock seen from another device, so later local writes outrank it. One past the bound isn't remembered:
+  /// rejecting the field itself on only some devices would split them, so the field merges as usual and only this
+  /// device's own clock stays where it is.
   func observe(_ clock: HybridClock) throws {
+    guard clock.millis <= Self.millis(wallClock().addingTimeInterval(Self.clockSkewBound)) else { return }
     let last = try meta("clock").flatMap(HybridClock.init) ?? .zero
     if clock > last { try setMeta("clock", clock.description) }
+  }
+
+  private static func millis(_ date: Date) -> Int64 {
+    Int64((date.timeIntervalSince1970 * 1000).rounded(.down))
   }
 
   func bumpRevision() throws {

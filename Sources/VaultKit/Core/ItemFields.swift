@@ -87,7 +87,7 @@ public struct ItemFields: Hashable, Sendable, Codable {
         base: baseText, ours: earlier.value.stringValue ?? "", theirs: later.value.stringValue ?? "",
         oursLabel: "Edited on one device", theirsLabel: "Edited on another device"
       ).text
-      let clock = HybridClock(millis: later.clock.millis, counter: later.clock.counter + 1, device: later.clock.device + "+merge")
+      let clock = later.clock.overtaken(by: later.clock.device + "+merge")
       result.stamped[key] = StampedValue(.string(text), clock: clock)
     }
     return result
@@ -95,13 +95,17 @@ public struct ItemFields: Hashable, Sendable, Codable {
 
   /// Writes `changes` stamped with `clock`, skipping values that are already there, and reports whether
   /// anything changed. Fields not in `changes` keep their value and clock.
+  ///
+  /// A write is later than what it replaces whatever the wall clock says: a field whose clock is ahead of `clock` (its
+  /// writer's clock runs fast, or this device's runs slow) gets the next clock after its own. Otherwise this edit would
+  /// lose to the value it replaced as soon as the two merged.
   @discardableResult
   public mutating func apply(_ changes: [String: JSONValue], clock: HybridClock) -> Bool {
     var changed = false
     for (key, value) in changes where stamped[key]?.value != value {
       // A field that was never written and is set to null stays absent.
       if stamped[key] == nil && value == .null { continue }
-      stamped[key] = StampedValue(value, clock: clock)
+      stamped[key] = StampedValue(value, clock: stamped[key].map { clock.after($0.clock) } ?? clock)
       changed = true
     }
     return changed

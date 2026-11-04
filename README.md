@@ -68,6 +68,16 @@ of an item keeps each field's later write, so edits made on an iPhone and a Mac 
 changed the same field, and then every device keeps the same one. A delete is a write too, and loses to an edit made
 after it.
 
+A clock can be wrong, or stamped decades ahead on purpose by a device that still has a key. Refusing such a field on the
+devices that notice would split them, so merging never looks at the wall clock: every device keeps the same field. What
+the wall clock limits is this device's own clock: it follows clocks up to an hour ahead of it
+(`VaultStore.clockSkewBound`) and ignores the rest, so one bad field doesn't push all later writes into the future. A
+write always beats what it replaces: a field whose clock is ahead of this device's gets the next clock after its own, so
+a device with a slow clock keeps its edits, a value stamped far ahead lasts until someone next edits that field, and a
+store that remembered a far-future clock drops it at its next write. Someone with a current key can still win a field
+against edits that hadn't seen their write, as they could by simply writing it, until `rotateKeys` refuses them; their
+clocks stay on the fields they touched.
+
 **No duplicates.** Ids come from content where there is one: a project is a keyed hash of its remote URL and
 folder name, so the same checkout added on two Macs is one record. If two ids for the same thing appear anyway
 (made before the keys synced), every device folds them into the one with the smaller id.

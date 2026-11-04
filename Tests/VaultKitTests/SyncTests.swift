@@ -226,3 +226,206 @@ struct SyncTests {
     #expect(mac.sync.record(for: id) == nil)
   }
 }
+
+/// A clock far ahead wins merges the same way on every device, and stays on the fields it's on (Ideas/Security V6).
+struct ClockSkewTests {
+  let cloud = FakeCloud()
+  let keys = MemoryKeyProvider()
+  let year: TimeInterval = 365 * 24 * 3600
+
+  private func device(_ name: String, offset: TimeInterval = 0) throws -> FakeApp {
+    let app = try FakeApp(directory: temporaryDirectory(), keys: keys, device: name, name: "\(name).app")
+    app.store.wallClock = { Date.now.addingTimeInterval(offset) }
+    return app
+  }
+
+  private func clock(of store: VaultStore) throws -> HybridClock {
+    try #require(try store.meta("clock").flatMap(HybridClock.init))
+  }
+
+  private func sync(_ apps: [FakeApp], rounds: Int = 3) {
+    for _ in 0..<rounds {
+      for app in apps {
+        app.push(cloud)
+        app.pull(cloud)
+      }
+    }
+  }
+
+  private func expectSame(_ apps: [FakeApp], id: String, _ values: [String: JSONValue], sourceLocation: SourceLocation = #_sourceLocation) throws {
+    for app in apps {
+      #expect(try app.store.item(id: id)?.values == values, "\(app.store.deviceID)", sourceLocation: sourceLocation)
+    }
+    let fields = try apps.map { try #require(try $0.store.item(id: id)).fields }
+    #expect(Set(fields).count == 1, sourceLocation: sourceLocation)
+  }
+
+  private func isSane(_ store: VaultStore, sourceLocation: SourceLocation = #_sourceLocation) throws {
+    let limit = Date.now.addingTimeInterval(VaultStore.clockSkewBound + 60).timeIntervalSince1970 * 1000
+    // No clock at all is fine: it saw none it should follow.
+    guard let clock = try store.meta("clock").flatMap(HybridClock.init) else { return }
+    #expect(Double(clock.millis) < limit, "\(store.deviceID)", sourceLocation: sourceLocation)
+  }
+
+  @Test func threeDevicesConvergeAndLocalClocksStaySane() throws {
+    let a = try device("a")
+    let b = try device("b")
+    let future = try device("future", offset: 60 * year)
+    let apps = [a, b, future]
+
+    try a.store.save(id: "host", kind: "host", changes: ["name": "prod", "port": 22])
+    sync(apps)
+    // The fast device's edit has a clock decades ahead. Every device keeps it, and none but its writer follows it.
+    try future.store.save(id: "host", kind: "host", changes: ["name": "from the future"])
+    sync(apps)
+    try expectSame(apps, id: "host", ["name": "from the future", "port": 22])
+    try isSane(a.store)
+    try isSane(b.store)
+
+    // A normal write elsewhere keeps a normal clock.
+    try a.store.save(id: "other", kind: "host", changes: ["name": "other"])
+    try isSane(a.store)
+    #expect(try a.store.item(id: "other")!.fields.latestClock.millis < Int64(Date.now.addingTimeInterval(60).timeIntervalSince1970 * 1000))
+
+    // Editing the field it holds beats it, on every device, and the store's own clock doesn't move.
+    try b.store.save(id: "host", kind: "host", changes: ["name": "from b"])
+    try isSane(b.store)
+    sync(apps)
+    try expectSame(apps, id: "host", ["name": "from b", "port": 22])
+
+    // The fast device isn't shut out either: it writes over b's edit, having seen it.
+    try future.store.save(id: "host", kind: "host", changes: ["name": "from the future again"])
+    sync(apps)
+    try expectSame(apps, id: "host", ["name": "from the future again", "port": 22])
+    try isSane(a.store)
+    try isSane(b.store)
+
+    // Two edits of the same field by devices that haven't seen each other's: one wins, the same one everywhere.
+    try a.store.save(id: "host", kind: "host", changes: ["name": "race a"])
+    try future.store.save(id: "host", kind: "host", changes: ["name": "race future"])
+    sync(apps)
+    let name = try a.store.item(id: "host")?.values["name"]
+    #expect(name != nil)
+    try expectSame(apps, id: "host", ["name": name!, "port": 22])
+  }
+
+  @Test func aSlowDeviceKeepsItsOwnEdits() throws {
+    let a = try device("a")
+    let slow = try device("slow", offset: -2 * year)
+    let apps = [a, slow]
+    try a.store.save(id: "host", kind: "host", changes: ["name": "prod", "port": 22])
+    sync(apps)
+    // Everything it has seen looks ahead of its clock, and its edits still replace what it saw.
+    try slow.store.save(id: "host", kind: "host", changes: ["name": "edited on the slow device"])
+    #expect(try slow.store.item(id: "host")?.values["name"] == "edited on the slow device")
+    sync(apps)
+    try expectSame(apps, id: "host", ["name": "edited on the slow device", "port": 22])
+    // Its delete takes, though the item's clocks are ahead of it, and so does bringing it back.
+    try slow.store.delete(id: "host")
+    sync(apps)
+    #expect(try a.store.item(id: "host")?.isDeleted == true)
+    try slow.store.save(id: "host", kind: "host", changes: ["name": "back again"])
+    sync(apps)
+    #expect(try a.store.item(id: "host")?.isDeleted == false)
+    #expect(try a.store.item(id: "host")?.values["name"] == "back again")
+  }
+
+  @Test func aTombstoneFarAheadDoesntKeepAnItemDeleted() throws {
+    let a = try device("a")
+    let future = try device("future", offset: 60 * year)
+    let apps = [a, future]
+    try a.store.save(id: "host", kind: "host", changes: ["name": "prod"])
+    sync(apps)
+    try future.store.delete(id: "host")
+    sync(apps)
+    #expect(try a.store.item(id: "host")?.isDeleted == true)
+    try a.store.save(id: "host", kind: "host", changes: ["name": "back"])
+    sync(apps)
+    for app in apps {
+      #expect(try app.store.item(id: "host")?.isDeleted == false)
+      #expect(try app.store.item(id: "host")?.values["name"] == "back")
+    }
+    try isSane(a.store)
+  }
+
+  @Test func aFieldFarAheadDoesntStopADelete() throws {
+    let a = try device("a")
+    let future = try device("future", offset: 60 * year)
+    let apps = [a, future]
+    try future.store.save(id: "host", kind: "host", changes: ["name": "prod"])
+    sync(apps)
+    try a.store.delete(id: "host")
+    #expect(try a.store.item(id: "host")?.isDeleted == true)
+    sync(apps)
+    #expect(try future.store.item(id: "host")?.isDeleted == true)
+    try isSane(a.store)
+  }
+
+  @Test func dataFromBeforeTheBoundIsntStranded() throws {
+    // Written before this change: a far-future field in the store, and the store's own clock dragged along with it.
+    let a = try device("a")
+    let b = try device("b")
+    let apps = [a, b]
+    let far = HybridClock(millis: Int64(Date.now.addingTimeInterval(60 * year).timeIntervalSince1970 * 1000), counter: 7, device: "gone")
+    try a.store.withLock {
+      try a.store.writeRow(id: "host", kind: "host", fields: ItemFields(["name": StampedValue("stuck", clock: far)]), queue: true)
+      try a.store.setMeta("clock", far.description)
+    }
+    sync(apps)
+    try expectSame(apps, id: "host", ["name": "stuck"])
+    try isSane(b.store)
+    // The next write puts this store's clock right, and one to the old field beats it.
+    try a.store.save(id: "elsewhere", kind: "host", changes: ["name": "x"])
+    try isSane(a.store)
+    try a.store.save(id: "host", kind: "host", changes: ["name": "unstuck"])
+    sync(apps)
+    try expectSame(apps, id: "host", ["name": "unstuck"])
+    try isSane(a.store)
+    try isSane(b.store)
+  }
+
+  @Test func theLastClockThereIsCanBeOvertaken() throws {
+    // Nothing a record says can trap the arithmetic or leave a field that can't be written again.
+    let a = try device("a")
+    let b = try device("b")
+    let apps = [a, b]
+    let last = HybridClock(millis: .max, counter: .max, device: "zzz")
+    try b.store.withLock {
+      try b.store.writeRow(id: "host", kind: "host", fields: ItemFields(["name": StampedValue("held", clock: last)]), queue: true)
+    }
+    sync(apps)
+    try expectSame(apps, id: "host", ["name": "held"])
+    try isSane(a.store)
+    try a.store.save(id: "host", kind: "host", changes: ["name": "taken back"])
+    sync(apps)
+    try expectSame(apps, id: "host", ["name": "taken back"])
+    try a.store.delete(id: "host")
+    sync(apps)
+    #expect(try b.store.item(id: "host")?.isDeleted == true)
+  }
+
+  @Test func aClockAtTheBoundIsFollowedAndOnePastItIsnt() throws {
+    let a = try device("a")
+    let near = try device("near", offset: VaultStore.clockSkewBound / 2)
+    let far = try device("far", offset: 3 * VaultStore.clockSkewBound)
+    try near.store.save(id: "one", kind: "host", changes: ["name": "near"])
+    near.push(cloud)
+    a.pull(cloud)
+    let followed = try clock(of: a.store)
+    #expect(followed.device == "near")
+    try far.store.save(id: "two", kind: "host", changes: ["name": "far"])
+    far.push(cloud)
+    a.pull(cloud)
+    #expect(try clock(of: a.store) == followed)
+    #expect(try a.store.item(id: "two")?.values["name"] == "far")
+  }
+
+  @Test func aClockCounterPastThirtyTwoBitsSurvivesItsText() {
+    let clock = HybridClock(millis: 5, counter: Int(UInt32.max) + 3, device: "a")
+    #expect(HybridClock(clock.description) == clock)
+    let last = HybridClock(millis: .max, counter: .max, device: "a")
+    #expect(HybridClock(last.description) == last)
+    #expect(last.overtaken(by: "b") > last)
+    #expect(last.overtaken(by: "b").overtaken(by: "b") > last.overtaken(by: "b"))
+  }
+}
