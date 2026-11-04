@@ -14,6 +14,8 @@ struct DevicesView: View {
   @State private var pushed: String?
   /// The device being renamed (this one too).
   @State private var renaming: VaultDeviceKey?
+  /// The device being taken out through Lost Device.
+  @State private var lost: VaultDeviceKey?
   @Environment(\.kitIdiom) private var idiom
 
   var body: some View {
@@ -58,7 +60,20 @@ struct DevicesView: View {
               Chip("Up to date", hue: .green).controlSize(.small)
             }
             .contextMenu {
-              if !app.isDemo { Button("Rename…") { renaming = device } }
+              if !app.isDemo {
+                Button("Rename…") { renaming = device }
+                Button("Lost Device…") { lost = device }
+              }
+            }
+          }
+          ForEach(app.deviceVault.revokedDevices) { device in
+            SidebarRow(device.name, subtitle: "Taken out through Lost Device") {
+              RowTile(systemImage: "exclamationmark.shield")
+            } trailing: {
+              Chip("Not trusted", hue: .red).controlSize(.small)
+            }
+            .contextMenu {
+              if !app.isDemo { Button("Trust Again") { Vaults.shared.trustAgain(device) } }
             }
           }
           ForEach(app.hubs.hubs.filter { $0.status == .connected }) { hub in
@@ -120,6 +135,9 @@ struct DevicesView: View {
       Button("Add Device", systemImage: "qrcode") { app.sheet = .addDevice }
     }
     .kitSheet(item: $renaming) { device in VaultDeviceNameSheet(vault: app.deviceVault, device: device) }
+    .kitSheet(item: $lost) { device in
+      VaultLostDeviceSheet(device: device, actions: LostDeviceActions.make(for: device, app: app))
+    }
     .onAppear { if idiom == .phone, LaunchOptions.pushes { pushed = app.selectedPerson } }
     .navigationDestination(item: $pushed) { id in
       if let person = people.first(where: { $0.id == id }) {

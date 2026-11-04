@@ -193,13 +193,16 @@ struct RecoveryKeyPane: View {
         FormRow("Vault keys", help: "Records, notes and passwords on every device.", systemImage: "key.horizontal", hue: .blue) { check }
         FormRow("Your identity", help: "So shared folders and the people you share with still know you.", systemImage: "person", hue: .purple) { check }
         FormRow("Every folder key", help: "Also stored next to each folder on its remote, so a folder comes back even without your Apple ID.", systemImage: "lock.rectangle.stack", hue: .teal) { check }
+        FormRow("Passwords and passkeys", help: "Logins, one-time codes, cards, passkeys and saved server and database passwords. Sealed so that only this kit opens them, not the vault key.", systemImage: "lock", hue: .orange) { check }
+        FormRow("Imported SSH keys", help: "The ones you added to a connection.", systemImage: "key", hue: .orange) { check }
         FormRow("Not device SSH keys", help: "They never leave their Secure Enclave. A recovered device makes a new one.", systemImage: "shield", hue: .gray)
+        FormRow("Not Hub keys or your GitHub sign-in", help: "You sign in again, and approve this device on your Hubs. Nor what Shell keeps in its own keychain.", systemImage: "shield", hue: .gray)
       }
       FormCard("When it’s on") {
         FormRow("Check Recovery Key…", help: "Type the words or scan the kit to make sure it still works.", systemImage: "checkmark", hue: .green) {
           Button("Check…") {}.buttonStyle(.kit)
         }
-        FormRow("Replace Recovery Key…", help: "For a lost or leaked kit: re-wraps everything and deletes the old copies.", systemImage: "arrow.clockwise", hue: .blue) {
+        FormRow("Replace Recovery Key…", help: "For a lost or leaked kit: makes a new vault key, seals everything to the new kit and deletes the old copies. A leaked kit still opens the copies someone already took, so change the passwords too.", systemImage: "arrow.clockwise", hue: .blue) {
           Button("Replace…") { create() }.buttonStyle(.kit)
         }
         FormRow("Turn Off", help: "Deletes every wrapped copy, in iCloud and on your remotes.", systemImage: "trash", hue: .red) {

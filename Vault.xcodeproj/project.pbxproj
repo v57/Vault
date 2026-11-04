@@ -14,6 +14,7 @@
 		DE5C0DE0000000000000000003 /* DevScreenshots in Frameworks */ = {isa = PBXBuildFile; productRef = DE5C0DE0000000000000000002 /* DevScreenshots */; };
 		D5C0DE000000000000000003 /* UpdateKit in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = D5C0DE000000000000000002 /* UpdateKit */; };
 		C0C0DE000000000000000003 /* ComponentKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0C0DE000000000000000002 /* ComponentKit */; };
+		55C0DE000000000000000003 /* SSHKit in Frameworks */ = {isa = PBXBuildFile; productRef = 55C0DE000000000000000002 /* SSHKit */; };
 		AF0000000000000000000301 /* VaultKit in Frameworks */ = {isa = PBXBuildFile; productRef = AF0000000000000000000201 /* VaultKit */; };
 		AF0000000000000000000302 /* ComponentKit in Frameworks */ = {isa = PBXBuildFile; productRef = AF0000000000000000000202 /* ComponentKit */; };
 		AF0000000000000000000303 /* VaultAutoFill.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AF0000000000000000000120 /* VaultAutoFill.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -102,6 +103,7 @@
 				DE5C0DE0000000000000000003 /* DevScreenshots in Frameworks */,
 				D5C0DE000000000000000003 /* UpdateKit in Frameworks */,
 				C0C0DE000000000000000003 /* ComponentKit in Frameworks */,
+				55C0DE000000000000000003 /* SSHKit in Frameworks */,
 				5C56F8A6336B183BEBF30E38 /* VaultKit in Frameworks */,
 				7A11E7000000000000000002 /* VaultUI in Frameworks */,
 			);
@@ -161,6 +163,7 @@
 				4B0B0DE000000000000000002 /* VaultHub */,
 				D5C0DE000000000000000002 /* UpdateKit */,
 				C0C0DE000000000000000002 /* ComponentKit */,
+				55C0DE000000000000000002 /* SSHKit */,
 				699545B0CBF14D31A04E078E /* VaultKit */,
 				7A11E7000000000000000001 /* VaultUI */,
 				DE5C0DE0000000000000000002 /* DevScreenshots */,
@@ -219,6 +222,7 @@
 				2669A0ED3031C45000C52779 /* XCLocalSwiftPackageReference "." */,
 				D5C0DE000000000000000001 /* XCRemoteSwiftPackageReference "UpdateKit" */,
 				C0C0DE000000000000000001 /* XCRemoteSwiftPackageReference "Component" */,
+				55C0DE000000000000000001 /* XCRemoteSwiftPackageReference "SSH" */,
 								DE5C0DE0000000000000000001 /* XCRemoteSwiftPackageReference "Dev" */,
 			);
 			preferredProjectObjectVersion = 90;
@@ -638,6 +642,14 @@
 				kind = branch;
 			};
 		};
+		55C0DE000000000000000001 /* XCRemoteSwiftPackageReference "SSH" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/v57/SSH.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -670,6 +682,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C0C0DE000000000000000001 /* XCRemoteSwiftPackageReference "Component" */;
 			productName = ComponentKit;
+		};
+		55C0DE000000000000000002 /* SSHKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 55C0DE000000000000000001 /* XCRemoteSwiftPackageReference "SSH" */;
+			productName = SSHKit;
 		};
 		AF0000000000000000000201 /* VaultKit */ = {
 			isa = XCSwiftPackageProductDependency;

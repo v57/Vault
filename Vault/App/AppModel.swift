@@ -143,6 +143,10 @@ final class AppModel {
         remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault), recovery: UnavailableRecovery(),
         hubs: LiveHubs(directory: hubs))
       model.lastSync = vault.sync?.isRunning == true ? .now : nil
+      // With a recovery kit on, anything sealed elsewhere or changed while this app was closed. Reads the keychain only then.
+      if let store = vault.store {
+        Task.detached(priority: .utility) { _ = try? VaultRecovery(store: store).wrapMissing() }
+      }
     }
     model.applyLaunchOptions()
     models[VaultAccount.personal.id] = model
