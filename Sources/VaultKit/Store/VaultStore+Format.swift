@@ -487,9 +487,16 @@ extension VaultStore {
           let version = row[4].int ?? 0
           let payload = row[3].blob ?? Data()
           guard versions[id] != version, VaultItemSeal.parse(payload) == nil else { continue }
+          // An old build doesn't know of a rotation until iCloud Keychain tells it, and goes on writing under the key.
+          let keyID = row[2].text ?? ""
+          if extraKeys[keyID] == nil, try keys.isRetired(keyID) {
+            versions[id] = version
+            try noteRefused(id: id, tag: nil, isOldFormat: false)
+            continue
+          }
           let old: VaultItem
           do {
-            old = try openFormat1(id: id, keyID: row[2].text ?? "", payload: payload)
+            old = try openFormat1(id: id, keyID: keyID, payload: payload)
           } catch VaultCrypto.CryptoError.missingKey {
             continue
           } catch where Self.payloadIsWrong(error) {
