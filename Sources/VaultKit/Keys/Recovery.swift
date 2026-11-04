@@ -167,6 +167,12 @@ public struct VaultRecovery: Sendable {
     return try wrap(folderKey.keyData, content: .folderKey, keyID: folderKey.keyID, folderID: folderKey.folderID, to: key)
   }
 
+  /// Whether the kit holds a sealed identity. It takes the kit's public key to read that, and with no kit nothing here says.
+  func holdsIdentity() throws -> Bool {
+    guard try current() != nil else { return false }
+    return try store.records(VaultRecoveryBlob.self).contains { $0.content == .identity }
+  }
+
   private func stableIDKeyIfHere() throws -> Data? {
     do {
       return try keys.stableIDKey().withUnsafeBytes { Data($0) }
@@ -236,7 +242,7 @@ public struct VaultRecovery: Sendable {
   /// Whether a keychain item is one of the secrets the kit covers. The identity has a blob of its own.
   static func isCovered(secret name: String) -> Bool {
     name != digestSecret && name != VaultPersonalIdentity.account && !name.hasPrefix(VaultSecretMove.supersededPrefix)
-      && !name.hasPrefix(VaultSecretMove.accountSecretsPrefix)
+      && !name.hasPrefix(VaultSecretMove.accountSecretsPrefix) && !name.hasPrefix(VaultSecretMove.moveDatePrefix)
   }
 
   /// The record a secret belongs to, for those named after one.
@@ -370,8 +376,14 @@ public struct VaultRecovery: Sendable {
           result.damaged += 1
           continue
         }
-        // Newest wins, if the identity was ever made again.
-        if result.identity == nil || (blob.created ?? .distantPast) > (identityDate ?? .distantPast) {
+        // Oldest wins, and the others come along. One made since is most likely a stand-in: an old build makes one if it
+        // reads none, as it does once the real one has moved, and folders are wrapped to the real one.
+        if let current = result.identity, (blob.created ?? .distantFuture) >= (identityDate ?? .distantFuture) {
+          if current.rawRepresentation != identity.rawRepresentation { result.otherIdentities.append(identity) }
+        } else {
+          if let current = result.identity, current.rawRepresentation != identity.rawRepresentation {
+            result.otherIdentities.append(current)
+          }
           result.identity = identity
           identityDate = blob.created
         }
@@ -451,6 +463,12 @@ public struct VaultRecovery: Sendable {
         identity.rawRepresentation, named: VaultPersonalIdentity.account, label: "v57 identity (sharing keys)")
       result.identityRestored = true
     }
+    // Kept, as it may be the one some folder was wrapped to. There's no telling here.
+    let current = try identityBacking.read(VaultPersonalIdentity.account)
+    for identity in recovered.otherIdentities + [recovered.identity].compactMap({ $0 })
+    where identity.rawRepresentation != current {
+      try? VaultSecretMove.keepSuperseded(identity.rawRepresentation, of: VaultPersonalIdentity.account, in: identityBacking)
+    }
     for (name, value) in recovered.secrets.sorted(by: { $0.key < $1.key }) where Self.isCovered(secret: name) {
       if try secretBacking.addNew(value, named: name, label: "v57 secret") {
         result.restoredSecrets.append(name)
@@ -520,6 +538,8 @@ public struct RecoveredKeys: Sendable {
   /// The vault's AES keys by id.
   public var vaultKeys: [String: SymmetricKey] = [:]
   public var identity: PersonalIdentity?
+  /// Any other identity that was ever sealed to this key (`VaultRecovery.restore` keeps them).
+  public var otherIdentities: [PersonalIdentity] = []
   public var folderKeys: [RecoveryFolderKey] = []
   /// The secrets from the keychain, by name.
   public var secrets: [String: Data] = [:]

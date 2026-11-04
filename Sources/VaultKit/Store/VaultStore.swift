@@ -185,6 +185,7 @@ public final class VaultStore: @unchecked Sendable {
     VaultSecrets.didChange = { name, value in
       try? VaultRecovery(store: store).secretChanged(name, value: value)
     }
+    VaultPersonalIdentity.existsElsewhere = { (try? VaultRecovery(store: store).holdsIdentity()) ?? true }
     return store
   }()
 

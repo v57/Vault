@@ -136,12 +136,14 @@ public enum SharingError: LocalizedError, Equatable {
   case invalidIdentity
   case invalidInvite
   case cannotOpen
+  case identityOnItsWay
 
   public var errorDescription: String? {
     switch self {
     case .invalidIdentity: "These identity keys are damaged."
     case .invalidInvite: "This isn’t a valid invite, or it was changed after it was made."
     case .cannotOpen: "This key wasn’t sealed for you, or it is damaged."
+    case .identityOnItsWay: "Your identity hasn’t reached this device from iCloud Keychain yet. Try again in a while."
     }
   }
 }
@@ -182,9 +184,29 @@ public enum VaultPersonalIdentity {
   ///
   /// Two devices that make one at the same moment, before iCloud Keychain synced, end up with different ones
   /// until it does (iCloud Keychain then keeps one); call it only when the user starts sharing.
+  ///
+  /// Never makes one while there's a sign that one exists: a mark that it moved, a value kept from a conflict, or a sealed
+  /// copy in the recovery kit (`existsElsewhere`). Another device's move syncs item by item, so the shared copy can be gone
+  /// here before the new one has arrived, and one made in between would take its place. It throws `identityOnItsWay` then,
+  /// which goes on if the real one is lost for good: only the recovery kit brings it back.
   public static func current() throws -> PersonalIdentity {
-    let backing = backing
+    try current(in: backing, existsElsewhere: lock.withLock { _existsElsewhere })
+  }
+
+  /// Set where a store is open (`VaultStore.shared`): whether it holds a sign the identity exists.
+  public static var existsElsewhere: (@Sendable () -> Bool)? {
+    get { lock.withLock { _existsElsewhere } }
+    set { lock.withLock { _existsElsewhere = newValue } }
+  }
+  nonisolated(unsafe) private static var _existsElsewhere: (@Sendable () -> Bool)?
+
+  static func current(in backing: any VaultSecretBacking, existsElsewhere: (@Sendable () -> Bool)?) throws -> PersonalIdentity {
     if let identity = try existing(in: backing) { return identity }
+    if try backing.read(VaultSecretMove.identityMovedMark) != nil
+      || backing.read(VaultSecretMove.supersededPrefix + account) != nil || existsElsewhere?() == true
+    {
+      throw SharingError.identityOnItsWay
+    }
     let identity = PersonalIdentity()
     if try backing.addNew(identity.rawRepresentation, named: account, label: "v57 identity (sharing keys)") {
       return identity

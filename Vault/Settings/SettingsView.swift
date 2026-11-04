@@ -106,6 +106,8 @@ private struct SyncPane: View {
   @AppStorage("iCloudSync") private var iCloud = true
   @AppStorage("remoteCheckMinutes") private var checkMinutes = RemoteCheck.five.rawValue
   @AppStorage("notifyConflicts") private var notifyConflicts = true
+  @State private var replaced: [VaultSecretMove.Superseded] = []
+  @State private var isShowingReplaced = false
 
   var body: some View {
     FormCard {
@@ -117,6 +119,29 @@ private struct SyncPane: View {
       }
       if let note = app.vault.store?.formatStatus.note {
         FormRow("Other devices", help: note, systemImage: "clock", hue: .orange)
+      }
+      if !replaced.isEmpty {
+        FormRow(
+          "Replaced values",
+          help: "A password or code changed on two devices at once. The later value is in use, and the other is kept here. It’s never deleted.",
+          systemImage: "clock.arrow.circlepath", hue: .orange
+        ) {
+          Button("Show \(replaced.count)…") { isShowingReplaced = true }.buttonStyle(.kit)
+        }
+      }
+    }
+    .task { replaced = (try? VaultSecretMove.superseded()) ?? [] }
+    .sheet(isPresented: $isShowingReplaced) {
+      KitSheet(title: "Replaced Values", systemImage: "clock.arrow.circlepath", onClose: { isShowingReplaced = false }) {
+        VStack(alignment: .leading, spacing: 12) {
+          ForEach(replaced) { value in
+            VStack(alignment: .leading, spacing: 2) {
+              Text(value.secret).font(.caption).foregroundStyle(.secondary)
+              Text(String(data: value.value, encoding: .utf8) ?? value.value.base64EncodedString())
+                .font(.body.monospaced()).textSelection(.enabled)
+            }
+          }
+        }
       }
     }
     FormCard("Remotes") {

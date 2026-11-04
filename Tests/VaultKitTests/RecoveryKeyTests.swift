@@ -335,7 +335,10 @@ struct RecoveryKeyTests {
     #expect(recovered.vaultKeys["0000000000000003"] == newKey)
     #expect(recovered.vaultKeys.count == 3)
     #expect(recovered.folderKeys == folderKeys)
+    // The first one stays the identity, as what's made since may be a stand-in, and the other comes along to be kept.
     #expect(recovered.identity != nil)
+    #expect(recovered.identity?.rawRepresentation != newIdentity.rawRepresentation)
+    #expect(recovered.otherIdentities.map(\.rawRepresentation) == [newIdentity.rawRepresentation])
 
     // A key that arrived through iCloud Keychain without a hook: wrapMissing finds it.
     keys.add(SymmetricKey(size: .bits256), id: "0000000000000004")

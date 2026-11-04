@@ -177,7 +177,7 @@ struct SecretMoveTests {
 
     #expect(mover.run().moved == 1)
     #expect(try vaultOnly.read(account) == data("first"))
-    #expect(shared.names.isEmpty)
+    #expect(shared.names == [VaultSecretMove.identityMovedMark])
 
     // An old build made another after the first left its sight, however recently.
     try shared.write(data("second"), named: account, label: "")
@@ -185,7 +185,7 @@ struct SecretMoveTests {
     mover.run()
     #expect(try vaultOnly.read(account) == data("first"))
     #expect(try vaultOnly.read("superseded.\(account)") == data("second"))
-    #expect(shared.names.isEmpty)
+    #expect(shared.names == [VaultSecretMove.identityMovedMark])
   }
 
   @Test func anAppOutsideTheGroupSeesNothingAndBreaksNothing() throws {
