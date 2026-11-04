@@ -104,6 +104,13 @@ public final class SyncZones: @unchecked Sendable {
       + ids.sorted().map(Self.zoneName(forAccount:)).filter { coordinator(forZone: $0) != nil }
   }
 
+  /// Whether the sync engine must start from nothing: some store hasn't seen everything on the server since it migrated
+  /// (`VaultStore.needsFullFetch`). Asks about the stores `activeZones` has opened.
+  public var needsFullFetch: Bool {
+    accounts.personal.needsFullFetch
+      || accounts.openAccounts.contains { (try? accounts.store(forAccount: $0).needsFullFetch) == true }
+  }
+
   public enum ZoneDeletion: Sendable {
     /// The user deleted the app's data in iCloud settings.
     case purged

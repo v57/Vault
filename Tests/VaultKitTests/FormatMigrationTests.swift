@@ -67,39 +67,57 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     let old = try oldStore(keys: keys, rows: 5)
     let store = try open(old.directory, keys: keys)
 
-    #expect(store.isFormatFinished)
+    #expect(store.fileURL.lastPathComponent == "Vault.v2.sqlite")
+    #expect(!store.isWaitingToMigrate)
     #expect(try format1Rows(store) == 0)
     try expectEverythingReadable(store, rows: 5)
     let status = store.formatStatus
     #expect(status.resealed == everyKind.count + 5)
     #expect(status.unreadable == 0)
     #expect(status.error == nil)
+    // It hasn't seen the server yet.
+    #expect(!status.isFinished)
     // Everything goes up, so the other devices get format 2.
     #expect(try store.pendingCount() == everyKind.count + 5)
   }
 
-  @Test func theBackupHoldsTheOldStoreAndStays() throws {
+  @Test func theOldFileIsNeverWritten() throws {
+    let keys = MemoryKeyProvider()
+    let old = try oldStore(keys: keys, rows: 5)
+    let dump = {
+      try ["SELECT id, version, payload, change_tag, modified FROM items ORDER BY id", "SELECT id, version FROM outbox ORDER BY id", "SELECT key, value FROM meta ORDER BY key"]
+        .map { "\(try old.database.query($0))" }
+    }
+    let before = try dump()
+
+    let store = try open(old.directory, keys: keys)
+    try store.save(id: "id-host", kind: "host", changes: ["port": .int(22)])
+    try store.delete(id: "id-login")
+    _ = try store.catchUp()
+    _ = try open(old.directory, keys: keys)
+
+    #expect(try dump() == before)
+  }
+
+  @Test func nothingOpensAnOldFileForWriting() throws {
+    let keys = MemoryKeyProvider()
+    let directory = temporaryDirectory()
+    let store = try open(directory, keys: keys, fileName: "Vault.sqlite")
+    #expect(store.fileURL.lastPathComponent == "Vault.v2.sqlite")
+    let account = try open(directory, keys: keys, fileName: "acme.sqlite", account: "acme")
+    #expect(account.fileURL.lastPathComponent == "acme.v2.sqlite")
+    #expect(account.legacyFileURL.lastPathComponent == "acme.sqlite")
+  }
+
+  @Test func removingAStoreRemovesBothFilesAndWhatAKillLeft() throws {
     let keys = MemoryKeyProvider()
     let old = try oldStore(keys: keys)
-    let before = try old.database.query("SELECT id, payload FROM items ORDER BY id")
     let store = try open(old.directory, keys: keys)
-
-    let backup = try #require(store.formatStatus.backup)
-    #expect(backup.lastPathComponent == "Vault.sqlite.format1-backup")
-    let copy = try SQLiteConnection(url: backup)
-    let rows = try copy.query("SELECT id, payload FROM items ORDER BY id")
-    #expect(rows.count == before.count)
-    for (a, b) in zip(rows, before) { #expect(a[1].blob == b[1].blob) }
-
-    // It stays through later opens, and a store that had nothing to rewrite makes none.
-    _ = try open(old.directory, keys: keys)
-    #expect(FileManager.default.fileExists(atPath: backup.path))
-    let fresh = try open(temporaryDirectory(), keys: MemoryKeyProvider())
-    #expect(fresh.formatStatus.backup == nil)
-    // Deleting a store deletes its backup: `removeDeletedAccounts` looks for `.sqlite`, which the name doesn't end in.
-    #expect(!backup.path.hasSuffix(".sqlite"))
+    let leftover = old.directory.appendingPathComponent("Vault.v2.sqlite.ABC.tmp")
+    try Data("x".utf8).write(to: leftover)
     VaultStore.removeFiles(at: store.fileURL)
-    #expect(!FileManager.default.fileExists(atPath: backup.path))
+    let names = try FileManager.default.contentsOfDirectory(atPath: old.directory.path)
+    #expect(names.isEmpty, "\(names)")
   }
 
   @Test func tombstonesAndBookkeepingMoveOver() throws {
@@ -108,12 +126,36 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     let cloud = FakeCloud()
     try old.push(cloud)
     try old.delete(id: "id-login")
-    let tag = try old.database.query("SELECT change_tag FROM items WHERE id = 'id-host'")[0][0].text
+    let row = try old.database.query("SELECT change_tag, system_fields, version FROM items WHERE id = 'id-host'")[0]
+    let clock = try old.database.query("SELECT value FROM meta WHERE key = 'clock'")[0][0].text
     let store = try open(old.directory, keys: keys)
     #expect(try store.item(id: "id-login")?.isDeleted == true)
     #expect(try store.items(kind: "login").isEmpty)
-    let row = try store.database.query("SELECT change_tag FROM items WHERE id = 'id-host'")[0][0].text
-    #expect(row == tag)
+    let moved = try store.database.query("SELECT change_tag, system_fields, version FROM items WHERE id = 'id-host'")[0]
+    #expect(moved[0].text == row[0].text)
+    #expect(moved[1].blob == row[1].blob)
+    #expect(moved[2].int == (row[2].int ?? 0) + 1)
+    #expect(try store.meta("clock") == clock)
+  }
+
+  @Test func fieldsAndClocksComeOverExactly() throws {
+    let keys = MemoryKeyProvider()
+    let old = try oldStore(keys: keys)
+    try old.save(id: "id-host", kind: "host", changes: ["later": .string("x")])
+    let before = try #require(old.read("id-host"))
+    let store = try open(old.directory, keys: keys)
+    #expect(try store.item(id: "id-host")?.fields == before.fields)
+  }
+
+  @Test func whatAnEngineFetchedIsAskedForAgainButHubStateStays() throws {
+    let keys = MemoryKeyProvider()
+    let old = try oldStore(keys: keys)
+    try old.database.query("INSERT INTO engines(name, state) VALUES('dev.v57.app', x'01'), ('hub-sync:abc', x'02')")
+    try old.database.query("INSERT INTO engines(name, state) VALUES('dev.v57.app.subscription', x'03')")
+    let store = try open(old.directory, keys: keys)
+    #expect(try store.engineState("dev.v57.app") == nil)
+    #expect(try store.engineState("hub-sync:abc") == Data([2]))
+    #expect(try store.engineState("dev.v57.app.subscription") == Data([3]))
   }
 
   @Test func theTextMergeBaseMovesOver() throws {
@@ -158,9 +200,13 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
       "INSERT INTO items(id, kind, key_id, payload) VALUES('theirs', '', ?, ?)", [.text(theirs[0].text ?? ""), .blob(theirs[1].blob ?? Data())])
 
     let store = try open(old.directory, keys: keys)
+    store.fetchCompleted()
     #expect(store.isFormatFinished)
     #expect(store.formatStatus.unreadable == 1)
     #expect(try store.item(id: "theirs") == nil)
+    #expect(try format1Rows(store) == 1)
+    // A row that came over unopened never goes up in format 1.
+    #expect(try store.outgoing(id: "theirs") == nil)
 
     keys.add(try #require(try other.key(id: "ffff")), id: "ffff")
     // It opens, though the store finished and it's format 1: it's on the sealed list.
@@ -171,17 +217,76 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     #expect(try store.item(id: "theirs")?.kind == "login")
   }
 
-  @Test func aStoreWithNoKeysYetWaitsAndKeepsReading() throws {
+  /// Keys haven't arrived on this device: it keeps the old file, which an old app can go on using too.
+  @Test func aStoreWithNoKeysYetWaitsReadsAndThenMigrates() throws {
     let keys = MemoryKeyProvider()
     let old = try oldStore(keys: keys)
     let empty = MemoryKeyProvider(keys: [:])
     let store = try open(old.directory, keys: empty)
-    #expect(!store.isFormatFinished)
-    #expect(store.formatStatus.backup == nil)
+    #expect(store.isWaitingToMigrate)
+    #expect(!FileManager.default.fileExists(atPath: store.fileURL.path))
     #expect(empty.allKeys.isEmpty)
+    #expect(store.formatStatus.error == nil)
+    #expect(try store.pendingIDs().isEmpty == false)
+    #expect(try store.claimOutbox().isEmpty)
+    // Nothing from elsewhere goes in the old file.
+    var fields = ItemFields()
+    _ = fields.apply(["a": .string("b")], clock: HybridClock.zero.next(now: .now, device: "pad"))
+    let record = try OldBuildStore.format1(id: "n", kind: "host", fields: fields, keys: keys)
+    #expect(throws: (any Error).self) {
+      try store.apply(RemoteRecord(id: "n", keyID: record.keyID, payload: record.payload, changeTag: "t", systemFields: nil))
+    }
+    #expect(try old.database.query("SELECT 1 FROM items WHERE id = 'n'").isEmpty)
 
-    let later = try open(old.directory, keys: keys)
-    #expect(later.isFormatFinished)
+    // The keys arrive, and the same store carries on.
+    try empty.addKeys(keys.allKeys)
+    #expect(try store.catchUp().isEmpty)
+    #expect(!store.isWaitingToMigrate)
+    #expect(FileManager.default.fileExists(atPath: store.fileURL.path))
+    try expectEverythingReadable(store)
+  }
+
+  @Test func aKeychainOutOfReachReadsNothingWrongAndBuildsNothing() throws {
+    let base = MemoryKeyProvider()
+    let old = try oldStore(keys: base)
+    let keys = FlakyKeys(base)
+    keys.failing = true
+    let store = try open(old.directory, keys: keys)
+    #expect(store.isWaitingToMigrate)
+    #expect(store.formatStatus.error != nil)
+    #expect(!FileManager.default.fileExists(atPath: store.fileURL.path))
+    #expect(throws: (any Error).self) { try store.save(id: "x", kind: "host", changes: ["a": .string("b")]) }
+    #expect(try old.database.query("SELECT 1 FROM items WHERE id = 'x'").isEmpty)
+
+    keys.failing = false
+    #expect(try store.item(id: "id-host")?.fields["name"]?.stringValue == "host")
+    try store.save(id: "x", kind: "host", changes: ["a": .string("b")])
+    #expect(!store.isWaitingToMigrate)
+    #expect(try store.item(id: "x")?.fields["a"]?.stringValue == "b")
+    try expectEverythingReadable(store)
+    #expect(try old.database.query("SELECT 1 FROM items WHERE id = 'x'").isEmpty)
+  }
+
+  /// A write on an empty keychain makes a key, as it always did. The rows that came over wait for the real one, and no
+  /// id is made until it's here: it would be wrong.
+  @Test func aWriteWithNoKeysKeepsTheRowsAndTheWrite() throws {
+    let keys = MemoryKeyProvider()
+    let old = try oldStore(keys: keys)
+    let empty = MemoryKeyProvider(keys: [:])
+    let store = try open(old.directory, keys: empty)
+    #expect(throws: VaultCrypto.CryptoError.self) { try store.derivedID("x") }
+
+    try store.save(id: "typed", kind: "host", changes: ["a": .string("b")])
+    #expect(!store.isWaitingToMigrate)
+    #expect(try store.item(id: "typed")?.fields["a"]?.stringValue == "b")
+    #expect(store.formatStatus.unreadable == everyKind.count)
+    #expect(throws: VaultCrypto.CryptoError.self) { try store.derivedID("x") }
+
+    try empty.addKeys(keys.allKeys)
+    #expect(try store.catchUp().count == everyKind.count)
+    try expectEverythingReadable(store)
+    #expect(try store.item(id: "typed")?.fields["a"]?.stringValue == "b")
+    #expect(try store.derivedID("x") == VaultCrypto.derivedID("x", keys: keys))
   }
 
   @Test func accountsMigrateInTheirOwnFile() throws {
@@ -192,115 +297,94 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     // An old build's account store: the same tables under another name.
     let old = try OldBuildStore(keys: keys, device: "mac")
     try old.save(id: "h", kind: "host", changes: ["name": .string("server")])
+    try old.database.checkpointFully()
     try FileManager.default.copyItem(
-      at: old.directory.appendingPathComponent(VaultStore.fileName), to: directory.appendingPathComponent("acme.sqlite"))
-    for suffix in ["-wal", "-shm"] {
-      try? FileManager.default.copyItem(
-        at: old.directory.appendingPathComponent(VaultStore.fileName + suffix),
-        to: directory.appendingPathComponent("acme.sqlite" + suffix))
-    }
+      at: old.directory.appendingPathComponent(OldBuildStore.fileName), to: directory.appendingPathComponent("acme.sqlite"))
     let account = try open(directory, keys: keys, fileName: "acme.sqlite", account: "acme")
-    #expect(account.isFormatFinished)
+    #expect(!account.isWaitingToMigrate)
+    #expect(account.fileURL.lastPathComponent == "acme.v2.sqlite")
     #expect(try account.item(id: "h")?.fields["name"]?.stringValue == "server")
-    #expect(account.formatStatus.backup?.lastPathComponent == "acme.sqlite.format1-backup")
   }
 
   // MARK: Interrupted
 
-  /// A copy of the files taken at each step, as a kill at that moment would leave them. A real kill can land inside
-  /// SQLite's own commit too, which is SQLite's to survive; this covers every point between transactions, and a killed
-  /// transaction leaves no more than the previous step did.
+  /// A copy of the files taken at each step, as a power cut at that moment could leave them. `VaultStoreCrashTests` kills
+  /// a real process too.
   @Test func anInterruptedMigrationFinishesFromEveryStep() throws {
     let keys = MemoryKeyProvider()
     let old = try oldStore(keys: keys, rows: 20)
     let directory = old.directory
     let images = temporaryDirectory()
     let names = LockedList()
-    let testing = FormatTesting(
-      stage: { stage in
-        let name = "\(stage)"
-        names.append(name)
-        try copyStoreFiles(of: directory, to: images.appendingPathComponent(name))
-      }, batchSize: 7)
+    let testing = FormatTesting(stage: { stage in
+      let name = "\(stage)"
+      names.append(name)
+      try copyStoreFiles(of: directory, to: images.appendingPathComponent(name))
+    })
     _ = try open(directory, keys: keys, testing: testing)
-
-    #expect(names.values.contains("backedUp"))
-    #expect(names.values.contains("batch(1)"))
-    #expect(names.values.contains("batch(3)"))
-    #expect(names.values.contains("beforeFinish"))
-    #expect(names.values.contains("finished"))
-    #expect(names.values.count >= 6)
+    #expect(names.values == ["copied", "beforeMove", "moved"])
 
     for name in names.values {
       let image = images.appendingPathComponent(name)
-      // A fresh keychain each time, so no mark from the run above helps.
       let reopened = try open(image, keys: keysCopy(keys))
-      #expect(reopened.isFormatFinished, "\(name)")
+      #expect(!reopened.isWaitingToMigrate, "\(name)")
       #expect(try format1Rows(reopened) == 0, "\(name)")
       try expectEverythingReadable(reopened, rows: 20)
       #expect(try reopened.pendingCount() == everyKind.count + 20, "\(name)")
-      #expect(reopened.formatStatus.backup != nil, "\(name)")
-      let backup = try SQLiteConnection(url: reopened.formatBackupURL)
-      let inBackup = try backup.query("SELECT COUNT(*) FROM items WHERE substr(payload, 1, 5) != x'5635374902'")[0][0].int
-      #expect(inBackup == Int64(everyKind.count + 20), "\(name)")
     }
   }
 
   private struct Stop: Error {}
 
   @Test func aFailureAtAnyStepLeavesEverythingReadableAndTheNextOpenFinishes() throws {
-    let stages: [FormatTesting.Stage] = [.backedUp, .batch(1), .batch(2), .beforeFinish, .finished]
-    for target in stages {
+    for target in [FormatTesting.Stage.copied, .beforeMove] {
       let keys = MemoryKeyProvider()
       let old = try oldStore(keys: keys, rows: 20)
-      let testing = FormatTesting(
-        stage: { stage in
-          if stage == target { throw Stop() }
-        }, batchSize: 7)
+      let testing = FormatTesting(stage: { stage in
+        if stage == target { throw Stop() }
+      })
       let stopped = try open(old.directory, keys: keys, testing: testing)
-      if target != .finished {
-        #expect(!stopped.isFormatFinished, "\(target)")
-        #expect(stopped.formatStatus.error != nil, "\(target)")
-      }
-      // Half moved over: both formats read.
+      #expect(stopped.isWaitingToMigrate, "\(target)")
+      #expect(stopped.formatStatus.error != nil, "\(target)")
+      #expect(!FileManager.default.fileExists(atPath: stopped.fileURL.path), "\(target)")
+      // Its temporary file went, and every row still reads, from the old file.
+      let names = try FileManager.default.contentsOfDirectory(atPath: old.directory.path)
+      #expect(names.allSatisfy { !$0.contains(".tmp") }, "\(names)")
       try expectEverythingReadable(stopped, rows: 20)
-      // And it can be written to.
-      try stopped.save(id: "id-host", kind: "host", changes: ["more": .string("x")])
+      // A write fails rather than touching the old file or getting lost.
+      #expect(throws: Stop.self) { try stopped.save(id: "id-host", kind: "host", changes: ["more": .string("x")]) }
 
       let again = try open(old.directory, keys: keys)
-      #expect(again.isFormatFinished, "\(target)")
+      #expect(!again.isWaitingToMigrate, "\(target)")
       #expect(try format1Rows(again) == 0)
       try expectEverythingReadable(again, rows: 20)
-      #expect(try again.item(id: "id-host")?.fields["more"]?.stringValue == "x")
     }
   }
 
-  @Test func aDiskFullBackupStopsBeforeAnythingIsRewritten() throws {
+  @Test func aFullDiskLeavesTheOldFileReadable() throws {
     let keys = MemoryKeyProvider()
     let old = try oldStore(keys: keys)
     let before = try old.database.query("SELECT payload FROM items ORDER BY id").map(\.[0].blob)
-    // A folder that takes no new files makes the copy fail, as a full disk would.
-    let backup = URL(fileURLWithPath: old.directory.appendingPathComponent(VaultStore.fileName).path + VaultStore.formatBackupSuffix)
+    // A folder that takes no new files makes the build fail, as a full disk would.
     try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: old.directory.path)
     defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: old.directory.path) }
     let store = try open(old.directory, keys: keys)
-    #expect(!store.isFormatFinished)
+    #expect(store.isWaitingToMigrate)
     #expect(store.formatStatus.error != nil)
-    #expect(!FileManager.default.fileExists(atPath: backup.path))
     let after = try old.database.query("SELECT payload FROM items ORDER BY id").map(\.[0].blob)
     #expect(after == before)
     try expectEverythingReadable(store)
   }
 
-  @Test func concurrentOpensTakeTurnsAndRewriteEachRowOnce() throws {
+  @Test func concurrentOpensGetOneWinner() throws {
     let keys = MemoryKeyProvider()
     let old = try oldStore(keys: keys, rows: 300)
     let directory = old.directory
     let failures = LockedList()
     DispatchQueue.concurrentPerform(iterations: 4) { index in
       do {
-        let store = try open(directory, keys: keys, testing: FormatTesting(batchSize: 25))
-        if !store.isFormatFinished { failures.append("\(index) didn't finish: \(store.formatStatus.error ?? "")") }
+        let store = try open(directory, keys: keys)
+        if store.isWaitingToMigrate { failures.append("\(index) waits: \(store.formatStatus.error ?? "")") }
       } catch {
         failures.append("\(index): \(error)")
       }
@@ -311,81 +395,407 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     #expect(store.formatStatus.resealed == everyKind.count + 300)
     let versions = try store.database.query("SELECT MAX(version) FROM items")[0][0].int
     #expect(versions == 2)
-    let leftovers = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.hasSuffix(".tmp") }
-    #expect(leftovers.isEmpty)
+    let leftovers = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.contains(".tmp") }
+    #expect(leftovers.isEmpty, "\(leftovers)")
   }
 
-  // MARK: One way
+  @Test func whatAKillLeftGoesOnceItsOldEnough() throws {
+    let keys = MemoryKeyProvider()
+    let directory = temporaryDirectory()
+    let clock = TestClock()
+    let testing = FormatTesting(now: { clock.now })
+    let leftover = directory.appendingPathComponent("Vault.v2.sqlite.ABC.tmp")
+    try Data("x".utf8).write(to: leftover)
+    _ = try open(directory, keys: keys, testing: testing)
+    #expect(FileManager.default.fileExists(atPath: leftover.path))
+    clock.advance(3600)
+    _ = try open(directory, keys: keys, testing: testing)
+    #expect(!FileManager.default.fileExists(atPath: leftover.path))
+  }
 
-  @Test func beforeItFinishesAStoreReadsFormat1AndAfterItRefusesIt() throws {
+  // MARK: An old app beside a new one, on one device
+
+  /// Finding 1a: the old app's fetch never touches the new file, so an unsent edit there stays.
+  @Test func anOldAppsFetchDoesntTouchTheNewApp() throws {
+    let cloud = FakeCloud()
+    let keys = MemoryKeyProvider()
+    let old = try OldBuildStore(keys: keys, device: "mac")
+    try old.save(id: "h", kind: "host", changes: ["name": .string("x")])
+    try old.push(cloud)
+    let other = try OldBuildStore(keys: keysCopy(keys), device: "pad")
+    try other.pull(cloud)
+    let app = try FakeApp(directory: old.directory, keys: keys, device: "mac", name: "new")
+    try app.store.save(id: "h", kind: "host", changes: ["port": .int(22)])
+    try other.save(id: "h", kind: "host", changes: ["user": .string("pad")])
+    try other.push(cloud)
+    try old.pull(cloud)
+    #expect(try app.store.item(id: "h")?.fields["port"] == .int(22))
+    #expect(try app.store.pendingIDs().contains("h"))
+    app.sync(cloud)
+    #expect(try app.store.item(id: "h")?.fields["user"]?.stringValue == "pad")
+    #expect(try app.store.item(id: "h")?.fields["port"] == .int(22))
+  }
+
+  /// Finding 1b: nothing an old app sends is format 2, and format 2 records carry no key id.
+  @Test func anOldAppNeverSendsFormat2() throws {
+    let cloud = FakeCloud()
+    let keys = MemoryKeyProvider()
+    let old = try OldBuildStore(keys: keys, device: "mac")
+    try old.save(id: "h", kind: "host", changes: ["name": .string("x")])
+    _ = try FakeApp(directory: old.directory, keys: keys, device: "mac", name: "new")
+    try old.push(cloud)
+    #expect(cloud.records.values.allSatisfy { VaultItemSeal.parse($0.payload) == nil })
+  }
+
+  /// Both apps syncing on one device, for a while, against a second device on an old build: nothing is lost, and an old
+  /// build keeps every row readable.
+  @Test func anOldAppAndANewOneSyncSideBySide() throws {
+    let cloud = FakeCloud()
+    let keys = MemoryKeyProvider()
+    let oldApp = try OldBuildStore(keys: keys, device: "mac")
+    try oldApp.save(id: "h", kind: "host", changes: ["name": .string("x")])
+    try oldApp.push(cloud)
+    let pad = try OldBuildStore(keys: keysCopy(keys), device: "pad")
+    try pad.pull(cloud)
+
+    let newApp = try FakeApp(directory: oldApp.directory, keys: keys, device: "mac", name: "new")
+    newApp.sync(cloud)
+    #expect(cloud.records.values.allSatisfy { VaultItemSeal.parse($0.payload) != nil })
+
+    // Each edits, in turn, with everything syncing in between.
+    try oldApp.save(id: "h", kind: "host", changes: ["byOldApp": .string("1")])
+    try oldApp.save(id: "fromOldApp", kind: "host", changes: ["a": .string("1")])
+    try newApp.store.save(id: "h", kind: "host", changes: ["byNewApp": .string("1")])
+    try pad.save(id: "h", kind: "host", changes: ["byPad": .string("1")])
+    for _ in 0..<3 {
+      try oldApp.push(cloud)
+      try oldApp.pull(cloud)
+      try pad.push(cloud)
+      try pad.pull(cloud)
+      newApp.sync(cloud)
+    }
+
+    // The old builds keep what they had: nothing was blanked, by a key id or otherwise.
+    #expect(oldApp.read("h")?.fields["byOldApp"]?.stringValue == "1")
+    #expect(pad.read("h")?.fields["byPad"]?.stringValue == "1")
+
+    // The new app picks up the old app's edits on its next open, and sends them.
+    let reopened = try FakeApp(directory: oldApp.directory, keys: keys, device: "mac", name: "new")
+    #expect(try reopened.store.item(id: "h")?.fields["byOldApp"]?.stringValue == "1")
+    #expect(try reopened.store.item(id: "h")?.fields["byNewApp"]?.stringValue == "1")
+    #expect(try reopened.store.item(id: "fromOldApp")?.fields["a"]?.stringValue == "1")
+    reopened.sync(cloud)
+    #expect(try format1Rows(reopened.store) == 0)
+
+    // The pad updates last, and everything converges.
+    let padApp = try FakeApp(directory: pad.directory, keys: keysCopy(keys), device: "pad", name: "new")
+    padApp.sync(cloud)
+    reopened.sync(cloud)
+    padApp.sync(cloud)
+    for store in [reopened.store, padApp.store] {
+      let item = try #require(try store.item(id: "h"))
+      for field in ["byOldApp", "byNewApp", "byPad"] { #expect(item.fields[field]?.stringValue == "1", "\(field)") }
+      #expect(try store.item(id: "fromOldApp")?.fields["a"]?.stringValue == "1")
+    }
+    #expect(cloud.records.values.allSatisfy { VaultItemSeal.parse($0.payload) != nil })
+  }
+
+  /// Finding 1c, and an old app's deletion.
+  @Test func whatAnOldAppWritesLaterComesOverOnce() throws {
+    let keys = MemoryKeyProvider()
+    let old = try OldBuildStore(keys: keys, device: "mac")
+    try old.save(id: "h", kind: "host", changes: ["name": .string("x")])
+    try old.save(id: "gone", kind: "host", changes: ["name": .string("x")])
+    let first = try open(old.directory, keys: keys)
+    try first.save(id: "h", kind: "host", changes: ["byNew": .string("1")])
+    try old.save(id: "later", kind: "host", changes: ["name": .string("y")])
+    try old.save(id: "h", kind: "host", changes: ["byOld": .string("1")])
+    try old.delete(id: "gone")
+
+    let again = try open(old.directory, keys: keys)
+    #expect(try again.item(id: "later")?.fields["name"]?.stringValue == "y")
+    #expect(try again.item(id: "h")?.fields["byNew"]?.stringValue == "1")
+    #expect(try again.item(id: "h")?.fields["byOld"]?.stringValue == "1")
+    #expect(try again.item(id: "gone")?.isDeleted == true)
+    #expect(try again.pendingIDs().isSuperset(of: ["later", "h", "gone"]))
+
+    // Imported already: a later edit here isn't undone, and nothing repeats.
+    try again.save(id: "later", kind: "host", changes: ["name": .string("newer")])
+    let versions = try again.database.query("SELECT version FROM items WHERE id = 'later'")[0][0].int
+    let third = try open(old.directory, keys: keys)
+    #expect(try third.item(id: "later")?.fields["name"]?.stringValue == "newer")
+    #expect(try third.database.query("SELECT version FROM items WHERE id = 'later'")[0][0].int == versions)
+  }
+
+  /// An old app can send a brand new row, and the store that should have it would then refuse it.
+  @Test func anEditAnOldAppManagedToSendStillComesOver() throws {
+    let cloud = FakeCloud()
+    let keys = MemoryKeyProvider()
+    let old = try OldBuildStore(keys: keys, device: "mac")
+    try old.save(id: "h", kind: "host", changes: ["name": .string("x")])
+    let app = try FakeApp(directory: old.directory, keys: keys, device: "mac", name: "new")
+    app.sync(cloud)
+    try old.save(id: "sent", kind: "host", changes: ["a": .string("1")])
+    try old.push(cloud)
+    #expect(cloud.records["sent"].map { VaultItemSeal.parse($0.payload) == nil } == true)
+    #expect(try old.database.query("SELECT 1 FROM outbox WHERE id = 'sent'").isEmpty)
+    let again = try FakeApp(directory: old.directory, keys: keys, device: "mac", name: "new")
+    #expect(try again.store.item(id: "sent")?.fields["a"]?.stringValue == "1")
+    again.sync(cloud)
+    #expect(VaultItemSeal.parse(try #require(cloud.records["sent"]).payload) != nil)
+  }
+
+  /// What a row fetched by the old app holds isn't an edit: only CloudKit put it there.
+  @Test func whatAnOldAppFetchedDoesntComeOver() throws {
+    let cloud = FakeCloud()
+    let keys = MemoryKeyProvider()
+    let old = try OldBuildStore(keys: keys, device: "mac")
+    try old.save(id: "h", kind: "host", changes: ["name": .string("x")])
+    try old.push(cloud)
+    let store = try open(old.directory, keys: keys)
+    store.fetchCompleted()
+    let pad = try OldBuildStore(keys: keysCopy(keys), device: "pad")
+    try pad.pull(cloud)
+    try pad.save(id: "fromPad", kind: "host", changes: ["a": .string("1")])
+    try pad.push(cloud)
+    try old.pull(cloud)
+    #expect(old.read("fromPad") != nil)
+    #expect(try open(old.directory, keys: keys).item(id: "fromPad") == nil)
+  }
+
+  @Test func theOldFileIsIgnoredAfterItsMonth() throws {
+    let keys = MemoryKeyProvider()
+    let old = try OldBuildStore(keys: keys, device: "mac")
+    try old.save(id: "h", kind: "host", changes: ["name": .string("x")])
+    let clock = TestClock()
+    let testing = FormatTesting(now: { clock.now })
+    _ = try open(old.directory, keys: keys, testing: testing)
+    try old.save(id: "late", kind: "host", changes: ["a": .string("1")])
+    clock.advance(31 * 24 * 3600)
+    let store = try open(old.directory, keys: keys, testing: testing)
+    #expect(try store.item(id: "late") == nil)
+  }
+
+  /// Finding 4: there's no keychain mark to disagree with. Putting the old file back with no new file migrates again.
+  @Test func rollingBackMeansRemovingTheNewFile() throws {
+    let keys = MemoryKeyProvider()
+    let old = try oldStore(keys: keys)
+    let store = try open(old.directory, keys: keys)
+    let files = old.directory
+    for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: store.fileURL.path + suffix) }
+    let again = try open(files, keys: keys)
+    #expect(!again.isWaitingToMigrate)
+    try expectEverythingReadable(again)
+    #expect(again.formatStatus.resealed == everyKind.count)
+  }
+
+  /// Finding 4: every mark any device set says nothing about a store's own rows.
+  @Test func aMigratedVaultsMarkDoesntRefuseARestoredOldFile() throws {
+    let keys = MemoryKeyProvider()
+    let old = try oldStore(keys: keys)
+    let store = try open(old.directory, keys: keys)
+    store.fetchCompleted()
+    #expect(store.isFormatFinished)
+
+    // The same keychain, and a restored copy of the old file somewhere else.
+    let restored = temporaryDirectory()
+    try old.database.checkpointFully()
+    try FileManager.default.copyItem(
+      at: old.directory.appendingPathComponent(OldBuildStore.fileName), to: restored.appendingPathComponent(OldBuildStore.fileName))
+    let reopened = try open(restored, keys: keys)
+    try expectEverythingReadable(reopened)
+    #expect(reopened.formatStatus.refused == 0)
+  }
+
+  // MARK: Records from the server in format 1
+
+  private func format1Record(_ id: String, tag: String = "t1", keys: VaultKeyProvider, device: String = "pad", changes: [String: JSONValue] = ["name": .string("from an old build")]) throws -> RemoteRecord {
+    var fields = ItemFields()
+    _ = fields.apply(changes, clock: HybridClock.zero.next(now: .now, device: device))
+    let sealed = try OldBuildStore.format1(id: id, kind: "host", fields: fields, keys: keys)
+    return RemoteRecord(id: id, keyID: sealed.keyID, payload: sealed.payload, changeTag: tag, systemFields: Data(tag.utf8))
+  }
+
+  @Test func untilItsFirstFetchCompletesAStoreReadsFormat1AndAfterItRefusesIt() throws {
+    let keys = MemoryKeyProvider()
+    let directory = temporaryDirectory()
+    let fresh = try open(directory, keys: keys)
+    #expect(!fresh.isFormatFinished)
+
+    #expect(try fresh.apply(try format1Record("first", keys: keys)) == .merged(needsSend: true))
+    #expect(try fresh.item(id: "first")?.kind == "host")
+    // Sealed for here, and going up as format 2.
+    #expect(try format1Rows(fresh) == 0)
+    #expect(try fresh.pendingIDs().contains("first"))
+
+    // Reopening doesn't finish it, however long it takes.
+    #expect(try open(directory, keys: keys).isFormatFinished == false)
+    fresh.fetchCompleted()
+    #expect(fresh.isFormatFinished)
+    let finished = try open(directory, keys: keys)
+    #expect(finished.isFormatFinished)
+    #expect(try finished.item(id: "first")?.fields["name"]?.stringValue == "from an old build")
+
+    #expect(try finished.apply(try format1Record("second", tag: "t2", keys: keys)) == .refused(needsSend: false))
+    #expect(try finished.item(id: "second") == nil)
+    #expect(try finished.allIDs().contains("second") == false)
+    #expect(try finished.applyFromPeer(id: "second", keyID: "", payload: try format1Record("second", keys: keys).payload) == .refused)
+    #expect(try finished.item(id: "second") == nil)
+    #expect(finished.formatStatus.refused == 1)
+    #expect(finished.formatStatus.fromOldDevices == 1)
+    #expect(finished.formatStatus.note?.contains("hasn’t updated") == true)
+  }
+
+  /// Finding 2: an edit on the server when a device migrates merges, rather than being overwritten.
+  @Test func anEditWaitingOnTheServerMergesWhenADeviceMigrates() throws {
+    let cloud = FakeCloud()
+    let keys = MemoryKeyProvider()
+    let old = try OldBuildStore(keys: keys, device: "mac")
+    try old.save(id: "h", kind: "host", changes: ["name": .string("x")])
+    try old.push(cloud)
+    let other = try OldBuildStore(keys: keysCopy(keys), device: "pad")
+    try other.pull(cloud)
+    try other.save(id: "h", kind: "host", changes: ["user": .string("pad")])
+    try other.save(id: "brandnew", kind: "host", changes: ["user": .string("pad")])
+    try other.push(cloud)
+
+    let app = try FakeApp(directory: old.directory, keys: keys, device: "mac", name: "new")
+    app.sync(cloud)
+    #expect(try app.store.item(id: "h")?.fields["user"]?.stringValue == "pad")
+    #expect(try app.store.item(id: "h")?.fields["name"]?.stringValue == "x")
+    #expect(try app.store.item(id: "brandnew")?.fields["user"]?.stringValue == "pad")
+    #expect(app.store.isFormatFinished)
+    #expect(cloud.records.values.allSatisfy { VaultItemSeal.parse($0.payload) != nil })
+  }
+
+  /// Finding 2: the count survives, and it's counted once however many apps fetch the record.
+  @Test func theRefusedCountSurvivesAndCountsEachRecordOnce() throws {
+    let keys = MemoryKeyProvider()
+    let directory = temporaryDirectory()
+    let store = try open(directory, keys: keys)
+    store.fetchCompleted()
+    _ = try store.apply(try format1Record("n", keys: keys))
+    _ = try store.apply(try format1Record("n", keys: keys))
+    let other = try open(directory, keys: keys)
+    _ = try other.apply(try format1Record("n", keys: keys))
+    #expect(other.formatStatus.refused == 1)
+    #expect(try open(directory, keys: keys).formatStatus.fromOldDevices == 1)
+
+    // That device updates, and its record arrives in format 2.
+    let writer = try open(temporaryDirectory(), keys: keys, device: "pad")
+    try writer.save(id: "n", kind: "host", changes: ["name": .string("x")])
+    let sealed = try payload(writer, "n")
+    _ = try other.apply(RemoteRecord(id: "n", keyID: sealed.keyID, payload: sealed.payload, changeTag: "t2", systemFields: nil))
+    #expect(try open(directory, keys: keys).formatStatus.refused == 0)
+  }
+
+  /// A record in the old format is its writer's copy: only a local edit goes over it.
+  @Test func aRefusedOldRecordStaysOnTheServerUnlessAnEditIsWaiting() throws {
+    let keys = MemoryKeyProvider()
+    let store = try open(temporaryDirectory(), keys: keys)
+    try store.save(id: "h", kind: "host", changes: ["a": .string("1")])
+    try store.setServerFields(id: "h", changeTag: "t0", systemFields: Data("t0".utf8))
+    let id = "h"
+    let version = try store.database.query("SELECT version FROM items WHERE id = 'h'")[0][0].int ?? 0
+    try store.markSent(id: id, version: version, changeTag: "t0", systemFields: Data("t0".utf8))
+    store.fetchCompleted()
+
+    // No edit waiting: nothing to send, the row and its tag untouched.
+    #expect(try store.apply(try format1Record("h", tag: "v1", keys: keys)) == .refused(needsSend: false))
+    #expect(try store.pendingIDs().isEmpty)
+    #expect(try store.database.query("SELECT change_tag FROM items WHERE id = 'h'")[0][0].text == "t0")
+
+    // An edit is a normal conflict: it takes the tag, so it lands, and the old device still has its own copy.
+    try store.save(id: "h", kind: "host", changes: ["a": .string("2")])
+    #expect(try store.apply(try format1Record("h", tag: "v1", keys: keys)) == .refused(needsSend: true))
+    #expect(try store.database.query("SELECT change_tag FROM items WHERE id = 'h'")[0][0].text == "v1")
+    // Applying it again changes nothing: the tag's the same.
+    #expect(try store.apply(try format1Record("h", tag: "v1", keys: keys)) == .unchanged)
+  }
+
+  /// Finding 5: time alone refuses nothing, online or off, however long.
+  @Test func aStoreThatHasntFetchedYetDoesntRefuseAfterAnHour() throws {
     let keys = MemoryKeyProvider()
     let clock = TestClock()
     let testing = FormatTesting(now: { clock.now })
     let directory = temporaryDirectory()
-    let fresh = try open(directory, keys: keys, testing: testing)
-    #expect(!fresh.isFormatFinished)
-
-    var fields = ItemFields()
-    _ = fields.apply(["name": .string("from an old build")], clock: HybridClock.zero.next(now: .now, device: "b"))
-    let first = try OldBuildStore.format1(id: "first", kind: "host", fields: fields, keys: keys)
-    #expect(
-      try fresh.apply(RemoteRecord(id: "first", keyID: first.keyID, payload: first.payload, changeTag: "t1", systemFields: nil))
-        == .merged(needsSend: false))
-    #expect(try fresh.item(id: "first")?.kind == "host")
-
-    // The next open within the hour leaves it reading: the first fetch may still be under way.
-    clock.advance(1800)
-    #expect(try open(directory, keys: keys, testing: testing).isFormatFinished == false)
-    // After it, it finishes, with what it took.
-    clock.advance(1801)
-    let finished = try open(directory, keys: keys, testing: testing)
-    #expect(finished.isFormatFinished)
-    #expect(try finished.item(id: "first")?.fields["name"]?.stringValue == "from an old build")
-    #expect(try format1Rows(finished) == 0)
-
-    let second = try OldBuildStore.format1(id: "second", kind: "host", fields: fields, keys: keys)
-    #expect(
-      try finished.apply(RemoteRecord(id: "second", keyID: second.keyID, payload: second.payload, changeTag: "t2", systemFields: nil))
-        == .refused(needsSend: false))
-    #expect(try finished.item(id: "second") == nil)
-    #expect(try finished.allIDs().contains("second") == false)
-    #expect(try finished.applyFromPeer(id: "second", keyID: second.keyID, payload: second.payload) == .refused)
-    #expect(try finished.item(id: "second") == nil)
-    #expect(finished.formatStatus.refused == 2)
+    _ = try open(directory, keys: keys, testing: testing)
+    clock.advance(7200)
+    let store = try open(directory, keys: keys, testing: testing)
+    #expect(!store.isFormatFinished)
+    #expect(try store.apply(try format1Record("n", keys: keys)) == .merged(needsSend: true))
+    #expect(try store.item(id: "n")?.fields["name"]?.stringValue == "from an old build")
   }
 
-  @Test func aNewStoreIsBornFinishedOnceAnyDeviceFinished() throws {
+  /// Beyond the vault's month, an attacker's old-format write gets nowhere, even on a store that never completed a fetch.
+  @Test func pastTheVaultsMonthAStoreFinishesAsSoonAsItCan() throws {
     let keys = MemoryKeyProvider()
-    let old = try oldStore(keys: keys)
-    let store = try open(old.directory, keys: keys)
-    #expect(store.isFormatFinished)
+    let clock = TestClock()
+    let testing = FormatTesting(now: { clock.now })
+    let directory = temporaryDirectory()
+    let first = try open(directory, keys: keys, testing: testing)
+    #expect(!first.isFormatFinished)
+    clock.advance(31 * 24 * 3600)
+    #expect(try first.apply(try format1Record("n", keys: keys)) == .refused(needsSend: false))
+    #expect(first.isFormatFinished)
+    #expect(try open(directory, keys: keys, testing: testing).isFormatFinished)
+  }
 
-    // A second device, with what iCloud Keychain brought: the keys and the synced mark.
+  /// Finding 9a: a mark set once by the first device, holding a date. The next device, whenever it comes, counts from it.
+  @Test func theVaultsMarkIsSharedAndHoldsNoDevice() throws {
+    let keys = MemoryKeyProvider()
+    let clock = TestClock()
+    let testing = FormatTesting(now: { clock.now })
+    _ = try open(temporaryDirectory(), keys: keys, device: "mac", testing: testing)
+    let marks = try keys.marks(prefix: "format2.vault.", synced: true)
+    #expect(marks.count == 1)
+    #expect(!marks[0].name.contains("mac"))
+    #expect(try keys.marks(prefix: "format2", synced: false).isEmpty)
+
+    // A second device with what iCloud Keychain brought, 40 days later: nothing old-format from the server is read.
+    clock.advance(40 * 24 * 3600)
     let other = keysCopy(keys)
     other.items.receive(from: keys.items)
-    let born = try open(temporaryDirectory(), keys: other, device: "pad")
-    // The mark names the device that set it; the same store on another device takes the next path.
-    #expect(born.isFormatFinished == false)
-    let sameDevice = try open(temporaryDirectory(), keys: other, device: "mac")
-    #expect(sameDevice.isFormatFinished)
+    let pad = try open(temporaryDirectory(), keys: other, device: "pad", testing: testing)
+    #expect(pad.isFormatFinished)
+    #expect(try other.marks(prefix: "format2.vault.", synced: true).count == 1)
+    #expect(try pad.apply(try format1Record("n", keys: other)) == .refused(needsSend: false))
   }
 
+  @Test func twoMarksConvergeOnTheEarliest() throws {
+    let a = MemoryKeyProvider()
+    let b = keysCopy(a)
+    let clock = TestClock()
+    let testing = FormatTesting(now: { clock.now })
+    _ = try open(temporaryDirectory(), keys: a, device: "a", testing: testing)
+    clock.advance(25 * 24 * 3600)
+    let directory = temporaryDirectory()
+    _ = try open(directory, keys: b, device: "b", testing: testing)
+    // Before they meet, B counts from its own, and after, from A's.
+    clock.advance(10 * 24 * 3600)
+    b.items.receive(from: a.items)
+    let store = try open(directory, keys: b, device: "b", testing: testing)
+    #expect(store.isFormatFinished)
+    #expect(try b.marks(prefix: "format2.vault.", synced: true).count == 2)
+  }
+
+  /// A store that finished before a device updated doesn't begin to read format 1 again, and clearing the flag gives no
+  /// more than the server window: a local row needs the sealed list.
   @Test func editingTheFileDoesntUndoIt() throws {
     let keys = MemoryKeyProvider()
     let old = try oldStore(keys: keys)
+    let oldPayload = try old.database.query("SELECT key_id, payload FROM items WHERE id = 'id-host'")[0]
     let store = try open(old.directory, keys: keys)
+    store.fetchCompleted()
     #expect(store.isFormatFinished)
-    // Someone clears the flag and puts an old row back, from the backup.
-    let backup = try SQLiteConnection(url: store.formatBackupURL)
-    let oldPayload = try backup.query("SELECT key_id, payload FROM items WHERE id = 'id-host'")[0]
-    try store.database.query("DELETE FROM meta WHERE key = 'format'")
+    // Someone clears the flag and puts an old row back, from the old file.
+    try store.database.query("DELETE FROM meta WHERE key LIKE 'format'")
     try store.database.query(
       "UPDATE items SET payload = ?, key_id = ? WHERE id = 'id-host'", [.blob(oldPayload[1].blob ?? Data()), .text(oldPayload[0].text ?? "")])
 
     let again = try open(old.directory, keys: keys)
-    #expect(again.isFormatFinished)
     #expect(try again.item(id: "id-host") == nil)
-    // Not gone: the row is there, for the backup's sake, and CloudKit is asked for everything again.
+    // Not gone: the row is there, and a save replaces it.
     #expect(try again.allIDs().contains("id-host"))
   }
 
@@ -393,6 +803,7 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     let keys = MemoryKeyProvider()
     let old = try oldStore(keys: keys)
     let store = try open(old.directory, keys: keys)
+    store.fetchCompleted()
     let planted = try OldBuildStore.format1(id: "x", kind: "host", fields: ItemFields(), keys: keys)
     try store.database.query(
       "INSERT INTO items(id, kind, key_id, payload) VALUES('x', 'host', ?, ?)", [.text(planted.keyID), .blob(planted.payload)])
@@ -401,6 +812,48 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     // A save replaces it rather than failing forever.
     try store.save(id: "x", kind: "host", changes: ["a": .string("b")])
     #expect(try store.item(id: "x")?.fields["a"]?.stringValue == "b")
+  }
+
+  // MARK: Rows that won't move
+
+  /// Finding 10: it's carried over and counted, and doesn't stop the store.
+  @Test func aRowThatWontRewriteDoesntStopTheStore() throws {
+    let keys = MemoryKeyProvider()
+    let old = try OldBuildStore(keys: keys, device: "mac")
+    try old.save(id: "ok", kind: "host", changes: ["name": .string("x")])
+    try old.save(id: "toolong", kind: String(repeating: "k", count: 300), changes: ["name": .string("y")])
+    let store = try open(old.directory, keys: keys)
+    #expect(store.formatStatus.error == nil)
+    #expect(!store.isWaitingToMigrate)
+    #expect(store.formatStatus.notRewritten == 1)
+    #expect(try store.item(id: "ok")?.fields["name"]?.stringValue == "x")
+    #expect(try store.item(id: "toolong")?.fields["name"]?.stringValue == "y")
+    #expect(try store.outgoing(id: "toolong") == nil)
+    _ = try store.catchUp()
+    #expect(store.formatStatus.error == nil)
+    #expect(try store.item(id: "toolong")?.fields["name"]?.stringValue == "y")
+  }
+
+  /// Finding 10: a sweep over rows whose key is missing reads the keychain once, not once a row.
+  @Test func aSweepReadsTheKeychainOnce() throws {
+    let base = MemoryKeyProvider()
+    let old = try OldBuildStore(keys: base, device: "mac")
+    let other = MemoryKeyProvider(keys: ["ffff": SymmetricKey(size: .bits256)])
+    let writer = try OldBuildStore(keys: other, device: "pad")
+    for index in 0..<200 { try writer.save(id: "m\(index)", kind: "host", changes: ["a": .int(Int64(index))]) }
+    for row in try writer.database.query("SELECT id, key_id, payload FROM items") {
+      try old.database.query("INSERT INTO items(id, kind, key_id, payload) VALUES(?, 'host', ?, ?)", [row[0], row[1], row[2]])
+    }
+    let keys = FlakyKeys(base)
+    let store = try open(old.directory, keys: keys)
+    #expect(store.formatStatus.unreadable == 200)
+    #expect(keys.reads < 20, "\(keys.reads)")
+    keys.reads = 0
+    _ = try store.catchUp()
+    #expect(keys.reads < 20, "\(keys.reads)")
+    keys.reads = 0
+    _ = try store.items(kind: "host")
+    #expect(keys.reads < 20, "\(keys.reads)")
   }
 
   // MARK: Attacks
@@ -553,13 +1006,14 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
 
     // A updates, but B's edit reaches the server first.
     let appA = try FakeApp(directory: oldA.directory, keys: keysA, device: "a", name: "A")
-    #expect(appA.store.isFormatFinished)
+    #expect(!appA.store.isFormatFinished)
     try oldB.save(id: "edited-before-a-pushed", kind: "login", changes: ["byB": .string("kept")])
     try oldB.push(cloud)
 
-    // A's push meets B's format 1 record: it refuses it and puts its format 2 copy over it.
+    // A's push meets B's format 1 record during its first fetch: it merges it and puts its format 2 copy over it.
     appA.sync(cloud)
-    #expect(try appA.store.item(id: "edited-before-a-pushed")?.fields["byB"] == nil)
+    #expect(appA.store.isFormatFinished)
+    #expect(try appA.store.item(id: "edited-before-a-pushed")?.fields["byB"]?.stringValue == "kept")
     #expect(try format1Rows(appA.store) == 0)
     #expect(cloud.records.values.allSatisfy { VaultItemSeal.parse($0.payload) != nil })
 
@@ -568,7 +1022,7 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     #expect(oldB.read("shared")?.fields["user"]?.stringValue == "from a")
     #expect(oldB.read("edited-before-a-pushed")?.fields["byB"]?.stringValue == "kept")
 
-    // B writes on. A new record reaches the server in format 1, which A refuses and remembers as seen.
+    // B writes on. A new record reaches the server in format 1, which A refuses and leaves there.
     try oldB.save(id: "new-from-b", kind: "note", changes: ["text": .string("hello")])
     try oldB.save(id: "shared", kind: "login", changes: ["notes": .string("from b")])
     try oldB.push(cloud)
@@ -583,8 +1037,8 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
 
     // B updates. Its engine state is gone, so it fetches everything, and everything of its own goes up.
     let appB = try FakeApp(directory: oldB.directory, keys: keysB, device: "b", name: "B")
-    #expect(appB.store.isFormatFinished)
     appB.sync(cloud)
+    #expect(appB.store.isFormatFinished)
     appA.sync(cloud)
     appB.sync(cloud)
 
@@ -670,7 +1124,7 @@ private func copyStoreFiles(of directory: URL, to image: URL) throws {
     box.ack("hub-b", pulled.envelopes.map(\.seq).max() ?? 0)
 
     let storeB = try open(oldB.directory, keys: keys, device: "b")
-    #expect(storeB.isFormatFinished)
+    #expect(!storeB.isWaitingToMigrate)
     let syncB = HubSync(store: storeB, mailbox: box.device("hub-b"), deviceID: "hub-b")
     // Its state says it pulled everything; the old build kept its own.
     try storeB.setEngineState(

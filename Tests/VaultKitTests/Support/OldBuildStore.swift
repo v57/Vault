@@ -3,9 +3,12 @@ import Foundation
 
 @testable import VaultKit
 
-/// A device still on a build from before format 2: the store's write, apply and peer paths as they were at c4ba614,
-/// copied rather than rewritten, so tests can show what such a build does with what a new one sends.
+/// A device, or an app on one, still on a build from before format 2: the store's write, apply and peer paths as they were
+/// at c4ba614, copied rather than rewritten, so tests can show what such a build does with what a new one sends. It opens
+/// the file old builds use.
 final class OldBuildStore {
+  static let fileName = "Vault.sqlite"
+
   let directory: URL
   let database: SQLiteConnection
   let keys: VaultKeyProvider
@@ -16,7 +19,7 @@ final class OldBuildStore {
     self.directory = directory
     self.keys = keys
     self.device = device
-    database = try SQLiteConnection(url: directory.appendingPathComponent(VaultStore.fileName))
+    database = try SQLiteConnection(url: directory.appendingPathComponent(Self.fileName))
     try database.transaction {
       try database.execute(
         """

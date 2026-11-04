@@ -21,10 +21,24 @@ final class SQLiteConnection {
     var errorDescription: String? { "SQLite \(code): \(message)" }
   }
 
-  private var handle: OpaquePointer?
+  enum Mode {
+    /// A store: created when missing, WAL, and a commit that a crash can't hurt but a power cut may lose.
+    case store
+    /// A store file this connection only reads, never created. Not `SQLITE_OPEN_READONLY`, which can't recover a WAL it
+    /// finds with no `-shm`: `query_only` makes every write fail while leaving recovery working.
+    case readOnly
+    /// A file on its way into place: every commit reaches the disk.
+    case building
+  }
 
-  init(url: URL) throws {
-    let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
+  private var handle: OpaquePointer?
+  /// Writes fail: see `Mode.readOnly`.
+  let isReadOnly: Bool
+
+  init(url: URL, mode: Mode = .store) throws {
+    isReadOnly = mode == .readOnly
+    let create = mode == .readOnly ? 0 : SQLITE_OPEN_CREATE
+    let flags = SQLITE_OPEN_READWRITE | create | SQLITE_OPEN_FULLMUTEX
     let code = sqlite3_open_v2(url.path, &handle, flags, nil)
     guard code == SQLITE_OK else {
       let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "open failed"
@@ -33,12 +47,34 @@ final class SQLiteConnection {
     }
     // Another app may hold the write lock for a moment.
     sqlite3_busy_timeout(handle, 10_000)
-    try execute("PRAGMA journal_mode = WAL")
-    try execute("PRAGMA synchronous = NORMAL")
+    switch mode {
+    case .store:
+      try execute("PRAGMA journal_mode = WAL")
+      try execute("PRAGMA synchronous = NORMAL")
+    case .readOnly:
+      try execute("PRAGMA query_only = ON")
+    case .building:
+      try execute("PRAGMA journal_mode = WAL")
+      try execute("PRAGMA synchronous = FULL")
+    }
   }
 
   deinit {
+    close()
+  }
+
+  /// Closes the file; with no other connection, SQLite removes the `-wal` and `-shm` beside it.
+  func close() {
     sqlite3_close_v2(handle)
+    handle = nil
+  }
+
+  /// Moves everything in the WAL into the main file and empties the WAL, so the main file holds it all.
+  func checkpointFully() throws {
+    let result = try query("PRAGMA wal_checkpoint(TRUNCATE)")
+    guard result.first?.first?.int == 0 else {
+      throw SQLiteError(code: SQLITE_BUSY, message: "the checkpoint couldn't finish")
+    }
   }
 
   func execute(_ sql: String) throws {
@@ -96,6 +132,7 @@ final class SQLiteConnection {
 
   /// Runs `body` in a write transaction, committing when it returns and rolling back when it throws.
   func transaction<T>(_ body: () throws -> T) throws -> T {
+    if isReadOnly { throw SQLiteError(code: SQLITE_READONLY, message: "this connection only reads") }
     try execute("BEGIN IMMEDIATE")
     do {
       let result = try body()
@@ -103,6 +140,20 @@ final class SQLiteConnection {
       return result
     } catch {
       try? execute("ROLLBACK")
+      throw error
+    }
+  }
+
+  /// Runs `body` inside a transaction so that a throw undoes only what it did.
+  func savepoint<T>(_ body: () throws -> T) throws -> T {
+    try execute("SAVEPOINT one")
+    do {
+      let result = try body()
+      try execute("RELEASE one")
+      return result
+    } catch {
+      try execute("ROLLBACK TO one")
+      try execute("RELEASE one")
       throw error
     }
   }

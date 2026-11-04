@@ -359,7 +359,7 @@ import Testing
     try old.save(id: "h", kind: "host", changes: ["hostname": .string("server")])
 
     let store = try VaultStore(directory: old.directory, keys: keys, deviceID: "mac", notifier: nil, owner: "t")
-    #expect(store.isFormatFinished)
+    #expect(!store.isWaitingToMigrate)
     #expect(store.formatStatus.unreadable == 0)
     let row = try store.database.query("SELECT key_id, payload FROM items WHERE id = ?", [.text(blob.id)])[0]
     #expect(row[0].text == recordKey.id)

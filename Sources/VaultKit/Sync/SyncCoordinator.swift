@@ -98,16 +98,25 @@ public final class SyncCoordinator: @unchecked Sendable {
     }
   }
 
+  /// A fetch from the start reached the end (`VaultStore.fetchCompleted`).
+  public func fetchCompleted() {
+    store.fetchCompleted()
+  }
+
   /// Records fetched from the server.
   public func fetched(modified: [RemoteRecord], deleted: [String]) -> [String] {
-    var toSend: [String] = []
-    for record in modified {
-      switch (try? store.apply(record)) ?? .unchanged {
-      case .merged(needsSend: true), .refused(needsSend: true): toSend.append(record.id)
-      default: break
+    store.withLock {
+      store.withKeySweep {
+        var toSend: [String] = []
+        for record in modified {
+          switch (try? store.apply(record)) ?? .unchanged {
+          case .merged(needsSend: true), .refused(needsSend: true): toSend.append(record.id)
+          default: break
+          }
+        }
+        for id in deleted { try? store.applyDeletion(id: id) }
+        return toSend
       }
     }
-    for id in deleted { try? store.applyDeletion(id: id) }
-    return toSend
   }
 }

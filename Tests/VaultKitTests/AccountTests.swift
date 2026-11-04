@@ -27,10 +27,10 @@ struct AccountTests {
 
     #expect(mac.vaults.vault(for: .personal) === mac.vaults.personal)
     #expect(mac.vaults.personal.isPersonal)
-    #expect(mac.personal.fileURL.lastPathComponent == "Vault.sqlite")
+    #expect(mac.personal.fileURL.lastPathComponent == "Vault.v2.sqlite")
     #expect(VaultAccount.personal.zoneName == "Vault")
     #expect(acme.zoneName == "Vault-\(acme.id)")
-    #expect(acmeVault.store?.fileURL.lastPathComponent == "\(acme.id).sqlite")
+    #expect(acmeVault.store?.fileURL.lastPathComponent == "\(acme.id).v2.sqlite")
     #expect(acmeVault.store?.directory == mac.personal.directory)
     // Personal's mailbox is untouched; the account has its own, under the same key.
     let acmeStore = try #require(acmeVault.store)
@@ -71,7 +71,7 @@ struct AccountTests {
       #expect(device.vault("Acme")?.appleTeams.map(\.teamID) == ["ACME000001"])
       #expect(device.vault("Globex")?.projects.map(\.name) == ["Dome"])
       #expect(device.vault("Globex")?.appleTeams.isEmpty == true)
-      #expect(device.files == ["\(acme.id).sqlite", "\(globex.id).sqlite", "Vault.sqlite"].sorted())
+      #expect(device.files == ["\(acme.id).v2.sqlite", "\(globex.id).v2.sqlite", "Vault.v2.sqlite"].sorted())
     }
 
     // Edits on two devices, in two accounts, merge field by field.
@@ -117,7 +117,7 @@ struct AccountTests {
     phone.app.pull(database, only: [acme.zoneName])
     phone.reload()
     #expect(phone.vaults.accounts.isEmpty)
-    #expect(phone.files.contains("\(acme.id).sqlite"))
+    #expect(phone.files.contains("\(acme.id).v2.sqlite"))
     phone.sync(database)
     #expect(phone.vault("Acme")?.projects.map(\.name) == ["Rocket"])
   }
@@ -234,7 +234,7 @@ struct AccountTests {
     #expect(VaultSecrets.password(for: globexHost) == "secret-\(globexHost)")
     #expect(mac.vaults.accounts.map(\.name) == ["Globex"])
     #expect(mac.vaults.vault(for: acme) == nil)
-    #expect(mac.files == ["\(globex.id).sqlite", "Vault.sqlite"].sorted())
+    #expect(mac.files == ["\(globex.id).v2.sqlite", "Vault.v2.sqlite"].sorted())
     // Personal lost only the account's record.
     #expect(mac.personal.revision == personalRevision + 1)
     mac.sync(database)
@@ -245,7 +245,7 @@ struct AccountTests {
     #expect(database.zoneNames == ["Vault", globex.zoneName].sorted())
     for device in [mac, phone, pad] {
       #expect(device.vaults.accounts.map(\.name) == ["Globex"])
-      #expect(device.files == ["\(globex.id).sqlite", "Vault.sqlite"].sorted())
+      #expect(device.files == ["\(globex.id).v2.sqlite", "Vault.v2.sqlite"].sorted())
       #expect(device.vault("Globex")?.projects.map(\.name) == ["Dome"])
       #expect(device.vaults.personal.projects.map(\.name) == ["Dotfiles"])
       #expect(device.vaults.personal.hosts.map(\.hostname).sorted() == ["home.lan", "nas.lan"])
@@ -269,12 +269,12 @@ struct AccountTests {
     phone.sync(database)
     #expect(database.zoneNames == ["Vault"])
     #expect(phone.vaults.accounts.isEmpty)
-    #expect(phone.files == ["Vault.sqlite"])
+    #expect(phone.files == ["Vault.v2.sqlite"])
   }
 
   @Test func personalCantBeDeleted() async throws {
     let mac = try device("mac")
     await #expect(throws: VaultAccountStores.AccountError.personal) { try await mac.vaults.delete(.personal) }
-    #expect(mac.files == ["Vault.sqlite"])
+    #expect(mac.files == ["Vault.v2.sqlite"])
   }
 }

@@ -30,6 +30,8 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   private var attached: [String: VaultStore] = [:]
   /// The engine started without saved state: every zone is made again (saving an existing zone changes nothing).
   private var isFreshEngine = false
+  /// Zones whose last fetch failed: they haven't seen everything, whatever the fetch as a whole said.
+  private var failedZones: Set<String> = []
   private var accountsToken: UUID?
   private var engine: CKSyncEngine?
   private var observers: [NSObjectProtocol] = []
@@ -137,6 +139,8 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   }
 
   private func startIfSignedIn() {
+    // Still on the old file: `syncNow` tries again. An engine started now would lose what it fetched.
+    guard !store.isWaitingToMigrate else { return }
     let container = CKContainer(identifier: VaultConfiguration.cloudContainer)
     Task {
       do {
@@ -182,7 +186,9 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       try? store.resetServerState()
       try? store.setEngineState(Data("1".utf8), for: Self.productionMark)
     }
-    let saved = (try? store.engineState(name)).flatMap {
+    // Opens the accounts' stores, so a store that's still to migrate does it now, before anything is fetched.
+    _ = zones.activeZones()
+    let saved = zones.needsFullFetch ? nil : (try? store.engineState(name)).flatMap {
       try? JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: $0)
     }
     lock.lock()
@@ -208,6 +214,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     }
     for zone in zones.activeZones() { attach(zone) }
     queueOutbox()
+    if saved == nil { syncNow() }
   }
 
   /// Starts carrying a zone: makes it on the server unless this app did already, queues the store's own writes, and
@@ -254,11 +261,18 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   /// Sends now, and fetches what pushes reported (the app came to the front). Changes from other devices
   /// arrive by push (the app's own subscription) within a minute or so, and at launch.
   public func syncNow() {
-    guard let engine = currentEngine else { return }
+    guard let engine = currentEngine else {
+      if store.isWaitingToMigrate {
+        _ = try? store.catchUp()
+        startIfSignedIn()
+      }
+      return
+    }
     queueOutbox()
     Task {
       do {
         try await engine.fetchChanges()
+        fetchSucceeded()
         try await engine.sendChanges()
         isHealthy = true
       } catch {
@@ -266,6 +280,15 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         isHealthy = false
       }
     }
+  }
+
+  /// `fetchChanges` came back without an error, having handed over every batch. An engine that started from nothing has
+  /// now seen everything on the server, except in a zone that failed. One that started from saved state hasn't, so a store
+  /// that's still to finish waits for the next launch (`SyncZones.needsFullFetch`).
+  private func fetchSucceeded() {
+    let (zoneNames, isFresh) = lock.withLock { (Array(attached.keys).filter { !failedZones.contains($0) }, isFreshEngine) }
+    guard isFresh else { return }
+    for zone in zoneNames { zones.coordinator(forZone: zone)?.fetchCompleted() }
   }
 
   private var currentEngine: CKSyncEngine? {
@@ -366,6 +389,12 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       // Accounts that just arrived in Personal start syncing; deleted ones go.
       queueOutbox()
       onChange()
+
+    case .didFetchRecordZoneChanges(let fetch):
+      let zone = fetch.zoneID.zoneName
+      lock.withLock {
+        if fetch.error == nil { failedZones.remove(zone) } else { failedZones.insert(zone) }
+      }
 
     case .sentDatabaseChanges(let changes):
       for saved in changes.savedZones {

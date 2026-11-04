@@ -46,8 +46,9 @@ public struct OutgoingRecord: Sendable, Equatable {
 /// The shared store: one SQLite file in the app group container that every v57 app on the device opens.
 ///
 /// - Every item is one row: id, kind, and its fields sealed with AES-GCM under a vault key, bound to the store, the
-///   id and the kind (`VaultItemSeal`, format 2; a store moves there once, on open: `prepareFormat`). The schema never
-///   changes; new fields live inside the payload, so apps of any version read the same file.
+///   id and the kind (`VaultItemSeal`, format 2). Format 2 has a file of its own, which a store builds once, on open, from
+///   the file old builds use and leave alone (`VaultStore+Format`). The tables never change; new fields live inside the
+///   payload.
 /// - Each write stamps the changed fields with a `HybridClock` and puts the item in the `outbox`. The app
 ///   that wrote sends it (it leases the outbox row); if it quits first, the lease runs out and any other app
 ///   sends it, so nothing is lost and nothing is sent twice.
@@ -63,9 +64,10 @@ public final class VaultStore: @unchecked Sendable {
   public let owner: String
   let keys: VaultKeyProvider
 
-  let database: SQLiteConnection
+  /// The new file, or the old file while the store waits to build it (`_isWaiting`).
+  var database: SQLiteConnection
   private let lock = NSRecursiveLock()
-  private let notifier: VaultChangeNotifier?
+  let notifier: VaultChangeNotifier?
   /// Keys that seal one kind of item instead of the vault key, and open items that name them: the recovery
   /// blobs, which a device that lost the vault keys reads with a key derived from the recovery key
   /// (`VaultRecovery`). Kept in memory only; the rows look like any other.
@@ -75,9 +77,14 @@ public final class VaultStore: @unchecked Sendable {
   /// See `VaultStore+Format.swift`.
   var _formatFinished = false
   var _formatError: String?
-  var _refusedCount = 0
+  /// The store reads the old file, read-only, until it can build the new one.
+  var _isWaiting = false
   var _legacyAllowed: [String: Data]?
   var _lastCatchUp: Date?
+  var _vaultMark: Date?
+  /// While a sweep runs: `withKeySweep`.
+  private var _sweepDepth = 0
+  private var _sweepKeys: [String: SymmetricKey]?
   let formatTesting: FormatTesting
 
   /// Set when this process runs a sync engine: its own writes are then leased to it right away, so other
@@ -102,14 +109,16 @@ public final class VaultStore: @unchecked Sendable {
   /// How long a lease on an outbox row lasts before another app may send it.
   public var lease: TimeInterval = 120
 
-  /// Personal's file; an account's is `<account id>.sqlite` beside it.
-  public static let fileName = "Vault.sqlite"
+  /// Personal's file; an account's is `<account id>.v2.sqlite` beside it.
+  public static let fileName = "Vault.v2.sqlite"
 
   /// What this device's clock says. A test sets a wrong one.
   var wallClock: @Sendable () -> Date = { .now }
 
   /// The SQLite file.
   public let fileURL: URL
+  /// The file old builds use, which this store only reads (`VaultStore+Format`).
+  public let legacyFileURL: URL
   /// The account whose records the store holds (`VaultAccount`); nil for Personal.
   public let accountID: String?
 
@@ -145,28 +154,21 @@ public final class VaultStore: @unchecked Sendable {
   ) throws {
     self.formatTesting = formatTesting
     self.directory = directory
-    fileURL = directory.appendingPathComponent(fileName)
+    let name = Self.format2Name(of: fileName)
+    fileURL = directory.appendingPathComponent(name)
+    legacyFileURL = directory.appendingPathComponent(Self.format1Name(of: name))
     self.accountID = accountID
     self.keys = keys
     self.deviceID = deviceID
     self.notifier = notifier
     self.owner = owner
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    database = try SQLiteConnection(url: fileURL)
-    try database.transaction {
-      try database.execute(
-        """
-        CREATE TABLE IF NOT EXISTS items(
-          id TEXT PRIMARY KEY, kind TEXT NOT NULL, key_id TEXT NOT NULL, payload BLOB NOT NULL,
-          version INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0, modified REAL NOT NULL DEFAULT 0,
-          change_tag TEXT, system_fields BLOB);
-        CREATE INDEX IF NOT EXISTS items_kind ON items(kind, deleted);
-        CREATE TABLE IF NOT EXISTS outbox(
-          id TEXT PRIMARY KEY, version INTEGER NOT NULL, queued REAL NOT NULL, owner TEXT, until REAL NOT NULL DEFAULT 0);
-        CREATE TABLE IF NOT EXISTS engines(name TEXT PRIMARY KEY, state BLOB);
-        CREATE TABLE IF NOT EXISTS server_copies(id TEXT PRIMARY KEY, key_id TEXT NOT NULL, payload BLOB NOT NULL);
-        CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        """)
+    if !FileManager.default.fileExists(atPath: fileURL.path), try Self.hasRows(legacyFileURL) {
+      database = try SQLiteConnection(url: legacyFileURL, mode: .readOnly)
+      _isWaiting = true
+    } else {
+      database = try SQLiteConnection(url: fileURL)
+      try Self.createTables(in: database)
     }
     prepareFormat()
   }
@@ -183,11 +185,17 @@ public final class VaultStore: @unchecked Sendable {
     return store
   }()
 
-  /// Removes a store's file, SQLite's journal beside it and the backup its format migration left. A connection still
-  /// open keeps reading the removed file until it closes.
+  /// Removes a store's file, the old file it came from, SQLite's journals beside them and what a killed build left. A
+  /// connection still open keeps reading the removed file until it closes.
   public static func removeFiles(at url: URL) {
-    for suffix in ["", "-wal", "-shm", formatBackupSuffix] {
-      try? FileManager.default.removeItem(at: URL(fileURLWithPath: url.path + suffix))
+    let manager = FileManager.default
+    let folder = url.deletingLastPathComponent()
+    let name = format2Name(of: url.lastPathComponent)
+    for base in [name, format1Name(of: name)] {
+      for suffix in ["", "-wal", "-shm"] { try? manager.removeItem(at: folder.appendingPathComponent(base + suffix)) }
+    }
+    for file in (try? manager.contentsOfDirectory(atPath: folder.path)) ?? [] where file.hasPrefix(name + ".") && file.contains(".tmp") {
+      try? manager.removeItem(at: folder.appendingPathComponent(file))
     }
   }
 
@@ -203,11 +211,31 @@ public final class VaultStore: @unchecked Sendable {
     return try body()
   }
 
+  /// A vault key by id. Inside a sweep, a key this device lacks costs one read of the keychain in all, not one per row: a
+  /// sweep runs under SQLite's write lock, and other apps' opens are waiting on it.
+  func vaultKey(id: String) throws -> SymmetricKey? {
+    guard _sweepDepth > 0 else { return try keys.key(id: id) }
+    if let snapshot = _sweepKeys { return snapshot[id] }
+    if let key = try keys.key(id: id) { return key }
+    _sweepKeys = try keys.allKeys
+    return _sweepKeys?[id]
+  }
+
+  func withKeySweep<T>(_ body: () throws -> T) rethrows -> T {
+    _sweepDepth += 1
+    defer {
+      _sweepDepth -= 1
+      if _sweepDepth == 0 { _sweepKeys = nil }
+    }
+    return try body()
+  }
+
   // MARK: Reading
 
   /// The live (not deleted) items of a kind that this device can decrypt.
   public func items(kind: String) throws -> [VaultItem] {
     try withLock {
+      try withKeySweep {
       // Rows with no kind arrived before this device had their key; read them again, it may be here now.
       let rows = try database.query(
         "SELECT id, kind, key_id, payload FROM items WHERE (kind = ? AND deleted = 0) OR kind = ''", [.text(kind)])
@@ -216,7 +244,7 @@ public final class VaultStore: @unchecked Sendable {
         let origin: PayloadOrigin = row[1].text == "" ? .waiting : .local
         guard let item = try? decode(id: row[0].text!, keyID: row[2].text!, payload: row[3].blob ?? Data(), from: origin)
         else { continue }
-        if row[1].text == "" {
+        if row[1].text == "", !_isWaiting {
           try database.query(
             "UPDATE items SET kind = ?, deleted = ?, modified = ? WHERE id = ?",
             [
@@ -227,6 +255,7 @@ public final class VaultStore: @unchecked Sendable {
         if item.kind == kind && !item.isDeleted { items.append(item) }
       }
       return items
+      }
     }
   }
 
@@ -252,7 +281,8 @@ public final class VaultStore: @unchecked Sendable {
   @discardableResult
   public func save(id: String, kind: String, changes: [String: JSONValue]) throws -> Bool {
     let changed: Bool = try withLock {
-      try database.transaction {
+      try openForWriting()
+      return try database.transaction {
         var fields = ItemFields()
         if let row = try loadRow(id: id) {
           if let item = row.item {
@@ -286,7 +316,8 @@ public final class VaultStore: @unchecked Sendable {
   /// Marks an item deleted. The deletion syncs like any write; the row is purged later.
   public func delete(id: String) throws {
     let deleted: Bool = try withLock {
-      try database.transaction {
+      try openForWriting()
+      return try database.transaction {
         guard let row = try loadRow(id: id), let item = row.item, !item.isDeleted else { return false }
         var fields = item.fields
         fields.stamped[ItemFields.deletedKey] = StampedValue(true, clock: try nextClock().after(fields.latestClock))
@@ -306,7 +337,10 @@ public final class VaultStore: @unchecked Sendable {
 
   /// An id derived from content (a project's remote URL), the same on every device with the same keys.
   public func derivedID(_ text: String) throws -> String {
-    try VaultCrypto.derivedID(text, keys: keys)
+    try withLock {
+      if try idKeyCouldBeWrong() { throw VaultCrypto.CryptoError.idKeyNotHere }
+      return try VaultCrypto.derivedID(text, keys: keys)
+    }
   }
 
   // MARK: Outbox (used by the sync engine)
@@ -316,7 +350,8 @@ public final class VaultStore: @unchecked Sendable {
   /// sync is stuck lets go of its writes after `lease`, and another app sends them.
   public func claimOutbox(limit: Int = 200, now: Date = .now) throws -> [String] {
     try withLock {
-      try database.transaction {
+      guard !_isWaiting else { return [] }
+      return try database.transaction {
         let time = now.timeIntervalSince1970
         let held = try database.query(
           "SELECT id FROM outbox WHERE owner = ? AND until >= ? ORDER BY queued LIMIT ?",
@@ -338,13 +373,16 @@ public final class VaultStore: @unchecked Sendable {
   /// The record to send for an item, if this process holds its outbox lease.
   public func outgoing(id: String, now: Date = .now) throws -> OutgoingRecord? {
     try withLock {
-      try database.transaction {
+      guard !_isWaiting else { return nil }
+      return try database.transaction {
         guard
           let lease = try database.query("SELECT owner, until FROM outbox WHERE id = ?", [.text(id)]).first,
           lease[0].text == owner || (lease[1].double ?? 0) < now.timeIntervalSince1970,
           let row = try database.query(
             "SELECT key_id, payload, system_fields, version FROM items WHERE id = ?", [.text(id)]
-          ).first
+          ).first,
+          // A row that came over unopened goes up once it's format 2 (`catchUp`): nothing here ever sends format 1.
+          VaultItemSeal.parse(row[1].blob ?? Data()) != nil
         else { return nil }
         // Take (or extend) the lease: the record is on its way.
         try database.query(
@@ -370,7 +408,10 @@ public final class VaultStore: @unchecked Sendable {
         try database.query(
           "UPDATE items SET change_tag = ?, system_fields = ? WHERE id = ?",
           [.init(changeTag), .init(systemFields), .text(id)])
-        if let sent { try setServerCopy(id: id, keyID: sent.keyID, payload: sent.payload) }
+        if let sent {
+          try setServerCopy(id: id, keyID: sent.keyID, payload: sent.payload)
+          try clearRefused(id: id)
+        }
         try database.query("DELETE FROM outbox WHERE id = ? AND version <= ?", [.text(id), .int(version)])
         return try !database.query("SELECT 1 FROM outbox WHERE id = ?", [.text(id)]).isEmpty
       }
@@ -410,11 +451,13 @@ public final class VaultStore: @unchecked Sendable {
     /// This device doesn't have the record's key yet; it's kept until the key arrives.
     case undecryptable
     /// This store doesn't take the record: it's in the old format or under a retired key, or it was moved from another
-    /// record or changed. Nothing of it was kept. With `needsSend`, the local copy goes up over it.
+    /// record or changed. Nothing of it was kept, and it's counted (`VaultFormatStatus`). With `needsSend`, the local copy
+    /// goes up over it.
     ///
-    /// The server's change tag is adopted, so the record isn't fetched again, and that's safe: a device that wrote it
-    /// in good faith still has its fields, and they come back through the normal merge once it migrates or hears of the
-    /// rotation, with a new tag.
+    /// A record in the old format stays where it is unless a local edit is waiting: it's its writer's copy, which it
+    /// merges when it migrates. A record that was moved or changed is replaced by the readable copy, so the next device
+    /// doesn't meet it either, and a device that wrote under a retired key still has its fields, which come back once it
+    /// hears of the rotation.
     case refused(needsSend: Bool)
   }
 
@@ -422,89 +465,111 @@ public final class VaultStore: @unchecked Sendable {
   @discardableResult
   public func apply(_ record: RemoteRecord) throws -> ApplyResult {
     let result: ApplyResult = try withLock {
-      try database.transaction {
-        let row = try loadRow(id: record.id)
-        if let row, let tag = record.changeTag, row.changeTag == tag { return .unchanged }
-        let hasPending = try !database.query("SELECT 1 FROM outbox WHERE id = ?", [.text(record.id)]).isEmpty
-
-        let keyID = VaultItemSeal.parse(record.payload)?.keyID ?? record.keyID
-        let remote: VaultItem
-        do {
-          remote = try decode(id: record.id, keyID: keyID, payload: record.payload, from: .network)
-        } catch VaultCrypto.CryptoError.missingKey {
-          // Keep the server's copy until the key arrives. A row this device can read stays as it is, and the copy waits
-          // beside it (`catchUp` merges it): whoever can write to CloudKit doesn't get to blank a record by naming a key
-          // this device lacks, and an edit waiting here goes up with the server's tag.
-          if row?.item != nil {
-            try setServerCopy(id: record.id, keyID: keyID, payload: record.payload)
-            try setServerFields(id: record.id, changeTag: record.changeTag, systemFields: record.systemFields)
-            try addWaitingServerCopy(record.id)
-          } else {
-            try database.query(
-              """
-              INSERT INTO items(id, kind, key_id, payload, version, deleted, modified, change_tag, system_fields)
-              VALUES(?, '', ?, ?, 0, 0, 0, ?, ?)
-              ON CONFLICT(id) DO UPDATE SET key_id = excluded.key_id, payload = excluded.payload,
-                change_tag = excluded.change_tag, system_fields = excluded.system_fields
-              """,
-              [.text(record.id), .text(keyID), .blob(record.payload), .init(record.changeTag), .init(record.systemFields)])
-          }
-          return .undecryptable
-        } catch {
-          _refusedCount += 1
-          guard let local = row?.item else { return .refused(needsSend: false) }
-          // The readable copy goes up over the refused one, so the next device doesn't meet it either.
-          try setServerFields(id: record.id, changeTag: record.changeTag, systemFields: record.systemFields)
-          try writeRow(id: record.id, kind: local.kind, fields: local.fields, queue: true)
-          return .refused(needsSend: true)
-        }
-
-        try observe(remote.fields.latestClock)
-        let local = row?.item
-        let kind = local?.kind.isEmpty == false ? local!.kind : remote.kind
-        let base = try serverCopy(id: record.id)
-        let merged =
-          local.map { $0.fields.merged(with: remote.fields, base: base, textKeys: Self.textFields[kind] ?? []) }
-          ?? remote.fields
-        try setServerCopy(id: record.id, keyID: keyID, payload: record.payload)
-        var needsSend = false
-        if merged == remote.fields {
-          // The server's copy has everything: keep its payload as it is.
-          try database.query(
-            """
-            INSERT INTO items(id, kind, key_id, payload, version, deleted, modified, change_tag, system_fields)
-            VALUES(?, ?, ?, ?, 1, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, key_id = excluded.key_id, payload = excluded.payload,
-              version = items.version + 1, deleted = excluded.deleted, modified = excluded.modified,
-              change_tag = excluded.change_tag, system_fields = excluded.system_fields
-            """,
-            [
-              .text(record.id), .text(kind), .text(keyID), .blob(record.payload),
-              .int(merged.isDeleted ? 1 : 0), .double(Self.seconds(merged.latestClock)),
-              .init(record.changeTag), .init(record.systemFields),
-            ])
-          // Anything waiting to go up is already on the server.
-          try database.query("DELETE FROM outbox WHERE id = ?", [.text(record.id)])
-        } else {
-          // The local copy has newer fields: keep the merge and send it, on top of the server's version.
-          try writeRow(id: record.id, kind: kind, fields: merged, queue: true)
-          try setServerFields(id: record.id, changeTag: record.changeTag, systemFields: record.systemFields)
-          needsSend = true
-        }
-        _ = hasPending
-        if try foldDuplicates(of: record.id, kind: kind) { needsSend = true }
-        if local?.fields != merged { try bumpRevision() }
-        return .merged(needsSend: needsSend)
-      }
+      try requireOpen()
+      return try database.transaction { try applyInTransaction(record) }
     }
     if case .merged = result { notifier?.post() }
     return result
   }
 
+  private func applyInTransaction(_ record: RemoteRecord) throws -> ApplyResult {
+    let row = try loadRow(id: record.id)
+    if let row, let tag = record.changeTag, row.changeTag == tag { return .unchanged }
+    let hasPending = try !database.query("SELECT 1 FROM outbox WHERE id = ?", [.text(record.id)]).isEmpty
+
+    let isOldFormat = VaultItemSeal.parse(record.payload) == nil
+    let keyID = VaultItemSeal.parse(record.payload)?.keyID ?? record.keyID
+    let remote: VaultItem
+    do {
+      remote = try decode(id: record.id, keyID: keyID, payload: record.payload, from: .network)
+    } catch VaultCrypto.CryptoError.missingKey {
+      // Keep the server's copy until the key arrives. A row this device can read stays as it is, and the copy waits
+      // beside it (`catchUp` merges it): whoever can write to CloudKit doesn't get to blank a record by naming a key
+      // this device lacks, and an edit waiting here goes up with the server's tag.
+      if row?.item != nil {
+        try setServerCopy(id: record.id, keyID: keyID, payload: record.payload)
+        try setServerFields(id: record.id, changeTag: record.changeTag, systemFields: record.systemFields)
+        try addWaitingServerCopy(record.id)
+      } else {
+        try database.query(
+          """
+          INSERT INTO items(id, kind, key_id, payload, version, deleted, modified, change_tag, system_fields)
+          VALUES(?, '', ?, ?, 0, 0, 0, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET key_id = excluded.key_id, payload = excluded.payload,
+            change_tag = excluded.change_tag, system_fields = excluded.system_fields
+          """,
+          [.text(record.id), .text(keyID), .blob(record.payload), .init(record.changeTag), .init(record.systemFields)])
+        if isOldFormat { try addLegacyAllowed(id: record.id, payload: record.payload) }
+      }
+      return .undecryptable
+    } catch {
+      try noteRefused(id: record.id, tag: record.changeTag, isOldFormat: isOldFormat)
+      guard let local = row?.item else { return .refused(needsSend: false) }
+      // The writer's copy, which it merges when it migrates: only an edit waiting here goes up over it, as a normal
+      // conflict, and with the record's tag so that it lands.
+      if isOldFormat {
+        guard hasPending else { return .refused(needsSend: false) }
+        try setServerFields(id: record.id, changeTag: record.changeTag, systemFields: record.systemFields)
+        return .refused(needsSend: true)
+      }
+      // The readable copy goes up over the refused one, so the next device doesn't meet it either.
+      try setServerFields(id: record.id, changeTag: record.changeTag, systemFields: record.systemFields)
+      try writeRow(id: record.id, kind: local.kind, fields: local.fields, queue: true)
+      return .refused(needsSend: true)
+    }
+
+    try clearRefused(id: record.id)
+    try observe(remote.fields.latestClock)
+    let local = row?.item
+    let kind = local?.kind.isEmpty == false ? local!.kind : remote.kind
+    let base = try serverCopy(id: record.id)
+    let merged =
+      local.map { $0.fields.merged(with: remote.fields, base: base, textKeys: Self.textFields[kind] ?? []) }
+      ?? remote.fields
+    var needsSend = false
+    if isOldFormat {
+      // It's read, and from here on it's this store's: format 2 here, and format 2 on the server.
+      let copy = try sealed(kind: remote.kind, fields: remote.fields, id: record.id)
+      try setServerCopy(id: record.id, keyID: copy.keyID, payload: copy.payload)
+      try writeRow(id: record.id, kind: kind, fields: merged, queue: true)
+      try setServerFields(id: record.id, changeTag: record.changeTag, systemFields: record.systemFields)
+      needsSend = true
+    } else if merged == remote.fields {
+      try setServerCopy(id: record.id, keyID: keyID, payload: record.payload)
+      // The server's copy has everything: keep its payload as it is.
+      try database.query(
+        """
+        INSERT INTO items(id, kind, key_id, payload, version, deleted, modified, change_tag, system_fields)
+        VALUES(?, ?, ?, ?, 1, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, key_id = excluded.key_id, payload = excluded.payload,
+          version = items.version + 1, deleted = excluded.deleted, modified = excluded.modified,
+          change_tag = excluded.change_tag, system_fields = excluded.system_fields
+        """,
+        [
+          .text(record.id), .text(kind), .text(keyID), .blob(record.payload),
+          .int(merged.isDeleted ? 1 : 0), .double(Self.seconds(merged.latestClock)),
+          .init(record.changeTag), .init(record.systemFields),
+        ])
+      // Anything waiting to go up is already on the server.
+      try database.query("DELETE FROM outbox WHERE id = ?", [.text(record.id)])
+    } else {
+      try setServerCopy(id: record.id, keyID: keyID, payload: record.payload)
+      // The local copy has newer fields: keep the merge and send it, on top of the server's version.
+      try writeRow(id: record.id, kind: kind, fields: merged, queue: true)
+      try setServerFields(id: record.id, changeTag: record.changeTag, systemFields: record.systemFields)
+      needsSend = true
+    }
+    _ = hasPending
+    if try foldDuplicates(of: record.id, kind: kind) { needsSend = true }
+    if local?.fields != merged { try bumpRevision() }
+    return .merged(needsSend: needsSend)
+  }
+
   /// CloudKit deleted a record (a purged tombstone): drop it, unless a local edit is waiting to bring it back.
   public func applyDeletion(id: String) throws {
     let changed: Bool = try withLock {
-      try database.transaction {
+      try requireOpen()
+      return try database.transaction {
         if try !database.query("SELECT 1 FROM outbox WHERE id = ?", [.text(id)]).isEmpty {
           try setServerFields(id: id, changeTag: nil, systemFields: nil)
           return false
@@ -525,7 +590,7 @@ public final class VaultStore: @unchecked Sendable {
   /// key, ciphertext and version. Placeholders for records this device can't open yet are left out.
   public func sealedRecords() throws -> [OutgoingRecord] {
     try withLock {
-      try database.query("SELECT id, key_id, payload, version FROM items WHERE kind != ''").compactMap { row in
+      try database.query("SELECT id, key_id, payload, version FROM items WHERE kind != '' AND \(Self.format2Rows)").compactMap { row in
         guard let id = row[0].text, let keyID = row[1].text else { return nil }
         return OutgoingRecord(id: id, keyID: keyID, payload: row[2].blob ?? Data(), systemFields: nil, version: row[3].int ?? 0)
       }
@@ -550,16 +615,18 @@ public final class VaultStore: @unchecked Sendable {
   @discardableResult
   public func applyFromPeer(id: String, keyID: String, payload: Data) throws -> PeerApplyResult {
     let result: PeerApplyResult = try withLock {
-      try database.transaction {
+      try requireOpen()
+      return try database.transaction {
         let remote: VaultItem
         do {
           remote = try decode(id: id, keyID: keyID, payload: payload, from: .network)
         } catch VaultCrypto.CryptoError.missingKey {
           return .undecryptable
         } catch {
-          _refusedCount += 1
+          try noteRefused(id: id, tag: nil, isOldFormat: VaultItemSeal.parse(payload) == nil)
           return .refused
         }
+        try clearRefused(id: id)
         try observe(remote.fields.latestClock)
         let local = try loadRow(id: id)?.item
         let kind = local?.kind.isEmpty == false ? local!.kind : remote.kind
@@ -585,7 +652,7 @@ public final class VaultStore: @unchecked Sendable {
           "UPDATE items SET change_tag = NULL, system_fields = NULL; DELETE FROM engines; DELETE FROM server_copies;")
         let now = Date.now.timeIntervalSince1970
         try database.query(
-          "INSERT OR REPLACE INTO outbox(id, version, queued, owner, until) SELECT id, version, ?, NULL, 0 FROM items",
+          "INSERT OR REPLACE INTO outbox(id, version, queued, owner, until) SELECT id, version, ?, NULL, 0 FROM items WHERE \(Self.format2Rows)",
           [.double(now)])
       }
     }
@@ -695,16 +762,20 @@ public final class VaultStore: @unchecked Sendable {
     if let parsed = VaultItemSeal.parse(payload) {
       do {
         return try openFormat2(parsed, id: id, from: origin)
-      } catch VaultCrypto.CryptoError.damaged where !formatIsFinished {
+      } catch VaultCrypto.CryptoError.damaged {
         // Format 1 starts with a random nonce, which can look like format 2's header once in 2^40.
+        let couldBeFormat1 =
+          try _isWaiting || (origin == .network ? !formatIsFinished : isAllowedFormat1(id: id, payload: payload))
+        guard couldBeFormat1 else { throw VaultCrypto.CryptoError.damaged }
       }
     }
-    if formatIsFinished {
-      guard origin != .network, try isAllowedFormat1(id: id, payload: payload) else {
-        throw VaultCrypto.CryptoError.refused
+    if !_isWaiting {
+      if origin == .network {
+        guard try readsFormat1FromElsewhere() else { throw VaultCrypto.CryptoError.refused }
+        if extraKeys[keyID] == nil, try keys.isRetired(keyID) { throw VaultCrypto.CryptoError.refused }
+      } else {
+        guard try isAllowedFormat1(id: id, payload: payload) else { throw VaultCrypto.CryptoError.refused }
       }
-    } else if origin == .network, extraKeys[keyID] == nil, try keys.isRetired(keyID) {
-      throw VaultCrypto.CryptoError.refused
     }
     return try openFormat1(id: id, keyID: keyID, payload: payload)
   }
@@ -716,7 +787,7 @@ public final class VaultStore: @unchecked Sendable {
     if let kindKey {
       key = kindKey
     } else {
-      guard let vaultKey = try keys.key(id: parsed.keyID) else { throw VaultCrypto.CryptoError.missingKey(parsed.keyID) }
+      guard let vaultKey = try vaultKey(id: parsed.keyID) else { throw VaultCrypto.CryptoError.missingKey(parsed.keyID) }
       if origin != .local, try keys.isRetired(parsed.keyID) { throw VaultCrypto.CryptoError.refused }
       key = vaultKey
     }
@@ -730,24 +801,25 @@ public final class VaultStore: @unchecked Sendable {
 
   /// A format 1 payload, with no check of where it belongs: it has nothing to check against.
   func openFormat1(id: String, keyID: String, payload: Data) throws -> VaultItem {
-    let plaintext =
-      if let key = extraKeys[keyID] {
-        try VaultCrypto.open(payload, key: key)
-      } else {
-        try VaultCrypto.open(payload, keyID: keyID, keys: keys)
-      }
+    guard let key = try extraKeys[keyID] ?? vaultKey(id: keyID) else { throw VaultCrypto.CryptoError.missingKey(keyID) }
+    let plaintext = try VaultCrypto.open(payload, key: key)
     let decoded = try JSONDecoder().decode(Payload.self, from: plaintext)
     if extraKeys[keyID] != nil, decoded.kind != VaultRecoveryBlob.kind { throw VaultCrypto.CryptoError.refused }
     return VaultItem(id: id, kind: decoded.kind, fields: decoded.fields)
   }
 
-  func writeRow(id: String, kind: String, fields: ItemFields, queue: Bool) throws {
+  /// An item sealed the way a row is.
+  func sealed(kind: String, fields: ItemFields, id: String) throws -> (keyID: String, payload: Data) {
     let (keyID, key) = try kindKeys[kind] ?? keys.primary()
-    let sealed = (
-      keyID: keyID,
-      ciphertext: try VaultItemSeal.seal(
+    return (
+      keyID,
+      try VaultItemSeal.seal(
         kind: kind, fields: try JSONEncoder().encode(fields), id: id, account: accountBinding, keyID: keyID, key: key)
     )
+  }
+
+  func writeRow(id: String, kind: String, fields: ItemFields, queue: Bool) throws {
+    let sealed = try sealed(kind: kind, fields: fields, id: id)
     try database.query(
       """
       INSERT INTO items(id, kind, key_id, payload, version, deleted, modified) VALUES(?, ?, ?, ?, 1, ?, ?)
@@ -755,11 +827,15 @@ public final class VaultStore: @unchecked Sendable {
         version = items.version + 1, deleted = excluded.deleted, modified = excluded.modified
       """,
       [
-        .text(id), .text(kind), .text(sealed.keyID), .blob(sealed.ciphertext), .int(fields.isDeleted ? 1 : 0),
+        .text(id), .text(kind), .text(sealed.keyID), .blob(sealed.payload), .int(fields.isDeleted ? 1 : 0),
         .double(Self.seconds(fields.latestClock)),
       ])
     guard queue else { return }
-    let version = try database.query("SELECT version FROM items WHERE id = ?", [.text(id)])[0][0].int ?? 0
+    try self.queue(id: id, version: try database.query("SELECT version FROM items WHERE id = ?", [.text(id)])[0][0].int ?? 0)
+  }
+
+  /// Puts an item in the outbox.
+  func queue(id: String, version: Int64) throws {
     let now = Date.now.timeIntervalSince1970
     // The writer leases its own change when it can send it, so other apps don't race it to the server.
     let leased = _sendsOwnWrites

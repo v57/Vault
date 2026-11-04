@@ -80,6 +80,8 @@ final class FakeApp {
     let changes = cloud.changes(since: token)
     token = changes.token
     _ = sync.fetched(modified: changes.modified, deleted: changes.deleted)
+    // This app's token started at zero, so what it has now is everything.
+    sync.fetchCompleted()
   }
 
   func sync(_ cloud: FakeCloud) {

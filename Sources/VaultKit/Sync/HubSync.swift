@@ -164,6 +164,8 @@ public final class HubSync: @unchecked Sendable {
     defer { lock.withLock { running = false } }
 
     store.catchUpIfDue()
+    // The store is still on the old file: nothing to send, and nowhere to put what arrives.
+    guard !store.isWaitingToMigrate else { return Result() }
     let vault = try vaultID()
     var state = loadState()
     var result = Result()
@@ -214,7 +216,13 @@ public final class HubSync: @unchecked Sendable {
       if pulled.envelopes.count < batch { break }
     }
 
-    if state.formatAnnounced != true, store.isFormatFinished {
+    // A device with no CloudKit has no other way to see what its peers hold.
+    #if !canImport(CloudKit)
+      store.fetchCompleted()
+    #endif
+
+    // Only a store that came from an old file acknowledged things it couldn't read. A new one is a new member.
+    if state.formatAnnounced != true, store.cameFromOldFile {
       let sealed = Sealed(id: Self.resendMarker, keyID: Self.resendMarker, payload: Data())
       let envelope = HubEnvelope(
         id: "\(deviceID):\(Self.resendMarker)", payload: try JSONEncoder().encode(sealed).base64EncodedString())

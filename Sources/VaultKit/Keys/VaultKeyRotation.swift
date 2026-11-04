@@ -67,6 +67,7 @@ extension VaultStore {
   ///
   /// With `adopting`, a restored kit's keys: placeholders open too, as the user just vouched for the keys with the kit.
   func resealRows(sealedWith retired: Set<String>, adopting: Bool = false) throws -> [String] {
+    try withLock { try requireOpen() }
     let names = retired.sorted()
     let marks = names.map { _ in "?" }.joined(separator: ",")
     var written: [String] = []
@@ -74,8 +75,8 @@ extension VaultStore {
     while true {
       let finished: Bool = try database.transaction {
         let rows = try database.query(
-          "SELECT id, key_id, payload FROM items WHERE key_id IN (\(marks)) AND id > ? ORDER BY id LIMIT ?",
-          names.map { .text($0) } + [.text(after), .int(Int64(formatTesting.batchSize))])
+          "SELECT id, key_id, payload FROM items WHERE key_id IN (\(marks)) AND id > ? ORDER BY id LIMIT 200",
+          names.map { .text($0) } + [.text(after)])
         var any = false
         for row in rows {
           let id = row[0].text ?? ""
@@ -110,7 +111,7 @@ extension VaultStore {
           {
             return true
           }
-        } else if try !formatIsFinished || isAllowedFormat1(id: id, payload: payload),
+        } else if try _isWaiting || isAllowedFormat1(id: id, payload: payload),
           let plaintext = try? VaultCrypto.open(payload, key: key),
           let decoded = try? JSONDecoder().decode(Payload.self, from: plaintext), decoded.kind != VaultRecoveryBlob.kind
         {

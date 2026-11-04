@@ -3,76 +3,149 @@ import Foundation
 
 /// How a store moved to payload format 2 (`VaultItemSeal`).
 public struct VaultFormatStatus: Sendable, Equatable {
-  /// The store rewrote everything it can read and refuses format 1 from now on.
+  /// The store made its first complete fetch (or the vault's month ran out), and refuses format 1 from elsewhere.
   public var isFinished: Bool
+  /// The store is still reading the old file: the keychain was out of reach, no key has arrived, or the disk was full.
+  public var isWaiting: Bool
   /// Rows rewritten to format 2.
   public var resealed: Int
-  /// Rows it couldn't open when it finished (their key hasn't arrived). They stay, and open and move over once it does.
+  /// Rows that came over as they were because their key hasn't arrived. They move over once it does.
   public var unreadable: Int
+  /// Rows that came over as they were because they wouldn't rewrite. They stay as readable as they were.
+  public var notRewritten: Int
   /// Rows whose payload names no kind: they stay readable, under the empty kind.
   public var withoutKind: Int
   /// Rows whose column and payload named different kinds. The payload's kind counts.
   public var kindMismatches: Int
-  /// Records this process refused from CloudKit or a Hub.
+  /// Records this store doesn't take, at the moment: moved, changed, under a retired key, or in the old format.
   public var refused: Int
-  /// The copy of the store from before the first rewrite. Ciphertext only; nothing deletes it but deleting the store.
-  public var backup: URL?
-  /// Why it hasn't finished (the keychain was out of reach, the disk was full): it tries again.
+  /// Of those, the ones in the old format: most likely a device of the user's that hasn't updated. It kept its own copy,
+  /// and they merge when it updates.
+  public var fromOldDevices: Int
+  /// Why it can't do more yet: it tries again.
   public var error: String?
+
+  /// What to tell the user, when there's anything to tell.
+  public var note: String? {
+    switch fromOldDevices {
+    case 0: nil
+    case 1: "1 record came from a device that hasn’t updated yet. It will merge once that device updates."
+    default: "\(fromOldDevices) records came from a device that hasn’t updated yet. They will merge once it updates."
+    }
+  }
 }
 
 /// Lets tests stop a migration at every step, and move the clock.
 struct FormatTesting: Sendable {
   enum Stage: Sendable, Equatable {
-    case backedUp
-    case batch(Int)
-    case beforeFinish
-    case finished
+    /// Every row is in the temporary file.
+    case copied
+    /// The temporary file is on disk, under its temporary name.
+    case beforeMove
+    /// The new file is in place.
+    case moved
   }
 
   var stage: (@Sendable (Stage) throws -> Void)?
   var now: @Sendable () -> Date = { .now }
-  var batchSize = 200
 }
 
-/// Payload format 2 is one-way, per store. `prepareFormat` runs on every open, before the store is used, and every app
-/// that shares the file gets it: killed anywhere, the next open of any app carries on, and SQLite's write lock makes
-/// concurrent opens take turns.
+/// Payload format 2 lives in its own file, one per store (`Vault.v2.sqlite`, `<account id>.v2.sqlite`). The file being
+/// there means the store migrated.
 ///
-/// 1. Copies the store once (`VACUUM INTO`, so the journal comes along) to `<file>.format1-backup`, before anything is
-///    rewritten. Only ciphertext; it stays until the store is deleted.
-/// 2. Rewrites rows in batches, each a transaction, reading back each one before it commits. Each rewrite goes into the
-///    outbox like any write, so CloudKit and the Hubs get format 2.
-/// 3. In a last transaction: sweeps what's left (another app's write), lists what can't open yet, forgets what the sync
-///    engines fetched (an old build skipped format 2 records it must now read) and sets `format` in `meta`.
-/// 4. Sets two keychain marks: one on this device, so editing the file can't undo the migration, and a synced one, so a
-///    store this user's other devices make is born finished.
+/// **The old file is never written.** An app on an old build goes on opening it and never meets a format 2 row, so
+/// it can't store one over its own copy, send one, or see an empty store and trash note files. The old file is also the
+/// backup: rolling back means removing the new file, and the next open migrates again.
 ///
-/// **Before a store finishes, format 1 is read.** An existing store finishes in the same open, so nothing arrives in
-/// between. The window is a new, empty store on a device with no mark from any other (the user's only device, or the
-/// first one to update): it reads format 1 for an hour from its first open and finishes at the next open after that, so
-/// that a first fetch from a CloudKit holding only format 1 isn't thrown away. In that hour someone who can write to
-/// CloudKit can put an old payload at any record id it knows, and move one between ids; that hour is what they get.
+/// **Building the new file** happens on open, when the keychain can be read and has a key. A temporary file with a unique
+/// name gets every row with its clocks and fields exact: each format 1 row is sealed again and read back. It's then forced
+/// to disk (`wal_checkpoint(TRUNCATE)`, `F_FULLFSYNC`) and moved into place without overwriting anything, so a kill leaves
+/// a temporary file and no store, two processes get one winner, and a power cut can't leave half a file under the
+/// final name. Rows whose key hasn't arrived, or that won't rewrite, come over as they are, on a sealed list.
 ///
-/// **After it finishes, format 1 from elsewhere is refused**, and a row's format 1 payload opens only if it's on the
-/// sealed list made in step 3. A device still on an old build keeps its own edits and sends them again when it migrates:
-/// its rows go in the outbox with new change tags, so the devices that refused them hear about them again, and fields
-/// merge as usual.
+/// **Until then the store reads the old file** and takes no writes, except that a save on a keychain with no keys at all
+/// makes a key, as every build did, and builds the file. Without keys the rows can't be read anyway, and a save
+/// that failed would lose what the user just typed. `derivedID` waits (`idKeyCouldBeWrong`). The sync engines don't start.
+///
+/// **What an old app does on this device afterwards:** for 30 days from this store's migration, each open merges in by
+/// field clock the old file's rows that have outbox entries: local edits the old app couldn't send. An old app can send
+/// some, a brand new row for one, and those would then be refused by the store they came from, so rows
+/// with fields stamped by this device since the migration come over too, those fields only. Nothing else in the old file
+/// counts, as what it fetched came from CloudKit. Afterwards the old file is ignored.
+///
+/// **Format 1 from elsewhere** is read during a store's own first complete fetch after it migrated, and only within 30
+/// days of the vault-wide mark, so that a v1 edit waiting on the server merges by clock rather than being overwritten. The
+/// mark is a synced keychain item naming the date the first device migrated (`format2.vault.<millis>`), where CloudKit
+/// can't touch it; if two devices set it, every device takes the earliest. A store finishes when that fetch completes,
+/// not on a timer, so an offline one stays unfinished rather than refusing what it hasn't seen. Past the 30 days a store
+/// finishes as soon as it opens: whoever can write to CloudKit can put an old payload at an id it knows, or move one
+/// between ids, until then, and only for a store that hasn't completed that fetch.
+///
+/// **After it finishes, format 1 from elsewhere is refused and left there.** The server's copy is its writer's, and that
+/// device merges it when it migrates; the refusal is counted, and persists (`VaultFormatStatus.fromOldDevices`). A
+/// local edit still goes up over it as a normal conflict, which is why the row takes the record's tag then. A device
+/// that never updates leaves its later edits on the server and in that count.
+///
+/// A row's format 1 payload in the new file opens only if it's on the sealed list, whatever the store's state.
 extension VaultStore {
-  static let formatBackupSuffix = ".format1-backup"
+  /// What a format 2 store's file name ends in.
+  static let format2Suffix = ".v2.sqlite"
   private static let formatValue = "2"
-  /// How long a new store reads format 1 when no other device has finished (see above).
-  private static let formatGrace: TimeInterval = 3600
+  /// Format 1 from the server is read for this long after the vault's first device migrated.
+  private static let serverFormat1Window: TimeInterval = 30 * 24 * 3600
+  /// The old file is looked at for this long after a store migrated.
+  private static let oldFileWindow: TimeInterval = 30 * 24 * 3600
+  /// A temporary file older than this was left by a kill. A live build takes seconds.
+  private static let leftoverAge: TimeInterval = 600
+  private static let vaultMarkPrefix = "format2.vault."
   /// Format 2's first five bytes, for SQL.
-  private static let format1Rows = "substr(payload, 1, 5) != x'5635374902'"
+  static let format2Rows = "substr(payload, 1, 5) = x'5635374902'"
+
+  /// A store's format 2 file name: any name passed to `init` ends up here, so nothing can open an old file for writing.
+  static func format2Name(of name: String) -> String {
+    if name.hasSuffix(format2Suffix) { return name }
+    return (name.hasSuffix(".sqlite") ? String(name.dropLast(".sqlite".count)) : name) + format2Suffix
+  }
+
+  static func format1Name(of name: String) -> String {
+    String(format2Name(of: name).dropLast(format2Suffix.count)) + ".sqlite"
+  }
 
   /// What a payload is bound to: the store. Personal has no account id.
   var accountBinding: String { accountID ?? VaultAccount.personal.id }
 
-  var formatBackupURL: URL { URL(fileURLWithPath: fileURL.path + Self.formatBackupSuffix) }
+  /// The tables, the same as they've always been.
+  static func createTables(in database: SQLiteConnection) throws {
+    try database.transaction {
+      try database.execute(
+        """
+        CREATE TABLE IF NOT EXISTS items(
+          id TEXT PRIMARY KEY, kind TEXT NOT NULL, key_id TEXT NOT NULL, payload BLOB NOT NULL,
+          version INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0, modified REAL NOT NULL DEFAULT 0,
+          change_tag TEXT, system_fields BLOB);
+        CREATE INDEX IF NOT EXISTS items_kind ON items(kind, deleted);
+        CREATE TABLE IF NOT EXISTS outbox(
+          id TEXT PRIMARY KEY, version INTEGER NOT NULL, queued REAL NOT NULL, owner TEXT, until REAL NOT NULL DEFAULT 0);
+        CREATE TABLE IF NOT EXISTS engines(name TEXT PRIMARY KEY, state BLOB);
+        CREATE TABLE IF NOT EXISTS server_copies(id TEXT PRIMARY KEY, key_id TEXT NOT NULL, payload BLOB NOT NULL);
+        CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        """)
+    }
+  }
 
-  /// Whether this store refuses format 1. Another app may have finished it since this one looked.
+  /// Whether an old file holds anything to migrate. A file an old build only just made, with no tables yet, doesn't. Any
+  /// other failure throws: taking it for empty would make an empty new file, and that would count as migrated.
+  static func hasRows(_ url: URL) throws -> Bool {
+    guard FileManager.default.fileExists(atPath: url.path) else { return false }
+    let database = try SQLiteConnection(url: url, mode: .readOnly)
+    let tables = try database.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'items'")
+    guard !tables.isEmpty else { return false }
+    return try !database.query("SELECT 1 FROM items LIMIT 1").isEmpty
+  }
+
+  /// Whether this store refuses format 1 from elsewhere. Another app may have finished it since this one looked.
   var formatIsFinished: Bool {
+    if _isWaiting { return false }
     if _formatFinished { return true }
     if (try? meta("format")) == Self.formatValue { _formatFinished = true }
     return _formatFinished
@@ -80,41 +153,56 @@ extension VaultStore {
 
   public var isFormatFinished: Bool { withLock { formatIsFinished } }
 
+  /// Whether this store still reads the old file, and so doesn't sync. `catchUp` tries again.
+  public var isWaitingToMigrate: Bool { withLock { _isWaiting } }
+
+  /// Whether a sync engine must fetch everything, rather than from where it left off: a store that hasn't completed its
+  /// first fetch since migrating has to see what's on the server.
+  public var needsFullFetch: Bool { withLock { !formatIsFinished } }
+
   public var formatStatus: VaultFormatStatus {
     withLock {
       let report = (try? formatReport()) ?? FormatReport()
-      let backup = FileManager.default.fileExists(atPath: formatBackupURL.path) ? formatBackupURL : nil
       return VaultFormatStatus(
-        isFinished: formatIsFinished, resealed: report.resealed, unreadable: report.unreadable,
-        withoutKind: report.withoutKind, kindMismatches: report.kindMismatches, refused: _refusedCount, backup: backup,
-        error: _formatError)
+        isFinished: formatIsFinished, isWaiting: _isWaiting, resealed: report.resealed, unreadable: report.unreadable,
+        notRewritten: report.notRewritten, withoutKind: report.withoutKind, kindMismatches: report.kindMismatches,
+        refused: _isWaiting ? 0 : (try? refusedCount("")) ?? 0,
+        fromOldDevices: _isWaiting ? 0 : (try? refusedCount(Self.refusedOld)) ?? 0, error: _formatError)
     }
   }
 
   private struct FormatReport: Codable {
     var resealed = 0
     var unreadable = 0
+    var notRewritten = 0
     var withoutKind = 0
     var kindMismatches = 0
+    /// The keys rows named when they came over without opening.
+    var missingKeys: [String] = []
   }
 
   private func formatReport() throws -> FormatReport {
-    try meta("format.report").flatMap { try? JSONDecoder().decode(FormatReport.self, from: Data($0.utf8)) } ?? FormatReport()
+    guard !_isWaiting else { return FormatReport() }
+    return try meta("format.report").flatMap { try? JSONDecoder().decode(FormatReport.self, from: Data($0.utf8)) } ?? FormatReport()
   }
+
+  /// Whether this store's rows came from an old file, rather than from nothing.
+  var cameFromOldFile: Bool { withLock { !_isWaiting && (try? meta("format.report")) != nil } }
 
   private func setFormatReport(_ report: FormatReport) throws {
     try setMeta("format.report", String(decoding: try JSONEncoder().encode(report), as: UTF8.self))
   }
 
-  private var formatMark: String { "format2.\(deviceID).\(accountBinding)" }
-
-  // MARK: Migrating
+  // MARK: Opening
 
   /// Never throws out of `init`: a store that can't migrate yet still opens, and reads what it has.
   func prepareFormat() {
     withLock {
       do {
-        try runFormat()
+        if _isWaiting { try buildFormat2File() }
+        _formatError = nil
+        settle()
+      } catch FormatWait.noKeys {
         _formatError = nil
       } catch {
         _formatError = String(describing: error)
@@ -122,110 +210,190 @@ extension VaultStore {
     }
   }
 
-  private func runFormat() throws {
-    if try meta("format") == Self.formatValue {
-      _formatFinished = true
-      try setFormatMarks()
-      return
-    }
-    let hasFormat1 = try !database.query("SELECT 1 FROM items WHERE \(Self.format1Rows) LIMIT 1").isEmpty
-    // This device finished this store before, and the file doesn't say so: it was restored from a backup, or edited.
-    // The rows it holds aren't taken back; what's on CloudKit comes again.
-    if try !keys.marks(prefix: formatMark, synced: false).isEmpty {
-      try database.transaction {
-        if hasFormat1 { try forgetWhatWasFetched() }
-        try setMeta("format", Self.formatValue)
+  private enum FormatWait: Error {
+    /// The keychain answered, and has no key.
+    case noKeys
+  }
+
+  /// What every open does on the new file. Each step is one a later open or `catchUp` does again.
+  private func settle() {
+    do {
+      if try meta("format.built") == nil {
+        try setMeta("format.built", String(formatTesting.now().timeIntervalSince1970))
       }
-      _formatFinished = true
-      return
+      removeLeftovers()
+      _vaultMark = nil
+      try finishIfDue()
+      try withKeySweep { try importOldEdits() }
+    } catch {
+      _formatError = String(describing: error)
     }
-    // A migration that began goes on, even with no format 1 row left: only the last transaction may be missing.
-    if try meta("format.started") == nil, try keys.marks(prefix: formatMark, synced: true).isEmpty {
-      let firstOpen = try meta("format.firstOpen").flatMap(Double.init)
-      if firstOpen == nil, !hasFormat1 {
-        try setMeta("format.firstOpen", String(formatTesting.now().timeIntervalSince1970))
-        return
+  }
+
+  /// A write can't wait for the keys (`VaultStore+Format`'s header), so it moves the store on when it can.
+  func openForWriting() throws {
+    guard _isWaiting else { return }
+    if try keys.allKeys.isEmpty { _ = try keys.primary() }
+    try buildFormat2File()
+    settle()
+  }
+
+  /// Records from elsewhere wait where they are until the new file exists.
+  func requireOpen() throws {
+    guard _isWaiting else { return }
+    try buildFormat2File()
+    settle()
+  }
+
+  // MARK: Building the new file
+
+  private func buildFormat2File() throws {
+    let available = try keys.allKeys
+    guard !available.isEmpty else { throw FormatWait.noKeys }
+    let manager = FileManager.default
+    let temporary = URL(fileURLWithPath: "\(fileURL.path).\(UUID().uuidString).tmp")
+    defer {
+      for suffix in ["", "-wal", "-shm"] { try? manager.removeItem(atPath: temporary.path + suffix) }
+    }
+    let legacy = database
+    let building = try SQLiteConnection(url: temporary, mode: .building)
+    try Self.createTables(in: building)
+    database = building
+    defer { if _isWaiting { database = legacy } }
+    try withKeySweep { try copyRows(from: legacy, into: building) }
+    try formatTesting.stage?(.copied)
+    guard (try building.query("PRAGMA quick_check").first?.first?.text) == "ok" else {
+      throw VaultCrypto.CryptoError.damaged
+    }
+    try building.checkpointFully()
+    building.close()
+    try StoreFiles.sync(temporary)
+    try formatTesting.stage?(.beforeMove)
+    // False when another app won: its file is as good as this one.
+    _ = try StoreFiles.moveWithoutReplacing(temporary, to: fileURL)
+    StoreFiles.syncFolder(directory)
+    database = try SQLiteConnection(url: fileURL)
+    _isWaiting = false
+    legacy.close()
+    _legacyAllowed = nil
+    notifier?.post()
+    try formatTesting.stage?(.moved)
+  }
+
+  /// Every row of the old file, read from one snapshot, into the one transaction of the new file.
+  private func copyRows(from legacy: SQLiteConnection, into building: SQLiteConnection) throws {
+    try legacy.execute("BEGIN")
+    defer { try? legacy.execute("COMMIT") }
+    useRecoveryRecordKey(from: legacy)
+    try building.transaction {
+      for row in try legacy.query("SELECT key, value FROM meta WHERE key NOT LIKE 'format%' AND key NOT LIKE 'refused.%'") {
+        try building.query("INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)", [row[0], row[1]])
       }
-      if let firstOpen, formatTesting.now().timeIntervalSince1970 - firstOpen < Self.formatGrace { return }
-    }
-    // With no key here yet, opening nothing would make one; come back when the keys have arrived.
-    guard try !keys.allKeys.isEmpty else { return }
-    if hasFormat1 { try makeFormatBackup() }
-    try setMeta("format.started", "1")
-    try formatTesting.stage?(.backedUp)
-    useRecoveryRecordKey()
-    var after = ""
-    var batch = 0
-    while true {
-      let finished: Bool = try database.transaction {
-        var report = try formatReport()
-        let rows = try database.query(
-          "SELECT id, kind, key_id, payload FROM items WHERE \(Self.format1Rows) AND id > ? ORDER BY id LIMIT ?",
-          [.text(after), .int(Int64(formatTesting.batchSize))])
+      // What a sync engine fetched goes, as what an old build skipped can be read now: every app's next launch fetches
+      // everything again, and a change tag the store already has is skipped. Hub state stays, as `HubSync` asks for a
+      // resend. What a sync engine made once on the server stays made.
+      for row in try legacy.query(
+        """
+        SELECT name, state FROM engines WHERE name LIKE 'hub-sync:%' OR name LIKE '%.subscription' OR name LIKE '%.zone'
+          OR name = 'environment.production'
+        """)
+      {
+        try building.query("INSERT OR REPLACE INTO engines(name, state) VALUES(?, ?)", [row[0], row[1]])
+      }
+      var report = FormatReport()
+      var allowed: [String: Data] = [:]
+      var outbox: [String: Int64] = [:]
+      for row in try legacy.query("SELECT id, version FROM outbox") {
+        if let id = row[0].text { outbox[id] = row[1].int ?? 0 }
+      }
+      var imported: [String: Int64] = [:]
+      var after = ""
+      var count = 0
+      while true {
+        let rows = try legacy.query(
+          """
+          SELECT id, kind, key_id, payload, version, deleted, modified, change_tag, system_fields FROM items
+          WHERE id > ? ORDER BY id LIMIT 500
+          """, [.text(after)])
+        guard let last = rows.last else { break }
+        after = last[0].text ?? ""
         for row in rows {
-          after = row[0].text ?? ""
-          try reseal(row, report: &report)
-        }
-        try resealServerCopies(ids: rows.compactMap { $0[0].text })
-        try setFormatReport(report)
-        return rows.isEmpty
-      }
-      if finished { break }
-      batch += 1
-      try formatTesting.stage?(.batch(batch))
-    }
-    try formatTesting.stage?(.beforeFinish)
-    try database.transaction {
-      var report = try formatReport()
-      var legacy: [String: Data] = [:]
-      // Everything once more, under the write lock: another app may have written since, and now nobody can.
-      for row in try database.query("SELECT id, kind, key_id, payload FROM items") {
-        let id = row[0].text ?? ""
-        let payload = row[3].blob ?? Data()
-        if let parsed = VaultItemSeal.parse(payload) {
-          do {
-            _ = try openFormat2(parsed, id: id, from: .local)
-            continue
-          } catch VaultCrypto.CryptoError.missingKey {
-            continue
-          } catch {}
-        }
-        if try !reseal(row, report: &report) {
-          legacy[id] = Data(SHA256.hash(data: payload))
+          let id = row[0].text ?? ""
+          if let version = row[4].int, outbox[id] != nil { imported[id] = version }
+          count += 1
+          try copy(row, wasQueued: outbox[id] != nil, report: &report, allowed: &allowed)
         }
       }
-      report.unreadable = legacy.count
+      for row in try legacy.query("SELECT id, key_id, payload FROM server_copies") {
+        try copyServerCopy(row)
+      }
+      report.missingKeys.sort()
+      guard Int(try building.query("SELECT COUNT(*) FROM items")[0][0].int ?? -1) == count else {
+        throw VaultCrypto.CryptoError.damaged
+      }
       try setFormatReport(report)
-      try setLegacyAllowed(legacy)
-      try forgetWhatWasFetched()
-      try setMeta("format", Self.formatValue)
+      try setLegacyAllowed(allowed)
+      try setImported(imported)
+      try setMeta("format.built", String(formatTesting.now().timeIntervalSince1970))
       try bumpRevision()
     }
-    _formatFinished = true
-    removeFormatTemporaryFiles()
-    try formatTesting.stage?(.finished)
-    try setFormatMarks()
   }
 
-  private func setFormatMarks() throws {
-    try keys.setMark(formatMark, data: Data("1".utf8), synced: false)
-    try keys.setMark(formatMark, data: Data("1".utf8), synced: true)
-  }
-
-  /// A row in format 1 becomes format 2, read back before the transaction commits. Returns false for one that doesn't
-  /// open here, which is left exactly as it is.
-  @discardableResult
-  private func reseal(_ row: [SQLiteConnection.Value], report: inout FormatReport) throws -> Bool {
+  /// One row: format 1 is sealed again and queued, so CloudKit and the Hubs get format 2. What won't, comes as it is.
+  private func copy(
+    _ row: [SQLiteConnection.Value], wasQueued: Bool, report: inout FormatReport, allowed: inout [String: Data]
+  ) throws {
     let id = row[0].text ?? ""
-    guard let item = try? openFormat1(id: id, keyID: row[2].text ?? "", payload: row[3].blob ?? Data()) else { return false }
-    if item.kind.isEmpty {
-      report.withoutKind += 1
-    } else if let column = row[1].text, !column.isEmpty, column != item.kind {
-      report.kindMismatches += 1
+    let keyID = row[2].text ?? ""
+    let payload = row[3].blob ?? Data()
+    try database.query(
+      """
+      INSERT INTO items(id, kind, key_id, payload, version, deleted, modified, change_tag, system_fields)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+      """, [row[0], row[1], row[2], .blob(payload), row[4], row[5], row[6], row[7], row[8]])
+    if let parsed = VaultItemSeal.parse(payload) {
+      do {
+        _ = try openFormat2(parsed, id: id, from: .local)
+        if wasQueued { try queue(id: id, version: row[4].int ?? 0) }
+        return
+      } catch VaultCrypto.CryptoError.missingKey {
+        return
+      } catch {
+        // Format 1 starts with a random nonce, which can look like format 2's header once in 2^40.
+      }
     }
-    try rewrite(item)
-    report.resealed += 1
-    return true
+    do {
+      let item = try openFormat1(id: id, keyID: keyID, payload: payload)
+      try database.savepoint { try rewrite(item) }
+      if item.kind.isEmpty {
+        report.withoutKind += 1
+      } else if let column = row[1].text, !column.isEmpty, column != item.kind {
+        report.kindMismatches += 1
+      }
+      report.resealed += 1
+    } catch VaultCrypto.CryptoError.missingKey {
+      allowed[id] = Data(SHA256.hash(data: payload))
+      report.unreadable += 1
+      if !report.missingKeys.contains(keyID) { report.missingKeys.append(keyID) }
+    } catch {
+      // It stays as readable as it was, and a later `catchUp` tries again. A row like this never stops the store.
+      allowed[id] = Data(SHA256.hash(data: payload))
+      report.notRewritten += 1
+    }
+  }
+
+  /// The bases of text merges go too. One that doesn't open is just not a base any more.
+  private func copyServerCopy(_ row: [SQLiteConnection.Value]) throws {
+    let id = row[0].text ?? ""
+    let payload = row[2].blob ?? Data()
+    guard VaultItemSeal.parse(payload) == nil else {
+      try setServerCopy(id: id, keyID: row[1].text ?? "", payload: payload)
+      return
+    }
+    guard let item = try? openFormat1(id: id, keyID: row[1].text ?? "", payload: payload),
+      let sealed = try? sealed(kind: item.kind, fields: item.fields, id: id)
+    else { return }
+    try setServerCopy(id: id, keyID: sealed.keyID, payload: sealed.payload)
   }
 
   /// Seals an item again with the current key and queues it, and checks it reads back the same.
@@ -238,72 +406,177 @@ extension VaultStore {
     else { throw VaultCrypto.CryptoError.damaged }
   }
 
-  /// The bases of text merges go too. One that doesn't open is just not a base any more.
-  private func resealServerCopies(ids: [String]) throws {
-    for id in ids {
-      guard let row = try database.query("SELECT key_id, payload FROM server_copies WHERE id = ?", [.text(id)]).first,
-        let payload = row[1].blob, VaultItemSeal.parse(payload) == nil,
-        let item = try? openFormat1(id: id, keyID: row[0].text ?? "", payload: payload)
-      else { continue }
-      let (keyID, key) = try keys.primary()
-      let sealed = try VaultItemSeal.seal(
-        kind: item.kind, fields: try JSONEncoder().encode(item.fields), id: id, account: accountBinding, keyID: keyID,
-        key: key)
-      try setServerCopy(id: id, keyID: keyID, payload: sealed)
-    }
-  }
-
   /// Recovery blobs open with a key made from the recovery key's record.
-  private func useRecoveryRecordKey() {
-    guard let key = try? record(VaultRecoveryKey.self, id: VaultRecoveryKey.recordID), key.publicKey.count == 32 else {
-      return
-    }
+  private func useRecoveryRecordKey(from database: SQLiteConnection) {
+    guard
+      let row = try? database.query("SELECT key_id, payload FROM items WHERE id = ?", [.text(VaultRecoveryKey.recordID)]).first,
+      let item = try? decode(id: VaultRecoveryKey.recordID, keyID: row[0].text ?? "", payload: row[1].blob ?? Data()),
+      case let key = VaultRecoveryKey(id: item.id, values: item.values), key.publicKey.count == 32
+    else { return }
     let recordKey = key.recordKey
     useKey(recordKey.key, id: recordKey.id, sealing: VaultRecoveryBlob.kind)
   }
 
-  /// Every app's next launch fetches everything again: what it skipped on an old build, it can read now. A change tag
-  /// the store already has is skipped, so what didn't change costs only the fetch. Hub state stays: `HubSync` asks for
-  /// a resend. What a sync engine made once on the server stays made.
-  private func forgetWhatWasFetched() throws {
-    try database.query(
-      """
-      DELETE FROM engines WHERE name NOT LIKE 'hub-sync:%' AND name NOT LIKE '%.subscription'
-        AND name NOT LIKE '%.zone' AND name != 'environment.production'
-      """)
-  }
-
-  private func makeFormatBackup() throws {
+  /// What a kill during a build left, once it's old enough not to be another app's build under way.
+  private func removeLeftovers() {
     let manager = FileManager.default
-    let backup = formatBackupURL
-    guard !manager.fileExists(atPath: backup.path) else { return }
-    let temporary = URL(fileURLWithPath: "\(backup.path).\(UUID().uuidString).tmp")
-    defer { try? manager.removeItem(at: temporary) }
-    try database.execute("VACUUM INTO '\(temporary.path.replacingOccurrences(of: "'", with: "''"))'")
-    do {
-      // Fails when the file is there: another app won, and rewriting needs only that one exists.
-      try manager.moveItem(at: temporary, to: backup)
-    } catch {
-      guard manager.fileExists(atPath: backup.path) else { throw error }
+    let prefix = fileURL.lastPathComponent + "."
+    let now = formatTesting.now()
+    for name in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where name.hasPrefix(prefix) && name.contains(".tmp") {
+      let url = directory.appendingPathComponent(name)
+      let modified = (try? manager.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
+      if let modified, now.timeIntervalSince(modified) > Self.leftoverAge { try? manager.removeItem(at: url) }
     }
   }
 
-  /// What a kill during the copy left.
-  private func removeFormatTemporaryFiles() {
-    let prefix = fileURL.lastPathComponent + Self.formatBackupSuffix + "."
-    let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-    for name in names where name.hasPrefix(prefix) && name.hasSuffix(".tmp") {
-      try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+  // MARK: An old app on this device
+
+  private func imported() throws -> [String: Int64] {
+    try meta("format.imported").flatMap { try? JSONDecoder().decode([String: Int64].self, from: Data($0.utf8)) } ?? [:]
+  }
+
+  private func setImported(_ versions: [String: Int64]) throws {
+    try setMeta("format.imported", String(decoding: try JSONEncoder().encode(versions), as: UTF8.self))
+  }
+
+  /// See this file's header. A row whose key hasn't arrived waits for a later open.
+  private func importOldEdits() throws {
+    guard FileManager.default.fileExists(atPath: legacyFileURL.path),
+      let built = try meta("format.built").flatMap(Double.init),
+      formatTesting.now().timeIntervalSince1970 - built < Self.oldFileWindow,
+      let legacy = try? SQLiteConnection(url: legacyFileURL, mode: .readOnly),
+      let queued = try? legacy.query(
+        """
+        SELECT items.id, items.kind, items.key_id, items.payload, items.version FROM outbox
+        JOIN items ON items.id = outbox.id WHERE items.kind != ''
+        """),
+      let stamped = try? legacy.query(
+        """
+        SELECT id, kind, key_id, payload, version FROM items
+        WHERE kind != '' AND modified >= ? AND id NOT IN (SELECT id FROM outbox)
+        """, [.double(built - 1)])
+    else { return }
+    guard !queued.isEmpty || !stamped.isEmpty else { return }
+    let wrote: Bool = try database.transaction {
+      var versions = try imported()
+      var wrote = false
+      let builtMillis = Int64(built * 1000)
+      for (rows, isQueued) in [(queued, true), (stamped, false)] {
+        for row in rows {
+          let id = row[0].text ?? ""
+          let version = row[4].int ?? 0
+          let payload = row[3].blob ?? Data()
+          guard versions[id] != version, VaultItemSeal.parse(payload) == nil else { continue }
+          let old: VaultItem
+          do {
+            old = try openFormat1(id: id, keyID: row[2].text ?? "", payload: payload)
+          } catch VaultCrypto.CryptoError.missingKey {
+            continue
+          } catch {
+            versions[id] = version
+            continue
+          }
+          let incoming =
+            isQueued ? old.fields : ItemFields(old.fields.stamped.filter { $0.value.clock.device == deviceID && $0.value.clock.millis >= builtMillis })
+          guard !incoming.stamped.isEmpty else {
+            versions[id] = version
+            continue
+          }
+          let local = try loadRow(id: id)
+          // Its row waits for a key: it comes over once that row opens.
+          if let local, local.item == nil, !local.isRefused { continue }
+          versions[id] = version
+          let fields = local?.item?.fields.merged(with: incoming) ?? incoming
+          guard fields != local?.item?.fields else { continue }
+          try observe(incoming.latestClock)
+          try writeRow(id: id, kind: local?.item?.kind ?? old.kind, fields: fields, queue: true)
+          wrote = true
+        }
+      }
+      try setImported(versions)
+      if wrote { try bumpRevision() }
+      return wrote
+    }
+    if wrote { notifier?.post() }
+  }
+
+  // MARK: Records from the server in format 1
+
+  /// The vault's mark: the earliest date any device set. Setting one here when there's none is how the first device does
+  /// it; one that hadn't seen another's yet settles on the earlier when it arrives.
+  func vaultMarkDate() throws -> Date {
+    if let _vaultMark { return _vaultMark }
+    let dates = try keys.marks(prefix: Self.vaultMarkPrefix, synced: true).compactMap {
+      Int64($0.name.dropFirst(Self.vaultMarkPrefix.count))
+    }
+    let date: Date
+    if let earliest = dates.min() {
+      date = Date(timeIntervalSince1970: Double(earliest) / 1000)
+    } else {
+      date = formatTesting.now()
+      let name = Self.vaultMarkPrefix + String(Int64(date.timeIntervalSince1970 * 1000))
+      try keys.setMark(name, data: Data("1".utf8), synced: true)
+    }
+    _vaultMark = date
+    return date
+  }
+
+  /// Whether a format 1 record from elsewhere may be read now.
+  func readsFormat1FromElsewhere() throws -> Bool {
+    if formatIsFinished { return false }
+    try finishIfDue()
+    return !formatIsFinished
+  }
+
+  /// A store finishes when its first complete fetch is done, or as soon as it can past the vault's month.
+  func finishIfDue() throws {
+    guard !_isWaiting, !formatIsFinished else { return }
+    var isDue = try meta("format.fetched") == "1"
+    if !isDue { isDue = formatTesting.now().timeIntervalSince(try vaultMarkDate()) > Self.serverFormat1Window }
+    if isDue { try setMeta("format", Self.formatValue) }
+  }
+
+  /// A fetch that began with no saved position reached the end: this store has seen what the server held.
+  public func fetchCompleted() {
+    withLock {
+      guard !_isWaiting, !formatIsFinished else { return }
+      do {
+        try setMeta("format.fetched", "1")
+        try finishIfDue()
+      } catch {
+        _formatError = String(describing: error)
+      }
     }
   }
 
-  // MARK: Rows that couldn't open when the store finished
+  // MARK: Refusals
+
+  static let refusedOld = "old."
+  static let refusedOther = "other."
+
+  /// A record this store refused, once per id: every app on the device fetches the same one. It goes when a record it can
+  /// read arrives at the id, or this store's copy replaces it on the server.
+  func noteRefused(id: String, tag: String?, isOldFormat: Bool) throws {
+    try clearRefused(id: id)
+    try setMeta("refused.\(isOldFormat ? Self.refusedOld : Self.refusedOther)\(id)", tag ?? "")
+  }
+
+  func clearRefused(id: String) throws {
+    try database.query(
+      "DELETE FROM meta WHERE key IN (?, ?)", [.text("refused.\(Self.refusedOld)\(id)"), .text("refused.\(Self.refusedOther)\(id)")])
+  }
+
+  private func refusedCount(_ prefix: String) throws -> Int {
+    Int(try database.query("SELECT COUNT(*) FROM meta WHERE key LIKE ?", [.text("refused.\(prefix)%")])[0][0].int ?? 0)
+  }
+
+  // MARK: Rows that came over without opening
 
   private var legacyAAD: Data { Data("dev.v57.vault.format.legacy|\(accountBinding)".utf8) }
 
-  /// A row's format 1 payload is accepted after the store finished only if it's on this list, sealed so that nobody
+  /// A row's format 1 payload is accepted in the new file only if it's on this list, sealed so that nobody
   /// without the keys can add to it: `id → SHA-256(payload)`.
-  private func setLegacyAllowed(_ allowed: [String: Data]) throws {
+  func setLegacyAllowed(_ allowed: [String: Data]) throws {
     _legacyAllowed = allowed
     guard !allowed.isEmpty else {
       try database.query("DELETE FROM meta WHERE key = 'format.legacy'")
@@ -315,12 +588,19 @@ extension VaultStore {
     try setMeta("format.legacy", "\(keyID):\(combined.base64EncodedString())")
   }
 
-  private func legacyAllowed() -> [String: Data] {
+  /// Adds a record that arrived in format 1, naming a key this device hasn't got, while the store still reads format 1.
+  func addLegacyAllowed(id: String, payload: Data) throws {
+    var allowed = legacyAllowed()
+    allowed[id] = Data(SHA256.hash(data: payload))
+    try setLegacyAllowed(allowed)
+  }
+
+  func legacyAllowed() -> [String: Data] {
     if let cached = _legacyAllowed { return cached }
     var allowed: [String: Data] = [:]
     if let stored = try? meta("format.legacy") {
       let parts = stored.split(separator: ":", maxSplits: 1).map(String.init)
-      if parts.count == 2, let key = try? keys.key(id: parts[0]), let combined = Data(base64Encoded: parts[1]),
+      if parts.count == 2, let key = try? vaultKey(id: parts[0]), let combined = Data(base64Encoded: parts[1]),
         let box = try? AES.GCM.SealedBox(combined: combined),
         let plaintext = try? AES.GCM.open(box, using: key, authenticating: legacyAAD),
         let decoded = try? JSONDecoder().decode([String: Data].self, from: plaintext)
@@ -337,6 +617,24 @@ extension VaultStore {
 
   func isAllowedFormat1(id: String, payload: Data) throws -> Bool {
     legacyAllowed()[id] == Data(SHA256.hash(data: payload))
+  }
+
+  /// With only a key made here on an empty keychain, while rows here name keys that aren't, this device belongs to a vault
+  /// whose id key hasn't arrived. Any id made now would be wrong, so ids wait.
+  func idKeyCouldBeWrong() throws -> Bool {
+    let missing: [String]
+    if _isWaiting {
+      guard try keys.allKeys.isEmpty || keys.stableIDKeySource()?.hasPrefix("n") == true else { return false }
+      missing = try database.query("SELECT DISTINCT key_id FROM items").compactMap { $0[0].text }
+    } else {
+      guard try keys.stableIDKeySource()?.hasPrefix("n") == true else { return false }
+      missing = try formatReport().missingKeys
+    }
+    let source = try keys.stableIDKeySource()
+    return try missing.contains { name in
+      guard source == nil || name < source! else { return false }
+      return try keys.key(id: name) == nil
+    }
   }
 
   // MARK: Catching up
@@ -367,23 +665,30 @@ extension VaultStore {
     if due { _ = try? catchUp() }
   }
 
-  /// Does what couldn't be done before a key arrived: finishes the format, moves rows that couldn't open to format 2,
+  /// Does what couldn't be done before a key arrived: builds the new file, moves rows that came over unopened to format 2,
   /// merges server copies that waited for their key, and seals again what's still under a key a rotation retired (on
   /// this device, or on one that told iCloud Keychain). Killed halfway, the next call carries on. Changes go in the
   /// outbox. Returns the ids it wrote.
   @discardableResult
   public func catchUp() throws -> [String] {
     let written: [String] = try withLock {
-      if !formatIsFinished { prepareFormat() }
-      var written: [String] = []
-      written += try moveLegacyRows()
-      written += try mergeWaitingServerCopies()
-      let retired = try retiredKeys()
-      if !retired.isEmpty {
-        written += try resealRows(sealedWith: retired)
-        written += try rewrapFolderKeys(sealedWith: retired)
+      if _isWaiting {
+        prepareFormat()
+        guard !_isWaiting else { return [] }
       }
-      return written
+      _vaultMark = nil
+      return try withKeySweep {
+        var written: [String] = []
+        written += try moveLegacyRows()
+        written += try mergeWaitingServerCopies()
+        let retired = try retiredKeys()
+        if !retired.isEmpty {
+          written += try resealRows(sealedWith: retired)
+          written += try rewrapFolderKeys(sealedWith: retired)
+        }
+        try finishIfDue()
+        return written
+      }
     }
     if !written.isEmpty { didChange(locally: written) }
     return written
@@ -392,14 +697,18 @@ extension VaultStore {
   private func moveLegacyRows() throws -> [String] {
     let allowed = legacyAllowed()
     guard !allowed.isEmpty else { return [] }
+    if let row = try? record(VaultRecoveryKey.self, id: VaultRecoveryKey.recordID), row.publicKey.count == 32 {
+      let recordKey = row.recordKey
+      useKey(recordKey.key, id: recordKey.id, sealing: VaultRecoveryBlob.kind)
+    }
     return try database.transaction {
       var moved: [String] = []
       for id in allowed.keys.sorted() {
         guard let row = try database.query("SELECT key_id, payload FROM items WHERE id = ?", [.text(id)]).first,
           let payload = row[1].blob, Data(SHA256.hash(data: payload)) == allowed[id],
-          let item = try? openFormat1(id: id, keyID: row[0].text ?? "", payload: payload)
+          let item = try? openFormat1(id: id, keyID: row[0].text ?? "", payload: payload),
+          (try? database.savepoint { try rewrite(item) }) != nil
         else { continue }
-        try rewrite(item)
         moved.append(id)
       }
       guard !moved.isEmpty else { return [] }
@@ -408,7 +717,7 @@ extension VaultStore {
       try setLegacyAllowed(left)
       var report = try formatReport()
       report.resealed += moved.count
-      report.unreadable = left.count
+      report.unreadable = max(left.count - report.notRewritten, 0)
       try setFormatReport(report)
       try bumpRevision()
       return moved
@@ -433,7 +742,7 @@ extension VaultStore {
         } catch VaultCrypto.CryptoError.missingKey {
           continue
         } catch {
-          _refusedCount += 1
+          try noteRefused(id: id, tag: nil, isOldFormat: false)
           try database.query("DELETE FROM server_copies WHERE id = ?", [.text(id)])
           left.remove(id)
           continue

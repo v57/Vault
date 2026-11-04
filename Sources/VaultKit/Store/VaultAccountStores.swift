@@ -1,7 +1,7 @@
 import Foundation
 
-/// The accounts' stores on this device (`VaultAccount`), opened on first use: `<id>.sqlite` beside Personal's
-/// `Vault.sqlite`, sealed with Personal's keys. One per Personal store (`forPersonal`), shared by `Vaults` and the sync
+/// The accounts' stores on this device (`VaultAccount`), opened on first use: `<id>.v2.sqlite` beside Personal's
+/// `Vault.v2.sqlite`, sealed with Personal's keys. One per Personal store (`forPersonal`), shared by `Vaults` and the sync
 /// engine (`SyncZones`), so both use one connection per account.
 ///
 /// Thread-safe.
@@ -54,7 +54,7 @@ public final class VaultAccountStores: @unchecked Sendable {
     }
   }
 
-  public static func fileName(forAccount id: String) -> String { "\(id).sqlite" }
+  public static func fileName(forAccount id: String) -> String { "\(id)\(VaultStore.format2Suffix)" }
 
   public func fileURL(forAccount id: String) -> URL {
     personal.directory.appendingPathComponent(Self.fileName(forAccount: id))
@@ -129,8 +129,12 @@ public final class VaultAccountStores: @unchecked Sendable {
   public func removeDeletedAccounts() -> [String] {
     var ids = Set(openAccounts)
     let files = (try? FileManager.default.contentsOfDirectory(atPath: personal.directory.path)) ?? []
-    for file in files where file.hasSuffix(".sqlite") && file != VaultStore.fileName {
-      ids.insert(String(file.dropLast(".sqlite".count)))
+    // Both names: an account deleted before this device's store migrated has only its old file, which the store would
+    // otherwise migrate. Personal's two names aren't accounts, and "Vault.v2" isn't a valid id if an old build looks.
+    let personalFiles = [VaultStore.fileName, VaultStore.format1Name(of: VaultStore.fileName)]
+    for file in files where file.hasSuffix(".sqlite") && !personalFiles.contains(file) {
+      let suffix = file.hasSuffix(VaultStore.format2Suffix) ? VaultStore.format2Suffix : ".sqlite"
+      ids.insert(String(file.dropLast(suffix.count)))
     }
     let deleted = ids.filter { VaultAccount.isValidID($0) && isDeleted(account: $0) }.sorted()
     for id in deleted { try? remove(account: id, secrets: false) }
