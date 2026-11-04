@@ -113,6 +113,19 @@ struct HubMirrorTests {
     #expect(try store.knownFingerprint(host: "100.96.0.4", port: 22) == nil)
   }
 
+  /// A Hub the user added can say anything about its devices: it can't point one at a server and replace its key.
+  @Test func aHubCantReplaceTheKeyPinnedForAServer() throws {
+    let store = try store()
+    try store.trust(fingerprint: "SHA256:real", host: "prod.example.com", port: 22)
+    for address in ["prod.example.com", "203.0.113.5", "100.128.0.1", "100.63.0.1", "100.96.0.4.example.com", "::1"] {
+      let changes = try store.mirrorHubDevices([studio(address: address)], hubID: "hub1")
+      #expect(changes.added.isEmpty)
+      #expect(try store.knownFingerprint(host: address, port: 22) == (address == "prod.example.com" ? "SHA256:real" : nil))
+    }
+    #expect(try store.records(VaultHost.self).isEmpty)
+    #expect(VaultHubDevice.isOverlayAddress("100.96.0.4") && VaultHubDevice.isOverlayAddress("100.127.255.254"))
+  }
+
   @Test func movingAddressMovesTheTrust() throws {
     let store = try store()
     try store.mirrorHubDevices([studio()], hubID: "hub1")

@@ -170,7 +170,17 @@ public struct VaultHubDevice: Sendable, Hashable, Identifiable {
   }
 
   /// Whether apps can reach it over SSH: approved, not revoked, with Remote Login and a Hub Network address.
-  public var isSSHTarget: Bool { isApproved && !isRevoked && ssh != nil && !(address ?? "").isEmpty }
+  public var isSSHTarget: Bool { isApproved && !isRevoked && ssh != nil && address.map(Self.isOverlayAddress) == true }
+
+  /// Whether `address` is in Hub Network's range (an IPv4 address in 100.64.0.0/10, around the 100.96.0.0/11 hubs
+  /// allocate from). A Hub says where its devices are, and the mirror trusts what it says about that address for every
+  /// app: it must not be able to name someone's server and replace the key pinned for it.
+  static func isOverlayAddress(_ address: String) -> Bool {
+    let parts = address.split(separator: ".", omittingEmptySubsequences: false)
+    guard parts.count == 4, parts.allSatisfy({ $0.allSatisfy(\.isASCII) && $0.allSatisfy(\.isNumber) }) else { return false }
+    let bytes = parts.compactMap { UInt8($0) }
+    return bytes.count == 4 && bytes[0] == 100 && bytes[1] & 0b1100_0000 == 64
+  }
 }
 
 /// What mirroring a Hub's directory changed.
