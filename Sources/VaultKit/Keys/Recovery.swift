@@ -236,6 +236,7 @@ public struct VaultRecovery: Sendable {
   /// Whether a keychain item is one of the secrets the kit covers. The identity has a blob of its own.
   static func isCovered(secret name: String) -> Bool {
     name != digestSecret && name != VaultPersonalIdentity.account && !name.hasPrefix(VaultSecretMove.supersededPrefix)
+      && !name.hasPrefix(VaultSecretMove.accountSecretsPrefix)
   }
 
   /// The record a secret belongs to, for those named after one.

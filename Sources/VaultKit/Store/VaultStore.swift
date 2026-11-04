@@ -72,7 +72,7 @@ public final class VaultStore: @unchecked Sendable {
   /// blobs, which a device that lost the vault keys reads with a key derived from the recovery key
   /// (`VaultRecovery`). Kept in memory only; the rows look like any other.
   private var kindKeys: [String: (id: String, key: SymmetricKey)] = [:]
-  private var extraKeys: [String: SymmetricKey] = [:]
+  var extraKeys: [String: SymmetricKey] = [:]
 
   /// See `VaultStore+Format.swift`.
   var _formatFinished = false

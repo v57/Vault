@@ -651,6 +651,44 @@ extension VaultStore {
     Int(try database.query("SELECT COUNT(*) FROM meta WHERE key LIKE ?", [.text("refused.\(prefix)%")])[0][0].int ?? 0)
   }
 
+  // MARK: What being absent says
+
+  /// Whether this store has what it should, so that a record missing from it is really missing: it finished its first
+  /// fetch, nothing it fetched waits to be read, and every row and server copy names a key that's here. Until then a row
+  /// that says otherwise may be on its way, or here and unreadable, so nothing may be deleted for being absent. What can't
+  /// be told counts as not settled.
+  public var isSettled: Bool {
+    withLock {
+      do {
+        guard !_isWaiting, formatIsFinished, try deferredRecords().isEmpty, try waitingServerCopies().isEmpty else { return false }
+        for row in try database.query(
+          "SELECT DISTINCT key_id FROM items WHERE key_id != '' AND key_id NOT LIKE 'recovery-%'")
+        {
+          guard let keyID = row[0].text else { continue }
+          if extraKeys[keyID] == nil, try keys.key(id: keyID) == nil { return false }
+        }
+        return true
+      } catch {
+        return false
+      }
+    }
+  }
+
+  /// Whether this store holds or held a record at this id: a row, deleted or not, one it dropped, or one still to be read.
+  func knows(id: String) throws -> Bool {
+    try withLock {
+      guard try database.query("SELECT 1 FROM items WHERE id = ?", [.text(id)]).isEmpty else { return true }
+      if try meta("hw.\(id)") != nil { return true }
+      return try engineState(Self.deferredPrefix + id) != nil
+    }
+  }
+
+  /// Whether Personal holds the account's record, not deleted.
+  func isLive(account id: String) throws -> Bool {
+    guard let item = try item(id: id) else { return false }
+    return item.kind == VaultAccount.kind && !item.isDeleted
+  }
+
   // MARK: Rows that came over without opening
 
   private var legacyAAD: Data { Data("dev.v57.vault.format.legacy|\(accountBinding)".utf8) }

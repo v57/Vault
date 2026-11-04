@@ -279,19 +279,6 @@ struct SecretMoveTests {
     #expect(try inside.wrapMissing() == 0)
   }
 
-  @Test func vaultFinishesTheCleanupAnotherAppCouldntDo() throws {
-    let store = try store()
-    let shared = MemorySecretBacking(["password.h": data("host")])
-    let vaultOnly = MemorySecretBacking(["login.gone": data("x"), "otp.gone": data("y"), "login.kept": data("z")])
-    try store.save(VaultSecretCleanup(id: VaultSecretCleanup.recordID(account: "acme"), items: ["gone"]))
-
-    move(shared: shared, vaultOnly: vaultOnly, stores: [store]).run()
-
-    #expect(Set(vaultOnly.names) == ["login.kept"])
-    #expect(try store.records(VaultSecretCleanup.self).isEmpty)
-    #expect(try shared.read("password.h") == data("host"))
-  }
-
   @Test func namesDecideTheTier() {
     for name in ["login.a", "otp.a", "card.number.a", "card.code.a", "passkey.a", "recovery.digest", "superseded.login.a"] {
       #expect(VaultSecretTiers.isVaultOnly(name), "\(name)")

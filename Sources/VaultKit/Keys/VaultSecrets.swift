@@ -146,7 +146,7 @@ extension VaultSecretBacking {
 /// is `password.<id>` in the shared group until `VaultSecretMove` moves it.
 ///
 /// In an app outside the group a vault-only secret reads as nil and can't be written (`vaultOnlyHere`). A delete takes
-/// out what the app can reach and doesn't fail: `VaultSecretCleanup` carries what it can't to Vault.
+/// out what the app can reach and doesn't fail: Vault deletes the rest when it next runs (`VaultSecretMove`).
 public struct VaultSecretTiers: VaultSecretBacking {
   public let shared: any VaultSecretBacking
   public let vaultOnly: (any VaultSecretBacking)?
