@@ -104,9 +104,10 @@ public enum HubKeyScope: Hashable, Sendable {
 /// connect as this device.
 ///
 /// - The device key: a this-device-only item in the v57 keychain group, where the Hub app puts its own
-///   (`shareDeviceKey`, protocol §3), so the Hub app and every v57 app are one device on the Hub. On the Mac, until
-///   it has, the apps use `~/.hub/device.key` (or `HUB_DEVICE_KEY`, which also wins over the keychain), the file
-///   Hub's launcher and services use.
+///   (`shareDeviceKey`, protocol §3), so the Hub app and every v57 app are one device on the Hub. Apps never read a
+///   file: `~/.hub/device.key` is the key of Hub's launcher and services, which any of the user's processes can read,
+///   so it's another device, a child that holds only what the owner gives it (protocol §14). `HUB_DEVICE_KEY` counts in
+///   DEBUG builds only, for running against a test key.
 /// - The key the v57 apps connect with: a this-device-only item in the v57 keychain group.
 /// - On a Hub added since auth v2, neither: keys derived from the device key and the address (`keys(for:)`), so what
 ///   that Hub receives, relays or claims means nothing on another Hub. They are derived when needed and never stored.
@@ -118,13 +119,10 @@ public enum HubKeyStore {
 
   public static func deviceKey() throws -> HubKey {
     if VaultSecrets.isInMemory { return inMemory("device") }
-    #if os(macOS)
-      // Without the keychain group (command-line tools, tests) or before the Hub app stored one, the file
-      if !deviceKeyFileIsSet, let key = try? sharedDeviceKey() { return key }
-      return try fileKey(at: deviceKeyFile)
-    #else
-      return try keychainKey(deviceKeyAccount, label: deviceKeyLabel)
+    #if DEBUG
+      if let file = debugDeviceKeyFile { return try fileKey(at: file) }
     #endif
+    return try keychainKey(deviceKeyAccount, label: deviceKeyLabel)
   }
 
   /// The device key in the v57 keychain group, nil while there is none.
@@ -168,15 +166,13 @@ public enum HubKeyStore {
     return try keychainKey("hub.client-key", label: "v57 Hub key")
   }
 
-  /// `HUB_DEVICE_KEY`, else `~/.hub/device.key`.
-  static var deviceKeyFile: URL {
-    if let path = ProcessInfo.processInfo.environment["HUB_DEVICE_KEY"], !path.isEmpty {
+  #if DEBUG
+    /// `HUB_DEVICE_KEY`, which a release build doesn't read at all (protocol §3).
+    static var debugDeviceKeyFile: URL? {
+      guard let path = ProcessInfo.processInfo.environment["HUB_DEVICE_KEY"], !path.isEmpty else { return nil }
       return URL(fileURLWithPath: path)
     }
-    return URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".hub/device.key")
-  }
-
-  static var deviceKeyFileIsSet: Bool { ProcessInfo.processInfo.environment["HUB_DEVICE_KEY"]?.isEmpty == false }
+  #endif
 
   private static func memory(of name: String) -> HubKey? {
     lock.withLock { memory[name] }
@@ -191,29 +187,31 @@ public enum HubKeyStore {
     }
   }
 
-  /// Reads the key file, or makes it (directory 0700, file 0600, written to a temporary file and renamed).
-  static func fileKey(at url: URL) throws -> HubKey {
-    if let text = try? String(contentsOf: url, encoding: .utf8) { return try HubKey(keyFile: text) }
-    let directory = url.deletingLastPathComponent()
-    let files = FileManager.default
-    try files.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    let key = HubKey()
-    let temporary = directory.appending(path: ".\(url.lastPathComponent).\(UUID().uuidString)")
-    guard files.createFile(atPath: temporary.path, contents: Data(key.keyFile.utf8), attributes: [.posixPermissions: 0o600])
-    else { throw CocoaError(.fileWriteUnknown) }
-    do {
-      // Another process may have made it meanwhile: keep theirs.
-      if files.fileExists(atPath: url.path) {
+  #if DEBUG
+    /// Reads the key file, or makes it (directory 0700, file 0600, written to a temporary file and renamed).
+    static func fileKey(at url: URL) throws -> HubKey {
+      if let text = try? String(contentsOf: url, encoding: .utf8) { return try HubKey(keyFile: text) }
+      let directory = url.deletingLastPathComponent()
+      let files = FileManager.default
+      try files.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+      let key = HubKey()
+      let temporary = directory.appending(path: ".\(url.lastPathComponent).\(UUID().uuidString)")
+      guard files.createFile(atPath: temporary.path, contents: Data(key.keyFile.utf8), attributes: [.posixPermissions: 0o600])
+      else { throw CocoaError(.fileWriteUnknown) }
+      do {
+        // Another process may have made it meanwhile: keep theirs.
+        if files.fileExists(atPath: url.path) {
+          try? files.removeItem(at: temporary)
+          return try HubKey(keyFile: String(contentsOf: url, encoding: .utf8))
+        }
+        try files.moveItem(at: temporary, to: url)
+      } catch {
         try? files.removeItem(at: temporary)
-        return try HubKey(keyFile: String(contentsOf: url, encoding: .utf8))
+        throw error
       }
-      try files.moveItem(at: temporary, to: url)
-    } catch {
-      try? files.removeItem(at: temporary)
-      throw error
+      return key
     }
-    return key
-  }
+  #endif
 
   private static func keychainKey(_ account: String, label: String, new: HubKey? = nil) throws -> HubKey {
     let keychain = VaultKeychain()
