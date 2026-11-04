@@ -45,6 +45,14 @@ struct DevicesView: View {
             }
             InspectorRow("Never leaves", value: idiom == .phone ? "this \(ThisDevice.word)" : "this \(ThisDevice.word)’s Secure Enclave", copyable: false)
             if idiom != .phone { InspectorRow("Used by", value: "Shell, Database, Vault", copyable: false) }
+            if !app.isDemo {
+              InspectorRow(
+                "Signs",
+                value: VaultIdentity.asksForPresence
+                  ? "After you confirm it’s you; a yes lasts 15 minutes in each app"
+                  : "With nothing asked: this key was made before keys could ask",
+                copyable: false)
+            }
           }
         }
         KitSection(

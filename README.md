@@ -78,6 +78,25 @@ with the smaller id becomes everyone's key for new writes. Passwords are separat
 (`VaultSecrets`; a demo run or a test keeps them in memory instead with `VaultSecrets.useInMemoryStore()`). Each
 device's SSH key is a Secure Enclave key (`VaultIdentity`) shared by the apps on that device.
 
+**Your Apple account is the root of trust**, as with Apple Passwords. Whoever gets into it, with a device the account
+trusts, gets the iCloud Keychain, so the vault keys and every synced secret. Nothing here defends against that.
+
+**A device key made since 2026-11-04 needs you.** It's made with `.userPresence`: the Secure Enclave won't sign with it
+for a process that hasn't had Touch ID, Face ID or the password, on a device that has one set. `key()` and `signature` never ask, so
+work in the background fails with `presenceNeeded`. A login the user started asks once it's settled the host key
+(`presencePrompt`, run by SSHKit's `prepare`), Git's auto-fetch (`quietly`), Shell's redial and any app that isn't in front
+don't. What each part gives:
+
+| | Enforced by |
+|---|---|
+| With no yes, no process can sign with a key made this way, not even a bug in a v57 app, without showing the system's dialog | The Secure Enclave |
+| A yes lasts 15 minutes, in the app that asked, and ends when the screen locks | This code, by dropping the system's `LAContext`. A bug inside that app, during its window, can sign, and a build that kept the context could sign for longer |
+| Asking only when the user started something, and never from an app in the background | This code. A bug in a team app can show the system's dialog at any time; the user still has to say yes |
+
+Each app has its own window. A key made before that date **keeps working with nothing asked**, and nothing here ever
+replaces it: servers trust it through `authorized_keys`, so a new key would lock the user out of them. On those devices
+any team app, or a bug in one, can still sign silently.
+
 **Two keychain groups.** Logins' passwords, one-time codes, cards, passkeys, the personal identity and the digests' key
 live in `dev.v57.secrets`, which only Vault and its AutoFill extension list (`VaultSecretTiers`). Connection passwords,
 the vault keys, the device key, the GitHub token and the Hub keys stay in `dev.v57.shared`, because the apps that connect
@@ -326,7 +345,7 @@ sample data only for folder sync and remote listings. It never touches the user'
 | Folder | What |
 |---|---|
 | `Core/` | `JSONValue`, `HybridClock`, `ItemFields` (the merge), `VaultConfiguration` (identifiers) |
-| `Keys/` | `VaultKeychain` (shared group), `VaultKeys` (AES keys, sealing), `VaultIdentity` (SSH key), `VaultSecrets`, `VaultDevice`, the recovery key (`VaultRecovery`, `RecoverySecret` and `RecoveryWordList`, `RecoveryKit`, the `VaultRecoveryKey` and `VaultRecoveryBlob` records) |
+| `Keys/` | `VaultKeychain` (shared group), `VaultKeys` (AES keys, sealing), `VaultIdentity` (SSH key, `PresenceGate`), `VaultSecrets`, `VaultSecretMove`, `VaultDevice`, the recovery key (`VaultRecovery`, `RecoverySecret` and `RecoveryWordList`, `RecoveryKit`, the `VaultRecoveryKey` and `VaultRecoveryBlob` records) |
 | `Store/` | `VaultStore` (SQLite, outbox, merging records in), change notifications, `VaultFieldChange` (each field's last write: when, which device) |
 | `Records/` | Typed records: `VaultProject`, `VaultProjectGroup` (with `VaultProjectTree`), `VaultHost` (with its `HubRoute` and `DeviceRoute`, and `VaultDeviceHost`'s publishing), `VaultKnownHost`, `VaultDeviceKey`, `VaultHubServer` (with `VaultHubDevice` and the mirror), `VaultDatabase`, `VaultNote`, `VaultNoteFile`, `VaultLogin`, `VaultCard`, `VaultFolder`, `VaultRemote` |
 | `Remote/` | `RemoteFileSystem` (list, stat, read range, write, rename, delete), `MemoryRemoteFileSystem`, `LocalRemoteFileSystem`, `S3FileSystem` (AWS S3, R2, B2, MinIO; `AWSSignatureV4`, an injectable `S3Transport`), `RemoteConnections` (the file system for a `VaultRemote`) |

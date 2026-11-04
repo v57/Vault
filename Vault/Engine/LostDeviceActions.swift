@@ -68,7 +68,10 @@ enum LostDeviceActions {
         password: VaultSecrets.password(for: host.id), trust: trust)
     }
     let key = try VaultIdentity.key()
-    let sshKey = SSHKey(kind: .ecdsaP256, publicKeyBlob: Array(VaultIdentity.publicKeyBlob(key)), comment: VaultDevice.name) { data in
+    let sshKey = SSHKey(
+      kind: .ecdsaP256, publicKeyBlob: Array(VaultIdentity.publicKeyBlob(key)), comment: VaultDevice.name,
+      prepare: VaultIdentity.presencePrompt()
+    ) { data in
       Array(try VaultIdentity.sshSignature(Data(data), key: key))
     }
     return SSHServer(host: host.hostname, fallbackHosts: fallbacks, port: host.port, user: user, key: sshKey, trust: trust)
