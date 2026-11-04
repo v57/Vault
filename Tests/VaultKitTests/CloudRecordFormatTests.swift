@@ -58,5 +58,24 @@ import Testing
       record["payload"] = Data(repeating: 7, count: 64) as NSData
       #expect(CloudSync.remote(record) == nil)
     }
+
+    /// A record's asset whose file can't be read isn't a record that was never there: it stops the store finishing.
+    @Test func anAssetThatCantBeReadIsUnreadNotDropped() throws {
+      let id = CKRecord.ID(recordName: "big", zoneID: CKRecordZone.ID(zoneName: "Vault"))
+      let record = CKRecord(recordType: CloudSync.recordType, recordID: id)
+      record["payloadAsset"] = CKAsset(fileURL: temporaryDirectory().appendingPathComponent("gone"))
+      guard case .unread(let unread) = CloudSync.fetched(record) else {
+        Issue.record("It should be unread")
+        return
+      }
+      #expect(unread.id == "big" && unread.hasPayload)
+
+      let empty = CKRecord(recordType: CloudSync.recordType, recordID: id)
+      guard case .unread(let nothing) = CloudSync.fetched(empty) else {
+        Issue.record("It should be unread")
+        return
+      }
+      #expect(!nothing.hasPayload)
+    }
   }
 #endif

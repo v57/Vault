@@ -31,7 +31,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   /// The engine started without saved state: every zone is made again (saving an existing zone changes nothing).
   private var isFreshEngine = false
   /// Zones whose last fetch failed: they haven't seen everything, whatever the fetch as a whole said.
-  private var failedZones: Set<String> = []
+
   private var accountsToken: UUID?
   private var engine: CKSyncEngine?
   private var observers: [NSObjectProtocol] = []
@@ -272,7 +272,6 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     Task {
       do {
         try await engine.fetchChanges()
-        fetchSucceeded()
         try await engine.sendChanges()
         isHealthy = true
       } catch {
@@ -280,15 +279,6 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         isHealthy = false
       }
     }
-  }
-
-  /// `fetchChanges` came back without an error, having handed over every batch. An engine that started from nothing has
-  /// now seen everything on the server, except in a zone that failed. One that started from saved state hasn't, so a store
-  /// that's still to finish waits for the next launch (`SyncZones.needsFullFetch`).
-  private func fetchSucceeded() {
-    let (zoneNames, isFresh) = lock.withLock { (Array(attached.keys).filter { !failedZones.contains($0) }, isFreshEngine) }
-    guard isFresh else { return }
-    for zone in zoneNames { zones.coordinator(forZone: zone)?.fetchCompleted() }
   }
 
   private var currentEngine: CKSyncEngine? {
@@ -366,18 +356,21 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     case .fetchedRecordZoneChanges(let changes):
       var modified: [String: [RemoteRecord]] = [:]
       var deleted: [String: [String]] = [:]
+      var unread: [String: [UnreadRecord]] = [:]
       for modification in changes.modifications {
-        if let record = Self.remote(modification.record) {
-          modified[modification.record.recordID.zoneID.zoneName, default: []].append(record)
+        let zone = modification.record.recordID.zoneID.zoneName
+        switch Self.fetched(modification.record) {
+        case .record(let record): modified[zone, default: []].append(record)
+        case .unread(let record): unread[zone, default: []].append(record)
         }
       }
       for deletion in changes.deletions {
         deleted[deletion.recordID.zoneID.zoneName, default: []].append(deletion.recordID.recordName)
       }
-      for zone in Set(modified.keys).union(deleted.keys).sorted() {
+      for zone in Set(modified.keys).union(deleted.keys).union(unread.keys).sorted() {
         switch zones.route(zone) {
         case .zone(let coordinator):
-          queue(coordinator.fetched(modified: modified[zone] ?? [], deleted: deleted[zone] ?? []), in: zone)
+          queue(coordinator.fetched(modified: modified[zone] ?? [], deleted: deleted[zone] ?? [], unread: unread[zone] ?? []), in: zone)
         case .retired:
           // An account deleted on a device whose engine couldn't delete its zone.
           syncEngine.state.add(pendingDatabaseChanges: [.deleteZone(CKRecordZone.ID(zoneName: zone))])
@@ -391,10 +384,9 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       onChange()
 
     case .didFetchRecordZoneChanges(let fetch):
-      let zone = fetch.zoneID.zoneName
-      lock.withLock {
-        if fetch.error == nil { failedZones.remove(zone) } else { failedZones.insert(zone) }
-      }
+      // After this zone's last batch, the engine's events coming in order. One with an error isn't complete.
+      guard fetch.error == nil else { break }
+      zones.zoneFetched(fetch.zoneID.zoneName, fromNothing: lock.withLock { isFreshEngine })
 
     case .sentDatabaseChanges(let changes):
       for saved in changes.savedZones {
@@ -494,19 +486,33 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     }
   }
 
-  static func remote(_ record: CKRecord) -> RemoteRecord? {
+  /// What a fetched record gave. A record whose payload couldn't be had is still a record: the sync engine's position has
+  /// moved past it.
+  enum FetchedRecord {
+    case record(RemoteRecord)
+    case unread(UnreadRecord)
+  }
+
+  static func fetched(_ record: CKRecord) -> FetchedRecord {
+    let id = record.recordID.recordName
     let payload: Data
     if let data = record["payload"] as? Data {
       payload = data
     } else if let url = (record["payloadAsset"] as? CKAsset)?.fileURL, let data = try? Data(contentsOf: url) {
       payload = data
     } else {
-      return nil
+      return .unread(UnreadRecord(id: id, changeTag: record.recordChangeTag, hasPayload: record["payloadAsset"] is CKAsset))
     }
-    guard let keyID = VaultItemSeal.parse(payload)?.keyID ?? record["keyID"] as? String else { return nil }
-    return RemoteRecord(
-      id: record.recordID.recordName, keyID: keyID, payload: payload, changeTag: record.recordChangeTag,
-      systemFields: archive(record))
+    guard let keyID = VaultItemSeal.parse(payload)?.keyID ?? record["keyID"] as? String else {
+      return .unread(UnreadRecord(id: id, changeTag: record.recordChangeTag, hasPayload: false))
+    }
+    return .record(
+      RemoteRecord(id: id, keyID: keyID, payload: payload, changeTag: record.recordChangeTag, systemFields: archive(record)))
+  }
+
+  static func remote(_ record: CKRecord) -> RemoteRecord? {
+    if case .record(let remote) = fetched(record) { return remote }
+    return nil
   }
 
   static func archive(_ record: CKRecord) -> Data {

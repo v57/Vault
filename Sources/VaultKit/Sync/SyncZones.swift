@@ -51,6 +51,16 @@ public final class SyncZones: @unchecked Sendable {
     }
   }
 
+  /// A zone's fetch reached its end, by that zone's own completion event. An engine that started from nothing has now seen
+  /// everything in this zone, and only this zone: an account's, attached later or arriving by push, is complete when its own
+  /// event comes, whatever other fetches are under way. An engine that started from saved state has seen only what changed,
+  /// so a store that's still to finish waits for the next launch (`needsFullFetch`). A zone the server doesn't have gets no
+  /// event, so its store stays unfinished and reads format 1 until a launch finds it there, or the vault's month runs out.
+  public func zoneFetched(_ zone: String, fromNothing: Bool) {
+    guard fromNothing else { return }
+    coordinator(forZone: zone)?.fetchCompleted()
+  }
+
   /// The account zones to delete on the server; the engine deletes them (and `zoneDeleted` follows).
   public func takeZonesToDelete() -> [String] {
     lock.withLock {

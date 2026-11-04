@@ -159,7 +159,9 @@ extension VaultStore {
 
   /// Whether a sync engine must fetch everything, rather than from where it left off: a store that hasn't completed its
   /// first fetch since migrating has to see what's on the server.
-  public var needsFullFetch: Bool { withLock { !formatIsFinished } }
+  public var needsFullFetch: Bool {
+    withLock { !formatIsFinished || (try? deferredRecords().contains { $0.unreadSince != nil }) == true }
+  }
 
   public var formatStatus: VaultFormatStatus {
     withLock {
@@ -550,10 +552,19 @@ extension VaultStore {
   /// A store finishes when its first complete fetch is done, or as soon as it can past the vault's month.
   func finishIfDue() throws {
     guard !_isWaiting, !formatIsFinished else { return }
-    // What's deferred was seen but not read, so a fetch isn't complete without it. The month ends regardless.
-    var isDue = try meta("format.fetched") == "1" && deferredRecords().isEmpty
+    // What's deferred was seen but not read, so a fetch isn't complete without it, and nor is a format 1 copy waiting for
+    // its key, which would be refused when the key came and written over by the row. The month ends regardless.
+    var isDue = try meta("format.fetched") == "1" && deferredRecords().isEmpty && !hasFormat1CopyWaiting()
     if !isDue { isDue = formatTesting.now().timeIntervalSince(try vaultMarkDate()) > Self.serverFormat1Window }
     if isDue { try setMeta("format", Self.formatValue) }
+  }
+
+  private func hasFormat1CopyWaiting() throws -> Bool {
+    for id in try waitingServerCopies() {
+      let copy = try database.query("SELECT payload FROM server_copies WHERE id = ?", [.text(id)]).first
+      if let payload = copy?[0].blob, VaultItemSeal.parse(payload) == nil { return true }
+    }
+    return false
   }
 
   /// A fetch that began with no saved position reached the end: this store has seen what the server held.
@@ -580,6 +591,9 @@ extension VaultStore {
     var changeTag: String?
     var systemFields: Data?
     var isDeletion = false
+    /// When a record whose payload couldn't be had was first met. It can't be retried here: the next full fetch brings it
+    /// again, and `apply` then takes this one's place. Optional, for rows written before there was such a thing.
+    var unreadSince: Double?
 
     init(_ record: RemoteRecord) {
       id = record.id
@@ -605,6 +619,22 @@ extension VaultStore {
     try database.query("DELETE FROM engines WHERE name = ?", [.text(Self.deferredPrefix + id)])
   }
 
+  /// A record the sync engine's position has moved past with nothing read of it (`CloudSync.fetched`). One whose payload
+  /// the server holds waits for a full fetch, and holds up finishing for that long: the store hasn't seen it. One with no
+  /// payload at all has nothing to wait for. A payload still out of reach after a month stops being waited for.
+  func noteUnread(_ record: UnreadRecord) throws {
+    guard record.hasPayload else {
+      try withLock { try noteRefused(id: record.id, tag: record.changeTag, isOldFormat: false) }
+      return
+    }
+    try withLock {
+      let existing = try engineState(Self.deferredPrefix + record.id).flatMap { try? JSONDecoder().decode(DeferredRecord.self, from: $0) }
+      var unread = DeferredRecord(RemoteRecord(id: record.id, keyID: "", payload: Data(), changeTag: record.changeTag, systemFields: nil))
+      unread.unreadSince = existing?.unreadSince ?? formatTesting.now().timeIntervalSince1970
+      try deferRecord(unread)
+    }
+  }
+
   private func deferredRecords() throws -> [DeferredRecord] {
     try database.query("SELECT state FROM engines WHERE name LIKE ?", [.text(Self.deferredPrefix + "%")]).compactMap {
       $0[0].blob.flatMap { try? JSONDecoder().decode(DeferredRecord.self, from: $0) }
@@ -615,6 +645,10 @@ extension VaultStore {
   private func retryDeferred() throws -> [String] {
     var toSend: [String] = []
     for record in try deferredRecords() {
+      if let unreadSince = record.unreadSince {
+        if formatTesting.now().timeIntervalSince1970 - unreadSince > Self.serverFormat1Window { try forgetDeferred(id: record.id) }
+        continue
+      }
       if record.isDeletion {
         try applyDeletion(id: record.id)
         continue

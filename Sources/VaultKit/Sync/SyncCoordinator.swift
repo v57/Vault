@@ -22,6 +22,21 @@ public enum SyncAction: Sendable, Equatable {
   case retryLater
 }
 
+/// A fetched record that couldn't be read, whatever it held.
+public struct UnreadRecord: Sendable, Equatable {
+  public var id: String
+  public var changeTag: String?
+  /// It has a payload that couldn't be read (an asset whose file wasn't there), which the server still holds. With
+  /// false it never had one: there's nothing to wait for, and it's refused.
+  public var hasPayload: Bool
+
+  public init(id: String, changeTag: String?, hasPayload: Bool) {
+    self.id = id
+    self.changeTag = changeTag
+    self.hasPayload = hasPayload
+  }
+}
+
 /// The sync logic between the store and CloudKit, without CloudKit: `CloudSync` feeds it `CKSyncEngine`'s
 /// events, and the tests feed it a fake server. One per process.
 ///
@@ -115,11 +130,12 @@ public final class SyncCoordinator: @unchecked Sendable {
     if !isHolding { store.fetchCompleted() }
   }
 
-  /// Records fetched from the server.
-  public func fetched(modified: [RemoteRecord], deleted: [String]) -> [String] {
+  /// Records fetched from the server. `unread`: records that came without a payload this device could get at.
+  public func fetched(modified: [RemoteRecord], deleted: [String], unread: [UnreadRecord] = []) -> [String] {
     store.withLock {
       store.withKeySweep {
         var toSend: [String] = []
+        for record in unread { try? store.noteUnread(record) }
         for record in modified {
           do {
             switch try store.apply(record) {
