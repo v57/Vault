@@ -189,6 +189,9 @@ public struct VaultRecovery: Sendable {
     where try wrap(folderKey.keyData, content: .folderKey, keyID: folderKey.keyID, folderID: folderKey.folderID, to: key) {
       count += 1
     }
+    // Only where every secret can be read: Vault and its AutoFill extension. Elsewhere there'd be no telling a secret
+    // that's gone from one out of reach. What another app changes it seals itself (`secretChanged`).
+    guard secretBacking.seesEverySecret else { return count }
     let secrets = try secretBacking.all().filter { Self.isCovered(secret: $0.name) }
     for secret in secrets.sorted(by: { $0.name < $1.name }) where try wrap(secret: secret.data, name: secret.name, to: key) {
       count += 1
@@ -196,7 +199,12 @@ public struct VaultRecovery: Sendable {
     let names = Set(secrets.map(\.name))
     for blob in try store.records(VaultRecoveryBlob.self)
     where blob.recoveryKey == key.check && blob.content == .secret && !names.contains(blob.keyID) {
-      if let owner = Self.owner(ofSecret: blob.keyID), try store.item(id: owner)?.isDeleted == true { try scrub(blob) }
+      // A login's password that moved (`VaultSecretMove`) has its blob under the new name by now: the old box goes.
+      if blob.keyID.hasPrefix("password."), names.contains(VaultSecrets.loginSecret(String(blob.keyID.dropFirst("password.".count)))) {
+        try scrub(blob)
+      } else if let owner = Self.owner(ofSecret: blob.keyID), try store.item(id: owner)?.isDeleted == true {
+        try scrub(blob)
+      }
     }
     return count
   }
@@ -219,12 +227,12 @@ public struct VaultRecovery: Sendable {
 
   /// Whether a keychain item is one of the secrets the kit covers. The identity has a blob of its own.
   static func isCovered(secret name: String) -> Bool {
-    name != digestSecret && name != VaultPersonalIdentity.account
+    name != digestSecret && name != VaultPersonalIdentity.account && !name.hasPrefix(VaultSecretMove.supersededPrefix)
   }
 
   /// The record a secret belongs to, for those named after one.
   static func owner(ofSecret name: String) -> String? {
-    for prefix in ["password.", "otp.", "card.number.", "card.code.", "passkey."] where name.hasPrefix(prefix) {
+    for prefix in ["password.", "login.", "otp.", "card.number.", "card.code.", "passkey."] where name.hasPrefix(prefix) {
       return String(name.dropFirst(prefix.count))
     }
     return nil
@@ -238,12 +246,17 @@ public struct VaultRecovery: Sendable {
   }
 
   /// Seals a secret unless the blob already holds this value. Returns whether it wrote.
+  ///
+  /// An app outside the secrets group can't read the digests' key. It seals what it changed anyway, since that takes only
+  /// the public key, and leaves the digest out; Vault adds it the next time it looks, by sealing the value once more.
   @discardableResult
   private func wrap(secret value: Data, name: String, to key: VaultRecoveryKey) throws -> Bool {
-    let digest = Data(HMAC<SHA256>.authenticationCode(for: Data(name.utf8) + [0] + value, using: try digestKey()))
-      .map { String(format: "%02x", $0) }.joined()
+    let digest = try secretBacking.seesEverySecret
+      ? Data(HMAC<SHA256>.authenticationCode(for: Data(name.utf8) + [0] + value, using: digestKey()))
+        .map { String(format: "%02x", $0) }.joined()
+      : nil
     let id = VaultRecoveryBlob.id(publicKey: key.publicKey, content: .secret, keyID: name, folderID: nil)
-    if try store.record(VaultRecoveryBlob.self, id: id)?.digest == digest { return false }
+    if let digest, try store.record(VaultRecoveryBlob.self, id: id)?.digest == digest { return false }
     var blob = try VaultRecoveryBlob.seal(value, publicKey: key.publicKey, content: .secret, keyID: name, folderID: nil)
     blob.digest = digest
     try store.save(blob)

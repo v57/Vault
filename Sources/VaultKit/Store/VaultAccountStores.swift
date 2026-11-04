@@ -112,7 +112,12 @@ public final class VaultAccountStores: @unchecked Sendable {
       let store = try store ?? VaultStore(
         directory: personal.directory, fileName: Self.fileName(forAccount: id), accountID: id, keys: personal.keys,
         deviceID: personal.deviceID, notifier: nil, owner: personal.owner)
-      for item in try store.allIDs() { try VaultSecrets.deleteSecrets(forItem: item) }
+      let items = try store.allIDs()
+      for item in items { try VaultSecrets.deleteSecrets(forItem: item) }
+      // Logins' secrets are out of reach here: Vault deletes them when it next opens.
+      if !VaultSecrets.seesEverySecret, !items.isEmpty {
+        try personal.save(VaultSecretCleanup(id: VaultSecretCleanup.recordID(account: id), items: items))
+      }
     }
     VaultStore.removeFiles(at: fileURL(forAccount: id))
     notify(.removed(account: id))

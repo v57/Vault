@@ -19,9 +19,13 @@ public enum VaultConfiguration {
     #endif
   }
 
-  /// The keychain access group for the vault keys, passwords, the SSH identity and the GitHub token
-  /// (`$(AppIdentifierPrefix)dev.v57.shared` in the entitlements).
+  /// The keychain access group every v57 app lists: the vault keys, connection passwords, the SSH identity, the Hub keys
+  /// and the GitHub token (`$(AppIdentifierPrefix)dev.v57.shared` in the entitlements).
   public static let keychainGroup = "\(teamID).dev.v57.shared"
+
+  /// The keychain access group only Vault and its AutoFill extension list: login passwords, one-time codes, cards,
+  /// passkeys and the personal identity (`$(AppIdentifierPrefix)dev.v57.secrets`). See `VaultSecretTiers`.
+  public static let secretsGroup = "\(teamID).dev.v57.secrets"
 
   /// The CloudKit container the store syncs through.
   public static let cloudContainer = "iCloud.dev.v57"

@@ -147,12 +147,19 @@ public enum SharingError: LocalizedError, Equatable {
 }
 
 /// The user's own `PersonalIdentity`, made on first use and kept as a synchronizable keychain item, so every
-/// device of the user has the same one.
+/// device of the user has the same one. Only Vault and its AutoFill extension can read it (`VaultSecretTiers`): it opens
+/// shared folders' keys and signs their changes. Elsewhere it reads as nil and `current()` throws rather than make another.
 ///
 /// A demo run or a test calls `useInMemoryStore()` (or `VaultSecrets.useInMemoryStore()`, which does both) so
 /// the user's keychain is never touched.
 public enum VaultPersonalIdentity {
-  static let keychainBacking = KeychainSecretBacking(keychain: VaultKeychain(service: "dev.v57.vault.identity"))
+  /// Where it was before only Vault could read it; `VaultSecretMove` moves it from there.
+  static let sharedKeychain = VaultKeychain(service: "dev.v57.vault.identity")
+  static let vaultOnlyKeychain = VaultKeychain(service: "dev.v57.identity", accessGroup: VaultConfiguration.secretsGroup)
+  static let keychainBacking: VaultSecretTiers = {
+    let tiers = VaultSecretTiers.forThisApp(shared: sharedKeychain, vaultOnly: vaultOnlyKeychain)
+    return VaultSecretTiers(shared: tiers.shared, vaultOnly: tiers.vaultOnly) { _ in true }
+  }()
   static let account = "personal-identity"
 
   private static let lock = NSLock()

@@ -1,7 +1,8 @@
 import Foundation
 
 /// A saved login: a website or app, the username, and notes. The password is a `VaultSecrets` item named after
-/// the login, the one-time-code secret another one (`otp.<id>`), so listing logins never reads the keychain.
+/// the login (`login.<id>`), the one-time-code secret another one (`otp.<id>`), so listing logins never reads the
+/// keychain. Both are readable only in Vault and its AutoFill extension; every app reads this record itself.
 ///
 /// A login links to the other items it belongs with (a host, a database, a project, a folder), one
 /// `link.<id>` field each, so two devices adding links at once both keep theirs.
@@ -93,7 +94,7 @@ public struct VaultLogin: VaultRecord, Hashable {
     return host
   }
 
-  public var password: String? { VaultSecrets.password(for: id) }
+  public var password: String? { VaultSecrets.loginPassword(for: id) }
 
   /// The one-time-code generator, nil when the login has none.
   public var oneTimeCode: OneTimeCode? {
@@ -192,8 +193,8 @@ extension VaultStore {
   @discardableResult
   public func setPassword(_ password: String?, forLogin id: String, now: Date = .now) throws -> Bool {
     let password = password?.isEmpty == true ? nil : password
-    guard VaultSecrets.password(for: id) != password else { return false }
-    try VaultSecrets.setPassword(password, for: id)
+    guard VaultSecrets.loginPassword(for: id) != password else { return false }
+    try VaultSecrets.setLoginPassword(password, for: id)
     try save(id: id, kind: VaultLogin.kind, changes: ["passwordChanged": .init(now)])
     return true
   }
@@ -222,7 +223,7 @@ extension VaultStore {
   /// Deletes a login, its password and one-time code, and its passkeys.
   public func deleteLogin(id: String) throws {
     try delete(id: id)
-    try VaultSecrets.setPassword(nil, for: id)
+    try VaultSecrets.setLoginPassword(nil, for: id)
     try VaultSecrets.setSecret(nil, named: VaultLogin.oneTimeCodeSecret(id))
     for passkey in try records(VaultPasskey.self) where passkey.login == id { try deletePasskey(id: passkey.id) }
   }

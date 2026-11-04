@@ -2,7 +2,7 @@
 import Foundation
 import Security
 
-/// Generic-password items in the shared keychain access group.
+/// Generic-password items in a keychain access group: the shared one by default, or `VaultConfiguration.secretsGroup`.
 ///
 /// Items live in the data-protection keychain, where the access group decides who can read them: only apps
 /// signed by the team that list `dev.v57.shared` in their entitlements. Other apps, other users and

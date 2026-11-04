@@ -143,14 +143,26 @@ final class AppModel {
         remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault), recovery: UnavailableRecovery(),
         hubs: LiveHubs(directory: hubs))
       model.lastSync = vault.sync?.isRunning == true ? .now : nil
-      // With a recovery kit on, anything sealed elsewhere or changed while this app was closed. Reads the keychain only then.
-      if let store = vault.store {
-        Task.detached(priority: .utility) { _ = try? VaultRecovery(store: store).wrapMissing() }
-      }
+      moveSecrets()
     }
     model.applyLaunchOptions()
     models[VaultAccount.personal.id] = model
     return model
+  }
+
+  /// Moves what only Vault should read into its own keychain group (`VaultSecretMove`), then, with a recovery kit on, seals
+  /// anything sealed elsewhere or changed while this app was closed. A device still on an old build keeps writing to the
+  /// shared group, so this runs each time the app comes to the front, not just at launch.
+  static func moveSecrets() {
+    let stores = Vaults.shared.allAccounts.compactMap { Vaults.shared.vault(for: $0)?.store }
+    guard let personal = Vaults.shared.personal.store else { return }
+    Task.detached(priority: .utility) {
+      let report = VaultSecretMove.forThisApp(stores: stores)?.run()
+      if report?.isComplete == false {
+        print("Vault: secrets not moved yet: \(report?.failed.count ?? 0) failed, \(report?.waiting ?? 0) waiting for their records")
+      }
+      _ = try? VaultRecovery(store: personal).wrapMissing()
+    }
   }
 
   /// The model of the account a window shows (`VaultAccountScope`'s vault): Personal's from `launch()`, an account's

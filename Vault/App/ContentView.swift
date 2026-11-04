@@ -64,6 +64,7 @@ struct ContentView: View {
     .onChange(of: scenePhase) { _, phase in
       // Leaving the screen: ask for a background turn to check remotes (iPhone and iPad; nothing on the Mac).
       if phase == .background, !app.isDemo { AppModel.scheduleBackgroundRefresh() }
+      if phase == .active, !app.isDemo { AppModel.moveSecrets() }
     }
     // The menu commands act on the focused window's account.
     .focusedSceneValue(\.appModel, app)

@@ -36,7 +36,7 @@ try VaultSecrets.setPassword(password, for: database.id)
 | Entitlement | Value |
 |---|---|
 | `com.apple.security.application-groups` | `$(TeamIdentifierPrefix)dev.v57` (macOS), `group.dev.v57` (iOS) |
-| `keychain-access-groups` | `$(AppIdentifierPrefix)dev.v57.shared` |
+| `keychain-access-groups` | `$(AppIdentifierPrefix)dev.v57.shared`; Vault and its AutoFill extension also `$(AppIdentifierPrefix)dev.v57.secrets` |
 | `com.apple.developer.icloud-container-identifiers` | `iCloud.dev.v57` |
 | `com.apple.developer.icloud-services` | `CloudKit` |
 | `com.apple.developer.icloud-container-environment` | `Production`, in debug builds too |
@@ -53,7 +53,8 @@ old file keychain: a Debug build uses it, so it runs while being worked on, and 
 somewhere weaker. It opens with no vault keys, device key or passwords. To run from source, use Debug or sign with your
 own team.
 
-**Off Apple platforms** nothing syncs through iCloud, and no group separates one app from another:
+**Off Apple platforms** nothing syncs through iCloud, and no group separates one app from another. Items of the secrets
+group are kept under a service of their own, so they don't collide with anything, but any program of the user reads them:
 
 | Platform | Where items go | Who can read them | When it isn't there |
 |---|---|---|---|
@@ -76,6 +77,21 @@ so a device can hold several: if two devices make the first key at once, both ke
 with the smaller id becomes everyone's key for new writes. Passwords are separate iCloud Keychain items
 (`VaultSecrets`; a demo run or a test keeps them in memory instead with `VaultSecrets.useInMemoryStore()`). Each
 device's SSH key is a Secure Enclave key (`VaultIdentity`) shared by the apps on that device.
+
+**Two keychain groups.** Logins' passwords, one-time codes, cards, passkeys, the personal identity and the digests' key
+live in `dev.v57.secrets`, which only Vault and its AutoFill extension list (`VaultSecretTiers`). Connection passwords,
+the vault keys, the device key, the GitHub token and the Hub keys stay in `dev.v57.shared`, because the apps that connect
+use them. So another app's bug can't read a login's password through the keychain. It can still read the login's
+record (title, website, username, notes), since those are sealed under the vault key every app holds, and an app can't
+list these secrets, write them or delete them: it's told they aren't there.
+
+`VaultSecretMove` moves what an older build left in the shared group. Vault runs it each time it comes to the front,
+because a device on an old build keeps writing there and iCloud Keychain brings that in at any time. Each secret's old
+copy goes only after the new one reads back. A login's password is `login.<id>` in the new group, and a `password.<id>`
+whose record hasn't arrived stays where it is until it has, since connection passwords share that name. Two different
+values under one name keep the later-modified one, and the other as `superseded.<name>`; the identity already in the
+group always stays. Deleting an iCloud Keychain item deletes it on every device, so an old build stops seeing what
+moved. Until Vault has run, what hasn't moved is still in the shared group for every app to read.
 
 **Merging.** Every field carries a hybrid logical clock (wall time, a counter, the device id). Merging two copies
 of an item keeps each field's later write, so edits made on an iPhone and a Mac at once both survive unless they
@@ -210,7 +226,9 @@ gets nothing newer than what it already held; `turnOff` deletes them everywhere.
 The kit also covers the keychain's secrets: logins, one-time codes, cards, passkeys, saved connection passwords and
 imported SSH keys (`VaultSecrets`). Each is sealed to the recovery public key, never to the vault key, because every
 app reads the vault key and these are for the kit alone. They follow every change, and a deleted secret's box is
-emptied before its tombstone syncs. Not covered: device SSH keys (they never leave their Secure Enclave), Hub keys,
+emptied before its tombstone syncs. Only Vault and its AutoFill extension see every secret, so only they check the boxes
+against the keychain (`seesEverySecret`); another app seals what it changes itself, without a digest, and Vault adds that
+later. `superseded.` copies aren't covered. Not covered: device SSH keys (they never leave their Secure Enclave), Hub keys,
 the GitHub sign-in, and what Shell keeps in its own keychain service.
 
 **Payload format.** A record's payload is `"V57I" 0x02`, its key's id, then its kind and its fields in two AES-GCM
