@@ -107,6 +107,7 @@ public struct VaultDevicesSettings<Control: View>: View {
         Button("Rename…") { renaming = device }
         if device.id != vault.deviceID {
           Button("Lost Device…") { lost = device }
+            .kitMenuPreview(VaultLostDeviceSheet.menuPreview(device.deviceName))
           Button("Remove…", role: .destructive) { removing = device }
         }
       }

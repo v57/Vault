@@ -190,6 +190,12 @@ public struct VaultLostDeviceSheet: View {
     _flow = State(initialValue: flow)
   }
 
+  /// What Lost Device… does, for its menu row's preview: it opens this sheet, whose steps each wait for a click.
+  public static func menuPreview(_ deviceName: String) -> String {
+    "Shows the steps to cut \(deviceName) off: your Apple Account, your vault, your servers, your keys. "
+      + "Each runs only when you click it."
+  }
+
   /// Where the user removes a device: it can't be done from here.
   static let appleAccountURL = URL(string: "https://account.apple.com/account/manage/section/devices")!
 

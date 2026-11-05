@@ -67,11 +67,10 @@ struct DevicesView: View {
             } trailing: {
               Chip("Up to date", hue: .green).controlSize(.small)
             }
-            .contextMenu {
-              if !app.isDemo {
-                Button("Rename…") { renaming = device }
-                Button("Lost Device…") { lost = device }
-              }
+            .kitContextMenu(if: !app.isDemo) {
+              Button("Rename…") { renaming = device }
+              Button("Lost Device…") { lost = device }
+                .kitMenuPreview(VaultLostDeviceSheet.menuPreview(device.deviceName))
             }
           }
           ForEach(app.deviceVault.revokedDevices) { device in
@@ -80,8 +79,9 @@ struct DevicesView: View {
             } trailing: {
               Chip("Not trusted", hue: .red).controlSize(.small)
             }
-            .contextMenu {
-              if !app.isDemo { Button("Trust Again") { Vaults.shared.trustAgain(device) } }
+            .kitContextMenu(if: !app.isDemo) {
+              Button("Trust Again") { Vaults.shared.trustAgain(device) }
+                .kitMenuPreview("Lets \(device.name) back in, the next time a v57 app runs on it.")
             }
           }
           ForEach(app.hubs.hubs.filter { $0.status == .connected }) { hub in
@@ -342,5 +342,14 @@ extension PersonItem {
   static func sharesLine(_ person: PersonItem) -> String {
     let count = person.record.roles.count
     return "shares \(count) \(count == 1 ? "thing" : "things")"
+  }
+}
+
+extension View {
+  /// The kit's context menu, only while it has items (none in the demo).
+  @ViewBuilder fileprivate func kitContextMenu<Menu: View>(
+    if hasItems: Bool, @ViewBuilder content: @escaping () -> Menu
+  ) -> some View {
+    if hasItems { kitContextMenu(content: content) } else { self }
   }
 }

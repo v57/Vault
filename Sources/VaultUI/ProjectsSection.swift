@@ -100,6 +100,8 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   var projectMeta: ((VaultProject) -> [String])?
   var projectAccessory: ((VaultProject) -> AnyView)?
   var rowMenu: ((VaultProject) -> AnyView)?
+  var openApps: ((VaultProject) -> [KitOpenApp?])?
+  var openWithFirst = false
   var contentSticky: KitStickyBottom = .title
   var remove: (([String]) -> Void)?
   var renameGroup: ((VaultProjectGroup, String) -> Void)?
@@ -208,7 +210,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     return section
   }
 
-  /// A group's whole context menu, in place of Rename…, Show in Finder and Remove Group from List (a touch screen's
+  /// A group's whole context menu, in place of Rename…, Open With, Copy Path and Remove Group from List (a touch screen's
   /// Expand or Collapse stays first). `rename` starts `renamableGroups`' rename in place.
   ///
   /// ```swift
@@ -244,10 +246,26 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     return section
   }
 
-  /// A project row's context menu, after Show in Finder.
+  /// A project row's context menu: the app's items, first, before the Open With row.
   public func rowMenu<V: View>(@ViewBuilder _ items: @escaping (VaultProject) -> V) -> Self {
     var section = self
     section.rowMenu = { AnyView(items($0)) }
+    return section
+  }
+
+  /// The apps of a project row's Open With row, in its order (nil: not installed). The section adds the file manager
+  /// and Terminal unless the list has them, and leaves out the app showing it. Without this the row is Code, the file
+  /// manager and Terminal; groups always get that one. `first` puts the row before the `rowMenu` items.
+  ///
+  /// ```swift
+  /// .openWith { project in
+  ///   [.app("com.apple.dt.Xcode", name: "Xcode", opening: [project.localURL!], preview: "Opens \(project.name) in Xcode.")]
+  /// }
+  /// ```
+  public func openWith(first: Bool = false, _ apps: @escaping (VaultProject) -> [KitOpenApp?]) -> Self {
+    var section = self
+    section.openApps = apps
+    section.openWithFirst = first
     return section
   }
 
@@ -444,19 +462,40 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     // No menu without items: a held row on iPhone opened an empty one.
     .contextMenu(if: project.localURL != nil || rowMenu != nil || remove != nil) {
       // What the row does first (the app's items), then where the project is, then taking it out of the list.
+      if openWithFirst, let folder = project.localURL {
+        KitOpenWithRow(Self.openApps(project.name, at: folder, openApps?(project)))
+      }
       if let rowMenu {
         rowMenu(project)
         if project.localURL != nil || remove != nil { Divider() }
       }
       if let folder = project.localURL {
-        Button("Show in \(KitDesktop.fileManagerName)", systemImage: "folder") { KitDesktop.reveal([folder]) }
+        if !openWithFirst { KitOpenWithRow(Self.openApps(project.name, at: folder, openApps?(project))) }
         Button("Copy Path", systemImage: "doc.on.doc") { KitPasteboard.copy(folder.path) }
         if remove != nil { Divider() }
       }
       if let remove {
         Button("Remove from List", systemImage: "minus.circle") { withAnimation(.kit) { remove([project.id]) } }
+          .kitMenuPreview("Takes \(project.name) off this list. Its folder stays.")
       }
     }
+  }
+
+  /// The Open With row's apps for `folder`: the app's (else Code), then the file manager and Terminal unless they're
+  /// in it, without the app showing them.
+  private static func openApps(_ name: String, at folder: URL, _ apps: [KitOpenApp?]?) -> [KitOpenApp?] {
+    var list = apps ?? [.app("dev.v57.code", name: "Code", opening: [folder], preview: "Opens \(name) in Code.")]
+    let ids = Set(list.compactMap { $0?.id })
+    let files = KitOpenApp.fileManager(
+      revealing: [folder], preview: "Shows the \(name) folder in \(KitDesktop.fileManagerName).")
+    if !ids.contains(files.id) { list.append(files) }
+    if let terminal = KitOpenApp.terminal(at: folder, preview: "Opens Terminal in the \(name) folder."),
+      !ids.contains(terminal.id)
+    {
+      list.append(terminal)
+    }
+    let this = Bundle.main.bundleIdentifier
+    return list.filter { $0?.id != this }
   }
 
   /// A group: a folder tile in a hue of its own, the name over its note or project count; a click opens or closes it.
@@ -495,7 +534,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
             Button("Rename…", systemImage: "pencil") { renamingGroup = group.id }
           }
           if let folder = group.localURL {
-            Button("Show in \(KitDesktop.fileManagerName)", systemImage: "folder") { KitDesktop.reveal([folder]) }
+            KitOpenWithRow(Self.openApps(group.name, at: folder, nil))
             Button("Copy Path", systemImage: "doc.on.doc") { KitPasteboard.copy(folder.path) }
           }
           if let remove {
@@ -503,6 +542,9 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
             Button("Remove Group from List", systemImage: "minus.circle") {
               withAnimation(.kit) { remove(projects.map(\.id)) }
             }
+            .kitMenuPreview(
+              "Takes \(group.name) off this list, with "
+                + (projects.count == 1 ? "its project. Its folder stays." : "its \(projects.count) projects. Their folders stay."))
           }
         }
       }

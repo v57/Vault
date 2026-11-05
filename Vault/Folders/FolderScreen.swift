@@ -86,7 +86,7 @@ private struct FolderBrowser: View {
             #endif
           }
         } menu: {
-          Button("Show in \(KitDesktop.fileManagerName)", systemImage: "folder") { KitDesktop.reveal([session.copyURL]) }
+          KitOpenWithRow([.fileManager(revealing: [session.copyURL])])
         }
         ToolGroup { Button("Lock Now", systemImage: "lock") { app.folders.lock(folder.id) } }
       } else {
@@ -97,6 +97,7 @@ private struct FolderBrowser: View {
           }
         } menu: {
           Button("Export Decrypted…", systemImage: "square.and.arrow.down") { exportDecrypted() }
+            .kitMenuPreview("Saves a plain copy of \(folder.name) where you pick, outside the vault. Other apps can read it there.")
         }
         if folder.isEncrypted {
           ToolGroup { Button("Decrypt…", systemImage: "lock.open") { app.sheet = .decrypt(folder.id) } }
