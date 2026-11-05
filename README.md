@@ -379,6 +379,24 @@ change goes into the outbox so a device with both carries it to iCloud. HubSync 
 envelopes, makes every device send everything again. The vault's mailbox id is derived from the vault keys. Tested
 with a fake mailbox (`HubSyncTests`) and live against hub-pro and hub-vault (`HubRecordSyncLiveTests`, `HUB_E2E_PORT`).
 
+## Turning iCloud off
+
+Settings ▸ Privacy in every app that syncs has one switch (`VaultICloudCard`, in VaultUI), for every v57 app on the
+device: they share one store, so an app still syncing would send what the others wrote. `VaultICloud` keeps it as a file
+beside the store, never in a record, so each device decides for itself. A run with secrets in memory has its own.
+
+While it's off:
+
+- `CloudSync` runs no engine and asks CloudKit nothing, not even for the account's status, and registers for no pushes.
+  It follows the switch live, in every running app. Writes wait in the outbox, and the engine's state stays in the store,
+  so turning it on again sends what waited and fetches what it missed. A Hub's sync isn't iCloud and carries on.
+- `VaultKeychain` keeps synced items in a twin service on this device only (`<service>.icloud-off`), and reads the twin,
+  then the synced item. The first call for a service with iCloud on again moves the twin back, unless the synced item
+  changed later on another device. `KeychainTokenStore` does the same for the GitHub sign-in. Deleting deletes both.
+- What's already in iCloud stays there. Deleting it would take it from the user's other devices as well, so the switch
+  doesn't. The system still brings in what other devices change in iCloud Keychain, and a key made here while it's off
+  (a first key, a rotation) doesn't reach them until it's on again.
+
 ## The Vault app
 
 `Vault/` is a Mac and iPad app on VaultKit and VaultFiles (`Vault.xcodeproj`, bundle `dev.v57.vault`; build it against

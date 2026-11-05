@@ -129,9 +129,9 @@ final class AppModel {
       model = DemoVault.make()
     } else {
       let vault = Vault.shared
-      // iCloud sync is on: turning iCloud on for the Mac was the consent. Remotes and Hub start off: a Hub connects
-      // only once the user adds it and turns it on for this device.
-      if UserDefaults.standard.object(forKey: "iCloudSync") as? Bool ?? true { vault.startSync() }
+      // iCloud sync is on, unless the user turned it off in Settings ▸ Privacy: turning iCloud on for the Mac was the
+      // consent. Remotes and Hub start off: a Hub connects only once the user adds it and turns it on for this device.
+      vault.startSync()
       let hubs = HubDirectory(vault: vault)
       hubs.start()
       #if DEBUG

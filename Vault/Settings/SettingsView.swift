@@ -23,7 +23,7 @@ struct SettingsView: View {
   @Environment(\.kitIdiom) private var idiom
   @Environment(AppModel.self) private var app
   @AppStorage("settings.pane") private var pane = LaunchOptions.value("--settings-pane") ?? "Sync"
-  @AppStorage("iCloudSync") private var iCloud = true
+  @State private var iCloud = VaultICloudStatus.shared
 
   /// The connected Hubs' names, or Off.
   private var hubValue: String {
@@ -35,10 +35,11 @@ struct SettingsView: View {
     // The values show on iPhone, where the panes are rows.
     KitSettings(selection: $pane, window: .titled) {
       SettingsPane("General", systemImage: "gearshape", hue: .gray) { GeneralPane() }
-      SettingsPane("Sync", systemImage: "arrow.triangle.2.circlepath", hue: .blue, value: iCloud ? "iCloud" : "Off") { SyncPane() }
+      SettingsPane("Sync", systemImage: "arrow.triangle.2.circlepath", hue: .blue, value: iCloud.isOff ? "Off" : "iCloud") { SyncPane() }
       SettingsPane("Recovery Key", systemImage: "key", hue: .orange, value: app.recovery.isOn ? "On" : "Off") { RecoveryKeyPane() }
       SettingsPane("AutoFill", systemImage: "rectangle.and.pencil.and.ellipsis", hue: .gray, value: "Off") { AutoFillPane() }
       SettingsPane("Hub", systemImage: "point.3.connected.trianglepath.dotted", hue: .purple, value: hubValue) { HubPane() }
+      SettingsPane("Privacy", systemImage: "hand.raised", hue: .blue) { VaultICloudCard() }
       // The accounts every v57 app shares; not in demo runs, which never open the user's vaults.
       if !app.isDemo {
         SettingsPane("Accounts", systemImage: "person.2", hue: .indigo, section: "v57") { VaultAccountsSettings() }
@@ -103,42 +104,38 @@ private struct GeneralPane: View {
 private struct SyncPane: View {
   @Environment(AppModel.self) private var app
   @Environment(\.kitIdiom) private var idiom
-  @AppStorage("iCloudSync") private var iCloud = true
   @AppStorage("remoteCheckMinutes") private var checkMinutes = RemoteCheck.five.rawValue
   @AppStorage("notifyConflicts") private var notifyConflicts = true
   @State private var replaced: [VaultSecretMove.Superseded] = []
   @State private var isShowingReplaced = false
 
   var body: some View {
-    FormCard {
-      FormRow(
-        "iCloud", help: "Records sync through your iCloud (\(VaultConfiguration.cloudContainer)). On while iCloud is on for this \(ThisDevice.word).",
-        systemImage: "icloud", hue: .blue
-      ) {
-        Toggle("iCloud", isOn: $iCloud).toggleStyle(.kitSwitch).kitLabelsHidden()
-      }
-      if let note = app.vault.store?.formatStatus.note {
-        FormRow("Other devices", help: note, systemImage: "clock", hue: .orange)
-      }
-      if !replaced.isEmpty {
-        FormRow(
-          "Replaced values",
-          help: "A password or code changed on two devices at once. The later value is in use, and the other is kept here. It’s never deleted.",
-          systemImage: "clock.arrow.circlepath", hue: .orange
-        ) {
-          Button("Show \(replaced.count)…") { isShowingReplaced = true }.buttonStyle(.kit)
+    VaultICloudCard()
+      .task { replaced = (try? VaultSecretMove.superseded()) ?? [] }
+    if app.vault.store?.formatStatus.note != nil || !replaced.isEmpty {
+      FormCard {
+        if let note = app.vault.store?.formatStatus.note {
+          FormRow("Other devices", help: note, systemImage: "clock", hue: .orange)
+        }
+        if !replaced.isEmpty {
+          FormRow(
+            "Replaced values",
+            help: "A password or code changed on two devices at once. The later value is in use, and the other is kept here. It’s never deleted.",
+            systemImage: "clock.arrow.circlepath", hue: .orange
+          ) {
+            Button("Show \(replaced.count)…") { isShowingReplaced = true }.buttonStyle(.kit)
+          }
         }
       }
-    }
-    .task { replaced = (try? VaultSecretMove.superseded()) ?? [] }
-    .sheet(isPresented: $isShowingReplaced) {
-      KitSheet(title: "Replaced Values", systemImage: "clock.arrow.circlepath", onClose: { isShowingReplaced = false }) {
-        VStack(alignment: .leading, spacing: 12) {
-          ForEach(replaced) { value in
-            VStack(alignment: .leading, spacing: 2) {
-              Text(value.secret).font(.caption).foregroundStyle(.secondary)
-              Text(String(data: value.value, encoding: .utf8) ?? value.value.base64EncodedString())
-                .font(.body.monospaced()).textSelection(.enabled)
+      .sheet(isPresented: $isShowingReplaced) {
+        KitSheet(title: "Replaced Values", systemImage: "clock.arrow.circlepath", onClose: { isShowingReplaced = false }) {
+          VStack(alignment: .leading, spacing: 12) {
+            ForEach(replaced) { value in
+              VStack(alignment: .leading, spacing: 2) {
+                Text(value.secret).font(.caption).foregroundStyle(.secondary)
+                Text(String(data: value.value, encoding: .utf8) ?? value.value.base64EncodedString())
+                  .font(.body.monospaced()).textSelection(.enabled)
+              }
             }
           }
         }

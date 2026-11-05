@@ -89,7 +89,8 @@ public final class Vault {
   }
 
   /// Starts iCloud sync for this app: call it once from the App's init. Does nothing without an iCloud account
-  /// or the CloudKit entitlement. Only Personal starts the engine; it carries every account.
+  /// or the CloudKit entitlement, and while the user has iCloud off (`VaultICloud`), until they turn it on. Only
+  /// Personal starts the engine; it carries every account.
   public func startSync() {
     guard sync == nil, isPersonal, let store else { return }
     sync = CloudSync(store: store) { [weak self] in

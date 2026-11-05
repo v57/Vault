@@ -91,13 +91,71 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     #endif
   }
 
-  /// Starts syncing once the iCloud account is available, and again whenever it changes.
+  /// Starts syncing once the iCloud account is available, and again whenever it changes. While the user has iCloud off
+  /// (`VaultICloud`) it only waits for the switch.
   public func start() {
     guard Self.isEntitled else {
       Self.log.notice(
         "Not entitled for \(VaultConfiguration.cloudContainer, privacy: .public) in Production: the vault stays on this device")
       return
     }
+    if switchObserver == nil {
+      switchObserver = VaultChangeObserver(name: VaultICloud.changeNotification) { [weak self] in
+        self?.followSwitch()
+      }
+    }
+    followSwitch()
+  }
+
+  /// Runs or stops to match the user's switch.
+  private func followSwitch() {
+    let isRunning = lock.withLock { wasStarted }
+    if VaultICloud.isOff {
+      if isRunning { stop() }
+    } else if !isRunning {
+      begin()
+    }
+  }
+
+  /// Leaves CloudKit: no engine, no observers, no pushes. Nothing is lost: the engine's state stays in the store, and
+  /// writes wait in the outbox for the next `begin`. What another app had leased goes back when the lease runs out.
+  private func stop() {
+    let engine: CKSyncEngine? = lock.withLock {
+      defer {
+        self.engine = nil
+        wasStarted = false
+      }
+      return self.engine
+    }
+    for observer in observers { NotificationCenter.default.removeObserver(observer) }
+    observers = []
+    changeObserver = nil
+    outboxTimer?.invalidate()
+    outboxTimer = nil
+    if let accountsToken {
+      zones.accounts.stopObserving(accountsToken)
+      self.accountsToken = nil
+    }
+    let stores = lock.withLock {
+      defer { attached = [:] }
+      return Array(attached.values)
+    }
+    for store in stores {
+      store.sendsOwnWrites = false
+      store.didWriteLocally = nil
+    }
+    lock.withLock { healthy = nil }
+    #if canImport(AppKit)
+      NSApplication.shared.unregisterForRemoteNotifications()
+    #else
+      UIApplication.shared.unregisterForRemoteNotifications()
+    #endif
+    guard let engine else { return }
+    Self.log.notice("iCloud is off: the vault stays on this device")
+    Task { await engine.cancelOperations() }
+  }
+
+  private func begin() {
     lock.withLock { wasStarted = true }
     observers.append(
       NotificationCenter.default.addObserver(forName: .CKAccountChanged, object: nil, queue: .main) { [weak self] _ in
@@ -133,6 +191,8 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   public var isRunning: Bool { currentEngine != nil }
 
   private var changeObserver: VaultChangeObserver?
+  /// Follows the user's iCloud switch (`VaultICloud`).
+  private var switchObserver: VaultChangeObserver?
   private static let productionMark = "environment.production"
 
   deinit {
@@ -143,7 +203,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
 
   private func startIfSignedIn() {
     // Still on the old file: `syncNow` tries again. An engine started now would lose what it fetched.
-    guard !store.isWaitingToMigrate else { return }
+    guard !store.isWaitingToMigrate, !VaultICloud.isOff else { return }
     let container = CKContainer(identifier: VaultConfiguration.cloudContainer)
     Task {
       do {
@@ -152,7 +212,10 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
           Self.log.notice("iCloud account not available (\(status.rawValue)): the vault stays on this device")
           return
         }
+        // The switch may have moved while CloudKit answered.
+        guard !VaultICloud.isOff else { return }
         let subscription = await ensureSubscription(in: container.privateCloudDatabase)
+        guard !VaultICloud.isOff else { return }
         startEngine(container, subscriptionID: subscription)
       } catch {
         record(error)
@@ -437,6 +500,8 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   public func nextRecordZoneChangeBatch(
     _ context: CKSyncEngine.SendChangesContext, syncEngine: CKSyncEngine
   ) async -> CKSyncEngine.RecordZoneChangeBatch? {
+    // A send that was under way when the user turned iCloud off takes nothing more; it waits in the outbox.
+    guard !VaultICloud.isOff else { return nil }
     let pending = syncEngine.state.pendingRecordZoneChanges.filter { context.options.scope.contains($0) }
     guard !pending.isEmpty else { return nil }
     return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { [zones] recordID in

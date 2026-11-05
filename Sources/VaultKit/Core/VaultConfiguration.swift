@@ -60,6 +60,15 @@ public enum VaultConfiguration {
     return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("dev.v57.vault", isDirectory: true)
   }
 
+  /// The file that says iCloud is off on this device (`VaultICloud`), beside the store. A run with secrets in memory has
+  /// its own, so a demo can't turn iCloud off for the real apps.
+  static var iCloudOffFile: URL {
+    (VaultSecrets.isInMemory ? memoryRunDirectory : storeDirectoryOnce).appendingPathComponent("iCloud-off")
+  }
+
+  /// `defaultDirectory()` for a process keeping real secrets, worked out once: the keychain asks for each synced item.
+  private static let storeDirectoryOnce = defaultDirectory()
+
   /// The store's folder in a run with secrets in memory, one per process.
   private static let memoryRunDirectory = FileManager.default.temporaryDirectory
     .appendingPathComponent("dev.v57.vault-\(UUID().uuidString)", isDirectory: true)
