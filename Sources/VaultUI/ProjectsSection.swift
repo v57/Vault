@@ -22,6 +22,15 @@ public enum VaultProjectsLayout: String, CaseIterable, Identifiable, Sendable {
     case .inline: "Project Inside the List"
     }
   }
+
+  /// What the layout does, for the menu's preview panel.
+  public var preview: String {
+    switch self {
+    case .separate: "Shows the picked project in a section under the list, which stays open."
+    case .folding: "Folds the list away once you pick a project, leaving its section the room. Its header opens it again."
+    case .inline: "Shows the picked project right under its row in the list."
+    }
+  }
 }
 
 /// How a `VaultProjectsSection` orders the projects and groups beside one another.
@@ -51,6 +60,19 @@ public enum VaultProjectsSort: String, CaseIterable, Identifiable, Sendable {
     case .changes: "With Changes First"
     case .lastCommit: "Last Commit"
     case .lastPush: "Last Push"
+    }
+  }
+
+  /// How it orders them, for the menu's preview panel.
+  public var preview: String {
+    switch self {
+    case .arranged: "In the order you arranged them, in this app or any other."
+    case .name: "By name, A to Z, groups too."
+    case .added: "The projects added last first."
+    case .recent: "The projects opened here last first."
+    case .changes: "Those with something to commit, push or pull first, as their devices last said."
+    case .lastCommit: "The newest commit on any of your devices first."
+    case .lastPush: "The newest push from any of your devices first."
     }
   }
 }
@@ -427,13 +449,13 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
       KitMenuSection("Show the Project") {
         KitMenuOptions(
           selection: Binding(get: { layout }, set: { new in withKitAnimation { layout = new } }),
-          options: VaultProjectsLayout.allCases.map { ($0.title, $0) })
+          options: VaultProjectsLayout.allCases.map { ($0.title, $0, $0.preview) })
       }
     }
     KitMenuSection("Sort By") {
       KitMenuOptions(
         selection: Binding(get: { sort }, set: { new in withKitAnimation { sort = new } }),
-        options: availableSorts.map { ($0.title, $0) })
+        options: availableSorts.map { ($0.title, $0, $0.preview) })
     }
     if Menu.self != EmptyView.self || remove != nil {
       Divider()
@@ -442,6 +464,8 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
         Button("Remove All Projects from List", systemImage: "minus.circle") {
           if asksBeforeRemovingAll { confirmsRemoveAll = true } else { remove?(tree.projects().map(\.id)) }
         }
+        .kitMenuPreview(
+          (asksBeforeRemovingAll ? "Asks, then empties" : "Empties") + " this list. The projects stay in the other apps, and on disk.")
       }
     }
   }
@@ -479,6 +503,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
       if let folder = project.localURL {
         if !openWithFirst { KitOpenWithRow(Self.openApps(project.name, at: folder, openApps?(project))) }
         Button("Copy Path", systemImage: "doc.on.doc") { KitPasteboard.copy(folder.path) }
+          .kitMenuPreview(folder.path)
         if remove != nil { Divider() }
       }
       if let remove {
@@ -539,10 +564,12 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
         } else {
           if renameGroup != nil {
             Button("Rename…", systemImage: "pencil") { renamingGroup = group.id }
+              .kitMenuPreview("Edits \(group.name)’s name in the list.")
           }
           if let folder = group.localURL {
             KitOpenWithRow(Self.openApps(group.name, at: folder, nil))
             Button("Copy Path", systemImage: "doc.on.doc") { KitPasteboard.copy(folder.path) }
+              .kitMenuPreview(folder.path)
           }
           if let remove {
             if idiom.isTouch || group.localURL != nil || renameGroup != nil { Divider() }
