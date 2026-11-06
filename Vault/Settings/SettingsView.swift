@@ -22,7 +22,7 @@ struct SettingsView: View {
   #endif
   @Environment(\.kitIdiom) private var idiom
   @Environment(AppModel.self) private var app
-  @AppStorage("settings.pane") private var pane = LaunchOptions.value("--settings-pane") ?? "Sync"
+  @KitStorage("settings.pane") private var pane = LaunchOptions.value("--settings-pane") ?? "Sync"
   @State private var iCloud = VaultICloudStatus.shared
 
   /// The connected Hubs' names, or Off.
@@ -89,7 +89,7 @@ struct SettingsView: View {
 #endif
 
 private struct GeneralPane: View {
-  @AppStorage("defaultLockMinutes") private var lockMinutes = LockAfter.thirty.rawValue
+  @KitStorage("defaultLockMinutes") private var lockMinutes = LockAfter.thirty.rawValue
 
   var body: some View {
     FormCard {
@@ -104,8 +104,8 @@ private struct GeneralPane: View {
 private struct SyncPane: View {
   @Environment(AppModel.self) private var app
   @Environment(\.kitIdiom) private var idiom
-  @AppStorage("remoteCheckMinutes") private var checkMinutes = RemoteCheck.five.rawValue
-  @AppStorage("notifyConflicts") private var notifyConflicts = true
+  @KitStorage("remoteCheckMinutes") private var checkMinutes = RemoteCheck.five.rawValue
+  @KitStorage("notifyConflicts") private var notifyConflicts = true
   @State private var replaced: [VaultSecretMove.Superseded] = []
   @State private var isShowingReplaced = false
 

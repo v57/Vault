@@ -13,7 +13,7 @@ struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
   #endif
   /// iPhone: the welcome was opened past once ("Open Vault"); later launches start on the root list.
-  @AppStorage("welcome.opened") private var welcomeOpened = false
+  @KitStorage("welcome.opened") private var welcomeOpened = false
   @Environment(\.scenePhase) private var scenePhase
   #if DEBUG
     // `--hide-sidebar`: iPad portrait screenshots.
@@ -36,11 +36,7 @@ struct ContentView: View {
       DetailView()
         .kitSidebarToggle(columnVisibility: $columnVisibility)
     }
-    // The kit's overlay on the Mac and iPad; the system sheet on iPhone, half height for the bottom sheets.
-    .kitSheet(item: Binding(get: { app.sheet == .scanInvite && idiom == .phone ? nil : app.sheet }, set: { app.sheet = $0 })) { sheet in
-      SheetContent(sheet: sheet)
-        .presentationDetents(idiom == .phone && sheet.isBottomSheet ? [.medium, .large] : [.large])
-    }
+    .modifier(SheetHost())
     #if os(iOS)
       // iPhone: the welcome is the first screen, full height, until "Open Vault" (the Mac and iPad show it inline).
       .fullScreenCover(isPresented: Binding(get: { showsPhoneWelcome && idiom == .phone }, set: { showsPhoneWelcome = $0 })) {
@@ -59,7 +55,7 @@ struct ContentView: View {
           .componentKit(accent: .vaultAccent)
       }
     #endif
-    .onChange(of: app.selection) { _, _ in compactColumn = .detail }
+    .modifier(SelectionFollower(compactColumn: $compactColumn))
     .onOpenURL { url in app.sharing.open(url) }
     .onChange(of: scenePhase) { _, phase in
       // Leaving the screen: ask for a background turn to check remotes (iPhone and iPad; nothing on the Mac).
@@ -84,6 +80,32 @@ struct ContentView: View {
         }
       #endif
     }
+  }
+}
+
+/// The window's sheets. A modifier of its own: read in the window's body, the sheet (and the binding the kit's sheet
+/// takes reads it when made) updated the whole split view each time it changed.
+private struct SheetHost: ViewModifier {
+  @Environment(AppModel.self) private var app
+  @Environment(\.kitIdiom) private var idiom
+
+  func body(content: Content) -> some View {
+    // The kit's overlay on the Mac and iPad; the system sheet on iPhone, half height for the bottom sheets.
+    content.kitSheet(item: Binding(get: { app.sheet == .scanInvite && idiom == .phone ? nil : app.sheet }, set: { app.sheet = $0 })) { sheet in
+      SheetContent(sheet: sheet)
+        .presentationDetents(idiom == .phone && sheet.isBottomSheet ? [.medium, .large] : [.large])
+    }
+  }
+}
+
+/// A new selection shows the detail column (iPhone). A modifier of its own, so a selection change updates it, not the
+/// window's body with the split view and both its columns.
+private struct SelectionFollower: ViewModifier {
+  @Binding var compactColumn: NavigationSplitViewColumn
+  @Environment(AppModel.self) private var app
+
+  func body(content: Content) -> some View {
+    content.onChange(of: app.selection) { _, _ in compactColumn = .detail }
   }
 }
 
