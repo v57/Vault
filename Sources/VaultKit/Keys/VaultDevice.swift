@@ -73,8 +73,22 @@ public enum VaultDevice {
   }
 
   /// The IPv4 and IPv6 addresses of the device's network interfaces now, its Hub Network overlay address among them
-  /// while that's connected. Empty where it can't tell (Windows).
+  /// while that's connected. Empty where it can't tell (Windows). Read again at most once a second: views ask for it
+  /// as they update, and reading the interfaces took about a millisecond.
   public static var addresses: Set<String> {
+    let now = Date()
+    addressesLock.lock()
+    defer { addressesLock.unlock() }
+    if let recent = recentAddresses, now.timeIntervalSince(recent.at) < 1 { return recent.addresses }
+    let addresses = readAddresses()
+    recentAddresses = (now, addresses)
+    return addresses
+  }
+
+  private static let addressesLock = NSLock()
+  nonisolated(unsafe) private static var recentAddresses: (at: Date, addresses: Set<String>)?
+
+  private static func readAddresses() -> Set<String> {
     #if canImport(Darwin) || canImport(Glibc)
       var list: UnsafeMutablePointer<ifaddrs>?
       guard getifaddrs(&list) == 0, let first = list else { return [] }

@@ -330,9 +330,10 @@ public final class Vault {
 
   /// Whether a host is this device itself: the Mac it published, or a Hub device at one of this device's addresses
   /// (the Hub app on this Mac is a device of its own on the Hub, with an id the v57 apps don't know).
-  public func isThisDevice(_ host: VaultHost, addresses: Set<String> = VaultDevice.addresses) -> Bool {
+  /// The addresses are read only for a host via Hub (`VaultDevice.addresses` when not given).
+  public func isThisDevice(_ host: VaultHost, addresses: Set<String>? = nil) -> Bool {
     if vaultDevice(of: host) == deviceID { return true }
-    return host.isViaHub && addresses.contains(host.hostname)
+    return host.isViaHub && (addresses ?? VaultDevice.addresses).contains(host.hostname)
   }
 
   /// The vault device a host via Hub is, when that device runs a v57 app connected to the Hub: the key to its
