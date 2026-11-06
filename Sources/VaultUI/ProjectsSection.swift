@@ -132,10 +132,10 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   var asksBeforeRemovingAll = true
   @State private var renamingGroup: String?
   @State private var confirmsRemoveAll = false
-  @AppStorage private var layout: VaultProjectsLayout
-  @AppStorage private var sort: VaultProjectsSort
+  @KitStorage private var layout: VaultProjectsLayout
+  @KitStorage private var sort: VaultProjectsSort
   /// The folded list is open (`.folding`).
-  @AppStorage private var isListOpen: Bool
+  @KitStorage private var isListOpen: Bool
   @Environment(\.kitIdiom) private var idiom
 
   /// A row's tile: the Mac's small one, the touch rows' 32pt.
@@ -153,9 +153,9 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     _collapsedGroups = collapsedGroups
     self.content = content
     self.menu = menu
-    _layout = AppStorage(wrappedValue: layout, "\(key)Layout")
-    _sort = AppStorage(wrappedValue: sort, "\(key)Sort")
-    _isListOpen = AppStorage(wrappedValue: false, "\(key)ListOpen")
+    _layout = KitStorage(wrappedValue: layout, "\(key)Layout")
+    _sort = KitStorage(wrappedValue: sort, "\(key)Sort")
+    _isListOpen = KitStorage(wrappedValue: false, "\(key)ListOpen")
   }
 
   // MARK: Options
