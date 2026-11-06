@@ -456,7 +456,14 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     }
     .progress(rowProgress?(project), status: .working)
     .isCurrent(project.id == selection)
-    .action { withKitAnimation { selection = project.id } }
+    .action {
+      withKitAnimation {
+        selection = project.id
+        // Folded here too: an app that shows the project by rebuilding the section (Code's window switching to it)
+        // never reaches the onChange below.
+        if layout == .folding, !opensElsewhere { isListOpen = false }
+      }
+    }
     .opacity(rowDimmed?(project) == true ? 0.5 : 1)
     .kitHelp(project.name, meta: project.localPath.map(Self.place))
     // No menu without items: a held row on iPhone opened an empty one.
