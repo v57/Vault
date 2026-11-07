@@ -379,6 +379,17 @@ change goes into the outbox so a device with both carries it to iCloud. HubSync 
 envelopes, makes every device send everything again. The vault's mailbox id is derived from the vault keys. Tested
 with a fake mailbox (`HubSyncTests`) and live against hub-pro and hub-vault (`HubRecordSyncLiveTests`, `HUB_E2E_PORT`).
 
+## With and without the sandbox
+
+The apps share code between sandboxed builds (iPhone and iPad, the App Store) and ones without the sandbox (a Mac
+direct download). `AppSandbox` says which at run time and where the app keeps its data: the container's Application
+Support and Documents in the sandbox, `Application Support/<bundle id>` (and `Documents` in it) on a Mac without it,
+since the user's own folders are every app's. `AppSandbox.carryOverContainer()`, first thing at launch, copies a
+sandboxed build's settings, Application Support and Documents from its container once. `FolderGrants` keeps the
+folders the user let a sandboxed Mac app open (security-scoped bookmarks, a folder inside a granted one too), and
+VaultUI's `VaultFolderAccess.request` opens a folder: as it is without the sandbox, else with a grant, else after the
+open panel, which starts on the folder around the app's projects so one pick opens them all.
+
 ## Turning iCloud off
 
 Settings ▸ Privacy in every app that syncs has one switch (`VaultICloudCard`, in VaultUI), for every v57 app on the
@@ -422,6 +433,7 @@ sample data only for folder sync and remote listings. It never touches the user'
 | `Keys/` | `VaultKeychain` (shared group), `VaultKeys` (AES keys, sealing), `VaultIdentity` (SSH key, `PresenceGate`), `VaultSecrets`, `VaultSecretMove`, `VaultDevice`, the recovery key (`VaultRecovery`, `RecoverySecret` and `RecoveryWordList`, `RecoveryKit`, the `VaultRecoveryKey` and `VaultRecoveryBlob` records) |
 | `Store/` | `VaultStore` (SQLite, outbox, merging records in), change notifications, `VaultFieldChange` (each field's last write: when, which device) |
 | `Records/` | Typed records: `VaultProject`, `VaultProjectGroup` (with `VaultProjectTree`), `VaultHost` (with its `HubRoute` and `DeviceRoute`, and `VaultDeviceHost`'s publishing), `VaultKnownHost`, `VaultDeviceKey`, `VaultHubServer` (with `VaultHubDevice` and the mirror), `VaultDatabase`, `VaultNote`, `VaultNoteFile`, `VaultLogin`, `VaultCard`, `VaultFolder`, `VaultRemote` |
+| `Sandbox/` | `AppSandbox` (sandboxed or not, the app's data folders, carrying a container's data over), `FolderGrants` (remembered folder access) |
 | `Remote/` | `RemoteFileSystem` (list, stat, read range, write, rename, delete), `MemoryRemoteFileSystem`, `LocalRemoteFileSystem`, `S3FileSystem` (AWS S3, R2, B2, MinIO; `AWSSignatureV4`, an injectable `S3Transport`), `RemoteConnections` (the file system for a `VaultRemote`) |
 | `Sharing/` | `PersonalIdentity` (X25519 + Ed25519, one per person, `VaultPersonalIdentity`), `PublicIdentity` (`v57id:`), `SafetyCode`, `KeyWrap` (a key sealed to a person), `VaultPerson`, `VaultInvite` (`v57vault://invite`) |
 | `Sync/` | `SyncCoordinator` (the sync rules, testable), `CloudSync` (the `CKSyncEngine` adapter) |
