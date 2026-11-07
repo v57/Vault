@@ -56,7 +56,10 @@ struct ContentView: View {
       }
     #endif
     .modifier(SelectionFollower(compactColumn: $compactColumn))
-    .onOpenURL { url in app.sharing.open(url) }
+    .onOpenURL { url in
+      // Open in Vault: a PDF or picture goes to Add Document; anything else is an invite link.
+      if url.isFileURL { app.importDocuments([url]) } else { app.sharing.open(url) }
+    }
     .onChange(of: scenePhase) { _, phase in
       // Leaving the screen: ask for a background turn to check remotes (iPhone and iPad; nothing on the Mac).
       if phase == .background, !app.isDemo { AppModel.scheduleBackgroundRefresh() }
@@ -142,6 +145,7 @@ struct DetailView: View {
     case .hosts: HostsView()
     case .databases: DatabasesView()
     case .projects: ProjectsView()
+    case .documents(let scope): DocumentsScreen(scope: scope)
     case .folder(let id): FolderScreen(folderID: id).id(id)
     case .location(let id): LocationView(locationID: id).id(id)
     case .devices: DevicesView()
@@ -168,6 +172,9 @@ struct SheetContent: View {
     case .addHub: AddHubSheet()
     case .scanInvite: ScanInviteSheet()
     case .autoFillPreview: AutoFillPreview()
+    case .addDocument: AddDocumentSheet()
+    case .editDocument(let id): AddDocumentSheet(editing: id)
+    case .shareCopy(let id): ShareCopySheet(documentID: id)
     }
   }
 }

@@ -11,6 +11,9 @@
       location = "group:../SSH">
    </FileRef>
    <FileRef
+      location = "group:../Platform">
+   </FileRef>
+   <FileRef
       location = "group:../UpdateKit">
    </FileRef>
    <FileRef

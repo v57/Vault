@@ -18,6 +18,7 @@ struct SidebarView: View {
       // The window's account; nothing while Personal is the only one.
       VaultAccountPicker(meta: "\(app.itemCount) items")
       itemsSection
+      DocumentsSection()
       FoldersSection()
       LocationsSection()
       keysSection
@@ -115,6 +116,40 @@ private struct SelectingSidebar<Content: View, BottomBar: View, Status: View>: V
   }
 }
 
+/// Documents: every one, the inbox (not filed yet) and the collections, with what's coming up in the header.
+private struct DocumentsSection: View {
+  @Environment(AppModel.self) private var app
+
+  var body: some View {
+    let vault = app.vault
+    let inbox = vault.documents(in: DocumentScope.inbox).count
+    let renew = vault.documentEvents.filter { $0.remindOn <= .now }.count
+    KitSection(
+      "Documents", meta: ["\(vault.documents.count) documents"] + (renew > 0 ? ["\(renew) to renew"] : []),
+      systemImage: "doc.text.image", hue: .blue
+    ) {
+      SidebarRow(value: SidebarItem.documents(DocumentScope.all), "All Documents", systemImage: "doc.on.doc") {
+        Count(vault.documents.count)
+      }
+      if inbox > 0 {
+        SidebarRow(value: SidebarItem.documents(DocumentScope.inbox), "Inbox", systemImage: "tray") {
+          Count(inbox, .attention)
+        }
+      }
+      ForEach(vault.documentCollections) { collection in
+        SidebarRow(
+          value: SidebarItem.documents(collection.id), collection.name, systemImage: DocumentSymbol.image(collection.symbol),
+          hue: Hue(colorName: collection.color)
+        ) {
+          Count(vault.documents.filter { $0.collection == collection.id }.count)
+        }
+      }
+    } accessory: {
+      Button("New Document", systemImage: "plus") { app.newDocument() }
+    }
+  }
+}
+
 /// Encrypted and synced folders. A decrypted folder turns the header's tile into its countdown.
 private struct FoldersSection: View {
   @Environment(AppModel.self) private var app
@@ -209,6 +244,7 @@ struct NewMenu: View {
     Button("New Login…", systemImage: "key.horizontal") { app.sheet = .newItem(.login) }
     Button("New Card…", systemImage: "creditcard") { app.sheet = .newItem(.card) }
     Button("New SSH Host…", systemImage: "server.rack") { app.sheet = .newItem(.host) }
+    Button("New Document…", systemImage: "doc.viewfinder") { app.newDocument() }
     Divider()
     Button("New Encrypted Folder…", systemImage: "lock.rectangle.stack") { app.sheet = .newItem(.folder) }
     Button("Add Remote…", systemImage: "externaldrive.badge.icloud") { app.sheet = .addRemote }

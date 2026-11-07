@@ -19,6 +19,25 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Open in Vault: PDFs and pictures from Finder's Open With and the share sheet go to Add Document. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.adobe.pdf</string>
+				<string>public.image</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<false/>
 	<!-- Animations and scrolling at up to 120 fps on an iPhone with ProMotion; without it they stop at 60. -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>

@@ -8,6 +8,8 @@ import VaultKit
 /// What the sidebar opens.
 nonisolated enum SidebarItem: Hashable, Sendable {
   case logins, cards, notes, hosts, databases, projects
+  /// Documents: `DocumentScope.all`, `.inbox` or a collection's id.
+  case documents(String)
   case folder(String)
   case location(String)
   case devices, hub, recoveryKey
@@ -27,9 +29,13 @@ nonisolated enum SidebarItem: Hashable, Sendable {
     case "hub": self = .hub
     case "recovery-key": self = .recoveryKey
     case "settings": self = .settings
+    case "documents": self = .documents(DocumentScope.all)
+    case "inbox": self = .documents(DocumentScope.inbox)
     default:
       if argument.hasPrefix("folder:") {
         self = .folder(String(argument.dropFirst(7)))
+      } else if argument.hasPrefix("documents:") {
+        self = .documents(String(argument.dropFirst(10)))
       } else if argument.hasPrefix("location:") {
         self = .location(String(argument.dropFirst(9)))
       } else {
@@ -54,6 +60,12 @@ enum AppSheet: Identifiable, Hashable {
   /// The AutoFill extension's sheet over the demo logins (`--sheet autofill`, demo runs only): the extension itself
   /// opens from Safari's suggestion and reads the shared store.
   case autoFillPreview
+  /// Add Document over the pages in `AppModel.documentImport` (none yet: the ways to add them).
+  case addDocument
+  /// Edit the document with this id.
+  case editDocument(String)
+  /// Share a Copy of the document with this id.
+  case shareCopy(String)
 
   var id: Self { self }
 
@@ -99,6 +111,11 @@ final class AppModel {
   var selectedProject: String?
   var selectedPerson: String?
   var selectedHubDevice: String?
+  /// The document the library has selected, and the one opened large in its place (board 02).
+  var selectedDocument: String?
+  var openDocument: String?
+  /// Pages on their way into Add Document: scanned, imported, dropped or opened in Vault.
+  var documentImport = DocumentImport()
   /// When iCloud last synced, as this app saw it.
   var lastSync: Date?
 
@@ -224,6 +241,11 @@ final class AppModel {
     if let name = LaunchOptions.value("--person") {
       selectedPerson = sharing.people.first { $0.name == name }?.id
     }
+    // `--document <title>` selects it, `--open-document` opens it large.
+    if let title = LaunchOptions.value("--document") {
+      selectedDocument = vault.documents.first { $0.displayName(kinds: vault.documentKinds) == title }?.id
+      if LaunchOptions.flag("--open-document") { openDocument = selectedDocument }
+    }
     switch LaunchOptions.value("--sheet") {
     case "new-login": sheet = .newItem(.login)
     case "edit-host": if let id = selectedHost { sheet = .editHost(id) }
@@ -233,8 +255,12 @@ final class AppModel {
     case "scan": sheet = .scanInvite
     case "add-hub": sheet = .addHub
     case "autofill": if isDemo { sheet = .autoFillPreview }
+    case "add-document": sheet = .addDocument
+    case "share-copy": if let id = selectedDocument { sheet = .shareCopy(id) }
     default: break
     }
+    // `--import <path>` (demo only): the file as if it was opened in Vault.
+    if isDemo, let path = LaunchOptions.value("--import") { importDocuments([URL(fileURLWithPath: path)]) }
     if selectedLogin == nil { selectedLogin = vault.logins.first { $0.favorite }?.id ?? vault.logins.first?.id }
     if selectedHost == nil { selectedHost = vault.hosts.first?.id }
     if selectedDatabase == nil { selectedDatabase = vault.databases.first?.id }
@@ -252,6 +278,8 @@ final class AppModel {
     switch item {
     case .folder(let name): .folder(folders.folders.first { $0.name == name }?.id ?? name)
     case .location(let name): .location(remotes.locations.first { $0.name == name }?.id ?? name)
+    case .documents(let name):
+      .documents(vault.documentCollections.first { $0.name.lowercased() == name.lowercased() }?.id ?? name)
     default: item
     }
   }

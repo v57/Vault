@@ -44,6 +44,8 @@ struct VaultApp: App {
       VaultCommands(personal: app)
       #if os(macOS)
         UpdaterCommands(updater: updater)
+        // File ▸ Import from iPhone or iPad: Take Photo and Scan Documents go to the focused Documents screen.
+        ImportFromDevicesCommands()
       #endif
     }
     #if os(macOS)
@@ -146,6 +148,9 @@ struct VaultCommands: Commands {
       Button("New Encrypted Folder…") { app.sheet = .newItem(.folder) }
         .keyboardShortcut("n", modifiers: [.command, .shift])
       Button("Add Remote…") { app.sheet = .addRemote }
+      Divider()
+      Button("New Document…") { app.newDocument() }
+        .keyboardShortcut("n", modifiers: [.command, .option])
     }
     CommandMenu("Vault") {
       Button("Sync Now") { app.syncNow() }

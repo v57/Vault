@@ -25,6 +25,7 @@ enum DemoVault {
       let air = try VaultStore(directory: root.appendingPathComponent("store"), keys: keys, deviceID: airDevice, notifier: nil)
       let pad = try VaultStore(directory: root.appendingPathComponent("store"), keys: keys, deviceID: padDevice, notifier: nil)
       try seed(store: store, air: air, pad: pad, keys: keys, root: root)
+      try DemoDocuments.seed(store)
       let vault = Vault(store: store)
       let folders = FolderLibrary(vault: vault, keys: keys, sync: DemoFolderSync(vault: vault), decryptedRoot: root.appendingPathComponent("Decrypted"))
       let remotes = RemoteLibrary(vault: vault, backends: remoteBackends(vault), offline: Set(vault.remotes.filter { $0.name == "nas" }.map(\.id)), home: root.appendingPathComponent("Folders"))
