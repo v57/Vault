@@ -39,6 +39,9 @@ public struct VaultDocument: VaultRecord, Hashable {
   public var text: String
   /// A JPEG of the first page, about 240 points on its long side.
   public var thumbnail: Data?
+  /// Saved without reading its pages (shared from another app): the app reads them, suggests a kind and fields,
+  /// and turns this off.
+  public var needsReading: Bool
   public private(set) var copies: [String: SharedCopy]
   public var order: Int
   public var created: Date?
@@ -97,6 +100,7 @@ public struct VaultDocument: VaultRecord, Hashable {
     self.notes = notes
     text = ""
     thumbnail = nil
+    needsReading = false
     copies = [:]
     self.order = order
     self.created = created?.wholeSeconds
@@ -122,6 +126,7 @@ public struct VaultDocument: VaultRecord, Hashable {
     notes = read.string("notes", default: "")
     text = read.string("text", default: "")
     thumbnail = read.data("thumbnail")
+    needsReading = read.bool("unread")
     var copies: [String: SharedCopy] = [:]
     for (key, value) in values where key.hasPrefix("copy.") {
       if let copy = SharedCopy(value) { copies[String(key.dropFirst(5))] = copy }
@@ -135,7 +140,8 @@ public struct VaultDocument: VaultRecord, Hashable {
     var values: [String: JSONValue] = [
       "title": .string(title), "kind": .string(kind), "collection": .string(collection), "holder": .string(holder),
       "remindMonths": .init(remindMonths), "notes": .string(notes), "text": .string(text),
-      "thumbnail": .init(thumbnail?.base64EncodedString()), "order": .init(order), "created": .init(created),
+      "thumbnail": .init(thumbnail?.base64EncodedString()), "unread": needsReading ? .bool(true) : .null,
+      "order": .init(order), "created": .init(created),
     ]
     values.set(fields.filter { !$0.value.isEmpty }, prefixed: "field")
     for tag in tags { values["tag.\(tag)"] = .bool(true) }
@@ -326,6 +332,33 @@ public struct VaultDocumentCollection: VaultRecord, Hashable {
   ]
 }
 
+/// A file shared from another app, as `VaultStore.addSharedFiles` takes it.
+public struct SharedFile: Sendable, Hashable {
+  public var name: String
+  public var contentType: String
+  public var data: Data
+  public var width: Int
+  public var height: Int
+  public var pageCount: Int
+  /// A small JPEG of its first page, when the sharing side could make one.
+  public var thumbnail: Data?
+
+  public init(
+    name: String, contentType: String, data: Data, width: Int = 0, height: Int = 0, pageCount: Int = 1,
+    thumbnail: Data? = nil
+  ) {
+    self.name = name
+    self.contentType = contentType
+    self.data = data
+    self.width = width
+    self.height = height
+    self.pageCount = pageCount
+    self.thumbnail = thumbnail
+  }
+
+  public var isPDF: Bool { contentType == "application/pdf" }
+}
+
 /// Whose a document is: a person in the household, with or without a device of their own (a child has a passport
 /// but no keys). Not the address book and not the people folders are shared with.
 public struct VaultHolder: VaultRecord, Hashable {
@@ -380,6 +413,36 @@ extension VaultStore {
     let document = try record(VaultDocument.self, id: file.document)
     let last = document?.files.values.max() ?? 0
     try save(id: file.document, kind: VaultDocument.kind, changes: ["file.\(file.id)": .double(place ?? last + 1)])
+  }
+
+  /// Files shared from another app (the share sheet), saved to the Inbox without reading them: pictures shared
+  /// together are one document's pages (a card's front and back), each PDF is a document of its own. The app reads
+  /// them later (`needsReading`). Returns the documents in the order the files came.
+  @discardableResult
+  public func addSharedFiles(_ files: [SharedFile], now: Date = .now) throws -> [VaultDocument] {
+    var groups: [[SharedFile]] = []
+    for file in files {
+      if !file.isPDF, let last = groups.last, last.allSatisfy({ !$0.isPDF }) {
+        groups[groups.count - 1].append(file)
+      } else {
+        groups.append([file])
+      }
+    }
+    let order = (try records(VaultDocument.self).map(\.order).max() ?? -1) + 1
+    var documents: [VaultDocument] = []
+    for (index, group) in groups.enumerated() {
+      var document = VaultDocument(title: group[0].name, order: order + index, created: now)
+      document.needsReading = true
+      document.thumbnail = group[0].thumbnail
+      try save(document)
+      for file in group {
+        try addFile(VaultDocumentFile(
+          document: document.id, name: file.name, contentType: file.contentType, data: file.data, width: file.width,
+          height: file.height, pageCount: file.pageCount, created: now))
+      }
+      documents.append(try record(VaultDocument.self, id: document.id) ?? document)
+    }
+    return documents
   }
 
   /// Removes a file from its document and deletes it.

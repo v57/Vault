@@ -12,6 +12,28 @@ struct DocumentStoreTests {
     try VaultStore(directory: temporaryDirectory(), keys: keys, deviceID: device, notifier: nil, owner: device)
   }
 
+  @Test func sharedFilesWaitInTheInboxToBeRead() throws {
+    let store = try makeStore()
+    let front = SharedFile(name: "IMG_1", contentType: "image/jpeg", data: Data([1]), width: 10, height: 6, thumbnail: Data([9]))
+    let back = SharedFile(name: "IMG_2", contentType: "image/jpeg", data: Data([2]), width: 10, height: 6)
+    let policy = SharedFile(name: "Policy", contentType: "application/pdf", data: Data([3]), pageCount: 4)
+    let receipt = SharedFile(name: "Receipt", contentType: "image/png", data: Data([4]))
+
+    let documents = try store.addSharedFiles([front, back, policy, receipt])
+    #expect(documents.map(\.title) == ["IMG_1", "Policy", "Receipt"])
+    #expect(documents.allSatisfy { $0.needsReading && $0.collection.isEmpty && $0.kind == DocumentKind.other.id })
+    #expect(documents[0].thumbnail == Data([9]))
+    #expect(try store.files(of: documents[0]).map(\.data) == [Data([1]), Data([2])])
+    #expect(try store.files(of: documents[1]).map(\.pageCount) == [4])
+
+    // Read: the flag goes, and is gone on the record.
+    var read = documents[0]
+    read.needsReading = false
+    try store.save(read)
+    #expect(try store.record(VaultDocument.self, id: read.id)?.needsReading == false)
+    #expect(try store.record(VaultDocument.self, id: documents[1].id)?.needsReading == true)
+  }
+
   @Test func documentRoundTrips() throws {
     let store = try makeStore()
     var document = VaultDocument(
@@ -309,6 +331,12 @@ struct MachineReadableZoneTests {
 }
 
 struct DocumentReaderTests {
+  @Test func kindWordsStartAWord() {
+    #expect(DocumentReader.guessKind("nebenkostenabrechnung\nnachzahlung € 128,40") == DocumentKind.other.id)
+    #expect(DocumentReader.guessKind("rechnung nr. 2025-11-4471") == DocumentKind.warranty.id)
+    #expect(DocumentReader.guessKind("ihre gehaltsabrechnung") == DocumentKind.payslip.id)
+  }
+
   @Test func passportZoneFillsFields() {
     let suggestion = DocumentReader.suggest(pages: [[
       "PASSPORT", "Date of issue 15 APR 2007",

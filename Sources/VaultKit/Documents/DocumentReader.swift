@@ -84,8 +84,19 @@ public enum DocumentReader {
     (DocumentKind.certificate.id, ["certificate", "zertifikat", "certified"]),
   ]
 
+  /// The first kind one of whose words starts a word of the text: "Rechnung" is a receipt, "Nebenkostenabrechnung"
+  /// (a utility bill) isn't.
   static func guessKind(_ text: String) -> String {
-    kindWords.first { $0.words.contains(where: text.contains) }?.kind ?? DocumentKind.other.id
+    kindWords.first { $0.words.contains { startsAWord($0, in: text) } }?.kind ?? DocumentKind.other.id
+  }
+
+  private static func startsAWord(_ word: String, in text: String) -> Bool {
+    var range = text.startIndex..<text.endIndex
+    while let found = text.range(of: word, range: range) {
+      if found.lowerBound == text.startIndex || !text[text.index(before: found.lowerBound)].isLetter { return true }
+      range = found.upperBound..<text.endIndex
+    }
+    return false
   }
 
   // MARK: Fields
