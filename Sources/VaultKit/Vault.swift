@@ -16,6 +16,8 @@ public final class Vault {
   public private(set) var projectGroups: [VaultProjectGroup] = []
   /// The projects in their groups, on every device.
   public private(set) var projectTree = VaultProjectTree(projects: [], groups: [])
+  /// The projects' run presets (Code's), by project and their order (`presets(of:)`).
+  public private(set) var projectPresets: [VaultProjectPreset] = []
   public private(set) var hosts: [VaultHost] = []
   public private(set) var databases: [VaultDatabase] = []
   /// The user's devices, without those taken out through Lost Device (`VaultStore.revokeDevice`).
@@ -139,6 +141,9 @@ public final class Vault {
       }
       projectGroups = try store.records(VaultProjectGroup.self)
       projectTree = VaultProjectTree(projects: projects, groups: projectGroups)
+      projectPresets = try store.records(VaultProjectPreset.self).sorted {
+        ($0.projectID, $0.order, $0.name) < ($1.projectID, $1.order, $1.name)
+      }
       let revoked = try store.revokedDevices()
       let revokedIDs = Set(revoked.map(\.deviceID))
       hosts = try store.records(VaultHost.self)
