@@ -228,7 +228,7 @@ struct DocumentInspector: View {
     if let field = kind.remindingField { ReminderSection(document: document, kind: kind, field: field) }
     if !document.fileIDs.isEmpty {
       KitSection(
-        "Pages", meta: ["\(files.count) files", "\(files.reduce(0) { $0 + $1.pages }) pages", "encrypted"],
+        "Pages", meta: [counted(files.count, "file"), counted(files.reduce(0) { $0 + $1.pages }, "page"), "encrypted"],
         systemImage: "doc.on.doc", hue: .gray
       ) {
         ForEach(files) { file in

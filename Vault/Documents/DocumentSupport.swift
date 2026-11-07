@@ -52,6 +52,11 @@ extension DocumentKind {
   }
 }
 
+/// "1 document", "3 documents".
+func counted(_ count: Int, _ word: String, plural: String? = nil) -> String {
+  count == 1 ? "1 \(word)" : "\(count) \(plural ?? word + "s")"
+}
+
 /// Days as the screens write them.
 enum DocumentDates {
   /// Days are kept at noon UTC; written in UTC they read the same everywhere.
@@ -284,6 +289,59 @@ extension AppModel {
       }
       documentImport.isReading = false
     }
+  }
+
+  /// Reads the pages of documents shared from other apps (`needsReading`): the kind, the fields, the text for
+  /// search and a thumbnail, as Add Document would suggest them. They stay in the Inbox for the user to file.
+  func readSharedDocuments() async {
+    guard let store = vault.store else { return }
+    for document in vault.documents where document.needsReading && !readingDocuments.contains(document.id) {
+      readingDocuments.insert(document.id)
+      defer { readingDocuments.remove(document.id) }
+      let files = (try? store.files(of: document)) ?? []
+      var pages: [IncomingPage] = []
+      for file in files.prefix(4) {
+        if let page = try? await PageReader.page(data: file.data, name: file.name, isScan: true) { pages.append(page) }
+      }
+      // Changed elsewhere while reading: start from the record as it is now.
+      guard var current = vault.documents.first(where: { $0.id == document.id }), current.needsReading else { continue }
+      let suggestion = DocumentReader.suggest(pages: pages.map(\.lines))
+      var secrets: [String: String] = [:]
+      if current.kind == DocumentKind.other.id, suggestion.kind != DocumentKind.other.id {
+        current.kind = suggestion.kind
+        // The file's name until the pages give a better one ("Aiko's Passport"); a camera roll name goes.
+        if !suggestion.title.isEmpty || current.title.hasPrefix("IMG_") { current.title = suggestion.title }
+      }
+      let kind = vault.documentKinds[current.kind]
+      for (key, value) in suggestion.fields {
+        guard let field = kind.field(key) else { continue }
+        if field.format == .secret {
+          if !current.secrets.contains(key) { secrets[key] = value }
+        } else if (current.fields[key] ?? "").isEmpty {
+          current.fields[key] = value
+        }
+      }
+      if current.holder.isEmpty, let holder = holder(named: suggestion.fields["name"]) { current.holder = holder }
+      if current.thumbnail == nil, let first = pages.first {
+        current.thumbnail = PageScanner.thumbnail(of: first.preview, maxPixel: 480)?.data
+      }
+      let text = pages.map { $0.lines.joined(separator: "\n") }.joined(separator: "\n")
+      current.text = String(([current.text, text].filter { !$0.isEmpty }.joined(separator: "\n")).prefix(20_000))
+      current.needsReading = false
+      let read = current
+      vault.perform { store in
+        try store.save(read)
+        for (key, value) in secrets { try store.setDocumentSecret(value, key: key, document: read.id) }
+      }
+    }
+  }
+
+  /// The person whose name the pages carry ("Aiko Tanaka" for AIKO TANAKA), when there's one.
+  func holder(named name: String?) -> String? {
+    guard let name = name?.lowercased(), !name.isEmpty else { return nil }
+    return vault.holders.first { person in
+      person.name.lowercased().split(separator: " ").allSatisfy { name.contains($0) }
+    }?.id
   }
 
   /// Saves a new document, or new pages and fields on an existing one, with its pages finished in `look`.

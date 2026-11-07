@@ -149,11 +149,16 @@ enum DemoDocuments {
       secrets: [:], created: date(days: -1_000),
       pages: [AnyView(CardPage(title: "ZULASSUNGSBESCHEINIGUNG", lines: ["B-KT 4417", "Teil I"], tint: .green))])
 
-    // Not filed yet: from the share sheet.
-    _ = try add(
-      .other, title: "Scan 5 Nov", collection: "", fields: ["dated": DocumentDay.string(from: date(days: -2))],
-      created: date(days: -2),
-      pages: [AnyView(LetterPage(title: "Nebenkostenabrechnung", subtitle: "Wohnbau GmbH", lines: ["Abrechnungszeitraum 2025", "Nachzahlung € 128,40", "Fällig in 30 Tagen"]))])
+    // Not filed yet: shared from Mail, not read yet; the app reads it when it starts.
+    let dated = date(days: -4).formatted(Date.FormatStyle().day(.twoDigits).month(.twoDigits).year())
+    let letter = LetterPage(
+      title: "Nebenkostenabrechnung", subtitle: "Wohnbau GmbH",
+      lines: ["Datum: \(dated)", "Abrechnungszeitraum 2025", "Nachzahlung € 128,40", "Fällig in 30 Tagen"])
+    if let page = render(AnyView(letter), aspectRatio: DocumentKind.other.aspectRatio) {
+      try store.addSharedFiles(
+        [SharedFile(name: "Scan 5 Nov", contentType: page.contentType, data: page.data, width: page.width, height: page.height)],
+        now: date(days: -2))
+    }
 
     // The passport links to the logins it's used with.
     if let login = try store.records(VaultLogin.self).first(where: { $0.title == "Apple Developer" }) {

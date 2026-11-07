@@ -325,13 +325,7 @@ struct AddDocumentSheet: View {
     }
     if !collectionChosen, existing == nil { collection = documentKind.collection }
     // The holder by name, when the pages name one we know.
-    if holder.isEmpty, let name = suggestion.fields["name"]?.lowercased(),
-      let match = vault.holders.first(where: { person in
-        person.name.lowercased().split(separator: " ").allSatisfy { name.contains($0) }
-      })
-    {
-      holder = match.id
-    }
+    if holder.isEmpty, let match = app.holder(named: suggestion.fields["name"]) { holder = match }
   }
 
   private func choose(_ option: DocumentKind) {

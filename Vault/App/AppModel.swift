@@ -60,6 +60,9 @@ enum AppSheet: Identifiable, Hashable {
   /// The AutoFill extension's sheet over the demo logins (`--sheet autofill`, demo runs only): the extension itself
   /// opens from Safari's suggestion and reads the shared store.
   case autoFillPreview
+  /// The share extension's sheet over two demo documents (`--sheet share-preview`, demo runs only): the extension
+  /// itself opens from the share sheet and saves into the shared store.
+  case sharePreview
   /// Add Document over the pages in `AppModel.documentImport` (none yet: the ways to add them).
   case addDocument
   /// Edit the document with this id.
@@ -116,6 +119,8 @@ final class AppModel {
   var openDocument: String?
   /// Pages on their way into Add Document: scanned, imported, dropped or opened in Vault.
   var documentImport = DocumentImport()
+  /// Shared documents being read now (`readSharedDocuments`), so two passes don't read one twice.
+  var readingDocuments: Set<String> = []
   /// When iCloud last synced, as this app saw it.
   var lastSync: Date?
 
@@ -255,6 +260,7 @@ final class AppModel {
     case "scan": sheet = .scanInvite
     case "add-hub": sheet = .addHub
     case "autofill": if isDemo { sheet = .autoFillPreview }
+    case "share-preview": if isDemo { sheet = .sharePreview }
     case "add-document": sheet = .addDocument
     case "share-copy": if let id = selectedDocument { sheet = .shareCopy(id) }
     default: break

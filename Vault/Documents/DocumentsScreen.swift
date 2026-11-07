@@ -113,7 +113,7 @@ private struct DocumentLibrary: View {
         Text("Pages encrypted on this \(ThisDevice.word)")
         Text(app.isDemo || vault.sync?.isRunning == true ? "synced through iCloud \(app.syncedLine.replacingOccurrences(of: "synced ", with: ""))" : "on this device")
           .foregroundStyle(.kitSecondary)
-        Text("\(vault.documents.count) documents").foregroundStyle(.kitSecondary)
+        Text(counted(vault.documents.count, "document")).foregroundStyle(.kitSecondary)
       }
       .dropDestination(for: URL.self) { urls, _ in
         app.importDocuments(urls)
@@ -135,7 +135,7 @@ private struct DocumentLibrary: View {
         EmptyState(systemImage: "doc.on.doc", title: "No Document Selected", message: "Pick a document to see what was read on it.")
       }
     }
-    .kitToolbar(title, meta: ["\(all.count) documents", "\(pages) pages", people > 0 ? "\(people) people" : ""].filter { !$0.isEmpty }, systemImage: tile.0, hue: tile.1) {
+    .kitToolbar(title, meta: [counted(all.count, "document"), counted(pages, "page"), people > 0 ? counted(people, "person", plural: "people") : ""].filter { !$0.isEmpty }, systemImage: tile.0, hue: tile.1) {
       if idiom == .phone {
         Button("Add", systemImage: "plus") { startScan() }.buttonStyle(.kitRound)
       } else {
@@ -385,7 +385,7 @@ private struct CollectionSection: View {
     let holders = Set(documents.map(\.holder)).compactMap(vault.holder(id:)).map { $0.name.split(separator: " ").first.map(String.init) ?? $0.name }
     let shown = limit.map { Array(documents.prefix($0)) } ?? documents
     KitSection(
-      collection.name, meta: ["\(documents.count) documents"] + (holders.isEmpty ? [] : [holders.sorted().joined(separator: ", ")]),
+      collection.name, meta: [counted(documents.count, "document")] + (holders.isEmpty ? [] : [holders.sorted().joined(separator: ", ")]),
       systemImage: DocumentSymbol.image(collection.symbol), hue: Hue(colorName: collection.color)
     ) {
       KitDocumentGrid(minimumWidth: idiom == .phone ? 140 : 160) {

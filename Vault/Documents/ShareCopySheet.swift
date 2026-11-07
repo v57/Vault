@@ -84,7 +84,7 @@ struct ShareCopySheet: View {
         }
         if let error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text) }
         HStack(spacing: 8) {
-          SheetStatus("\(chosen.count) of \(pages.count) pages · PDF", systemImage: "doc.richtext", hue: .blue)
+          SheetStatus("\(chosen.count) of \(counted(pages.count, "page")) · PDF", systemImage: "doc.richtext", hue: .blue)
           Spacer()
           Button("Cancel") { dismiss() }.buttonStyle(.kit).keyboardShortcut(.cancelAction)
           if let made {

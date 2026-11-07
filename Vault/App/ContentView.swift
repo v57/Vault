@@ -60,6 +60,8 @@ struct ContentView: View {
       // Open in Vault: a PDF or picture goes to Add Document; anything else is an invite link.
       if url.isFileURL { app.importDocuments([url]) } else { app.sharing.open(url) }
     }
+    // Documents shared from other apps while Vault wasn't running: read their pages on this device.
+    .task(id: app.vault.documents.filter(\.needsReading).map(\.id)) { await app.readSharedDocuments() }
     .onChange(of: scenePhase) { _, phase in
       // Leaving the screen: ask for a background turn to check remotes (iPhone and iPad; nothing on the Mac).
       if phase == .background, !app.isDemo { AppModel.scheduleBackgroundRefresh() }
@@ -172,10 +174,33 @@ struct SheetContent: View {
     case .addHub: AddHubSheet()
     case .scanInvite: ScanInviteSheet()
     case .autoFillPreview: AutoFillPreview()
+    case .sharePreview: SharePreview()
     case .addDocument: AddDocumentSheet()
     case .editDocument(let id): AddDocumentSheet(editing: id)
     case .shareCopy(let id): ShareCopySheet(documentID: id)
     }
+  }
+}
+
+/// The share sheet as the extension shows it for two pictures, from the demo documents' thumbnails. Add closes it
+/// without saving.
+private struct SharePreview: View {
+  @Environment(AppModel.self) private var app
+  @Environment(\.kitDismiss) private var dismiss
+  @State private var model = ShareModel()
+
+  var body: some View {
+    ShareView(model: model)
+      .onAppear {
+        model.files = app.vault.documents.filter { $0.thumbnail != nil }.prefix(2).enumerated().map { index, document in
+          SharedFile(
+            name: "IMG_04\(12 + index).jpeg", contentType: "public.jpeg", data: Data(), width: 1240, height: 1754,
+            thumbnail: document.thumbnail)
+        }
+        model.isLoading = false
+        model.add = { dismiss() }
+        model.cancel = { dismiss() }
+      }
   }
 }
 
