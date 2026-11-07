@@ -147,6 +147,16 @@ struct ProjectIconTests {
     try Data("<svg><path/></svg>".utf8).write(to: icon.appendingPathComponent("Assets/glyph.svg"))
     try refresh()
     #expect(made == 2)
+    // A new way of drawing icons makes it again, once.
+    let redraw = {
+      try mac.refreshProjectIcons(format: VaultStore.projectIconFormat + 1, find: { _ in json }) { _ in
+        made += 1
+        return Data("\(made)".utf8)
+      }
+    }
+    try redraw()
+    try redraw()
+    #expect(made == 3)
   }
 
   @MainActor @Test func theVaultLooksForIconsOfProjectsAsTheyArrive() async throws {
