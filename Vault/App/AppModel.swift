@@ -117,6 +117,9 @@ final class AppModel {
   /// The models windows showed in this process, by account id: Personal's (or the demo's) from `launch()`, an
   /// account's from the first window that shows it, kept so its Hubs and decrypted folders don't depend on a window.
   private static var models: [String: AppModel] = [:]
+  #if (DEBUG || PERF_HOOKS) && os(macOS)
+    private static var selectObserver: VaultChangeObserver?
+  #endif
 
   /// Every account's model this process made.
   static var all: [AppModel] { Array(models.values) }
@@ -147,6 +150,19 @@ final class AppModel {
     }
     model.applyLaunchOptions()
     models[VaultAccount.personal.id] = model
+    #if (DEBUG || PERF_HOOKS) && os(macOS)
+      // `notifyutil -p dev.v57.vault.debug.select` selects the item `/tmp/vault-select-<bundle id>.txt` names (a
+      // `--select` argument): sidebar switches for performance runs, without clicks or accessibility lookups.
+      selectObserver = VaultChangeObserver(name: "dev.v57.vault.debug.select") { [weak model] in
+        Task { @MainActor in
+          let url = URL(fileURLWithPath: "/tmp/vault-select-\(Bundle.main.bundleIdentifier ?? "app").txt")
+          guard let model, let text = try? String(contentsOf: url, encoding: .utf8),
+            let item = SidebarItem(argument: text.trimmingCharacters(in: .whitespacesAndNewlines))
+          else { return }
+          model.selection = model.resolve(item)
+        }
+      }
+    #endif
     return model
   }
 
