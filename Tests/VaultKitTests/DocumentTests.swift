@@ -222,6 +222,17 @@ struct DocumentReminderTests {
 }
 
 struct MachineReadableZoneTests {
+  @Test func fillersOCRDroppedInsideTheNumberLineArePutBack() throws {
+    // Vision reads a zone's long filler runs as pieces and drops a filler between them.
+    let zone = try #require(MachineReadableZone(text: [
+      "P<JPNTANAKA<<AIK0<<<<<<<", "TR10293849JPN9004126F2701194<<<<<<<<<<<<<04",
+    ]))
+    #expect(zone.isValid)
+    #expect(zone.number == "TR1029384")
+    #expect(zone.surname == "TANAKA")
+    #expect(zone.givenNames == "AIKO")
+  }
+
   @Test func passportFromICAOSample() throws {
     let zone = try #require(
       MachineReadableZone(text: [

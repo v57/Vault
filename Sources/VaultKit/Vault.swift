@@ -33,6 +33,14 @@ public final class Vault {
   /// Passkeys, by site (each belongs to a login).
   public private(set) var passkeys: [VaultPasskey] = []
   public private(set) var cards: [VaultCard] = []
+  /// Documents (passports, policies, resumes…) without their pages, which load per document (`VaultStore.files(of:)`).
+  public private(set) var documents: [VaultDocument] = []
+  /// Where documents are filed, in the user's order.
+  public private(set) var documentCollections: [VaultDocumentCollection] = []
+  /// Whose documents they are.
+  public private(set) var holders: [VaultHolder] = []
+  /// The built-in kinds of document and the user's own.
+  public private(set) var documentKinds = DocumentKinds()
   /// Encrypted and synced folders.
   public private(set) var folders: [VaultFolder] = []
   /// Remotes folders sync through.
@@ -174,6 +182,14 @@ public final class Vault {
       cards = try store.records(VaultCard.self).sorted {
         ($0.order, $0.title.localizedLowercase) < ($1.order, $1.title.localizedLowercase)
       }
+      documents = try store.records(VaultDocument.self).sorted {
+        ($0.order, $0.created ?? .distantPast) < ($1.order, $1.created ?? .distantPast)
+      }
+      documentCollections = try store.records(VaultDocumentCollection.self).sorted {
+        ($0.order, $0.name.localizedLowercase) < ($1.order, $1.name.localizedLowercase)
+      }
+      holders = try store.records(VaultHolder.self).sorted { ($0.order, $0.name) < ($1.order, $1.name) }
+      documentKinds = DocumentKinds(custom: try store.records(VaultDocumentKind.self))
       accounts = try store.records(VaultAccount.self).sorted {
         $0.name.localizedStandardCompare($1.name) == .orderedAscending
       }

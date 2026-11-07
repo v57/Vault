@@ -34,11 +34,14 @@ public struct MachineReadableZone: Hashable, Sendable {
   /// Finds a zone in recognized lines of text. OCR's usual slips are corrected: spaces dropped, « and K-runs read
   /// as `<` where the line's shape needs filler.
   public init?(text lines: [String]) {
-    let candidates = lines.map(Self.clean).filter { $0.count >= 28 && $0.filter({ $0 == "<" }).count >= 2 }
+    // A passport's name line may come back short: OCR often stops reading the fillers after the names.
+    let candidates = lines.map(Self.clean).filter { line in
+      line.filter({ $0 == "<" }).count >= 2 && (line.count >= 28 || (line.hasPrefix("P") && line.count >= 10))
+    }
     for (index, line) in candidates.enumerated() {
       let rest = Array(candidates[(index + 1)...])
       // OCR drops trailing fillers from the name line more often than from the number line, which check digits cover.
-      if line.count >= 42 || (line.hasPrefix("P") && line.count >= 36),
+      if line.count >= 42 || line.hasPrefix("P"),
         line.hasPrefix("P") || line.first.map({ "ACIV".contains($0) }) == true,
         let second = rest.first(where: { $0.count >= 42 }), let zone = Self.td3(Self.fit(line, 44), Self.fit(second, 44))
       {
@@ -69,7 +72,8 @@ public struct MachineReadableZone: Hashable, Sendable {
     self.format = format
     documentCode = code.replacingOccurrences(of: "<", with: "")
     self.issuer = issuer.replacingOccurrences(of: "<", with: "")
-    let parts = names.components(separatedBy: "<<")
+    // Names have no digits: a 0 read in one is an O.
+    let parts = Self.letters(names).components(separatedBy: "<<")
     surname = parts.first.map { $0.replacingOccurrences(of: "<", with: " ").trimmingCharacters(in: .whitespaces) } ?? ""
     givenNames = parts.dropFirst().joined(separator: " ").replacingOccurrences(of: "<", with: " ")
       .trimmingCharacters(in: .whitespaces)
@@ -131,9 +135,35 @@ public struct MachineReadableZone: Hashable, Sendable {
     return String(text.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "<") })
   }
 
-  /// The line padded with `<` or cut to `length` (OCR often drops or adds a filler at the end).
+  /// The line padded with `<` or cut to `length`. OCR drops or adds fillers: at the end of a line that ends in them,
+  /// in the last run of them in one that ends in check digits ("…194<<<<<<<<<<<<<04").
   static func fit(_ line: String, _ length: Int) -> String {
-    line.count >= length ? String(line.prefix(length)) : line + String(repeating: "<", count: length - line.count)
+    guard line.count != length else { return line }
+    var chars = Array(line)
+    if chars.last != "<", let run = lastRun(chars) {
+      if chars.count < length {
+        chars.insert(contentsOf: Array(repeating: "<", count: length - chars.count), at: run.upperBound)
+        return String(chars)
+      }
+      if chars.count - length < run.count {
+        chars.removeSubrange(run.upperBound - (chars.count - length)..<run.upperBound)
+        return String(chars)
+      }
+    }
+    return chars.count > length ? String(chars.prefix(length)) : line + String(repeating: "<", count: length - chars.count)
+  }
+
+  /// The last run of two or more fillers.
+  private static func lastRun(_ chars: [Character]) -> Range<Int>? {
+    var end = chars.count
+    while end > 0 {
+      guard let last = chars[..<end].lastIndex(of: "<") else { return nil }
+      var start = last
+      while start > 0, chars[start - 1] == "<" { start -= 1 }
+      if last - start >= 1 { return start..<(last + 1) }
+      end = start
+    }
+    return nil
   }
 
   private static func s(_ chars: [Character], _ start: Int, _ length: Int) -> String {
@@ -154,6 +184,10 @@ public struct MachineReadableZone: Hashable, Sendable {
   /// Letters OCR mistakes for digits in a numeric field.
   private static func digits(_ text: String) -> String {
     String(text.map { ["O": "0", "Q": "0", "D": "0", "I": "1", "L": "1", "Z": "2", "S": "5", "B": "8", "G": "6"][$0] ?? $0 })
+  }
+
+  private static func letters(_ text: String) -> String {
+    String(text.map { ["0": "O", "1": "I", "5": "S", "8": "B", "6": "G", "2": "Z"][$0] ?? $0 })
   }
 
   private static func digit(_ character: Character) -> Int? {
