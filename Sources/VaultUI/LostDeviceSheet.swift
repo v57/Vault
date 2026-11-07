@@ -160,11 +160,13 @@ public final class VaultLostDeviceFlow {
     let vaults = vaults.allAccounts.compactMap { self.vaults.vault(for: $0) }
     func names(_ list: (Vault) -> [String]) -> [String] { vaults.flatMap(list).sorted { $0.localizedStandardCompare($1) == .orderedAscending } }
     return [
-      Secrets(title: "Logins", names: names { $0.logins.map(\.displayName) }),
-      Secrets(title: "Passkeys", names: names { $0.passkeys.map(\.relyingParty) }),
-      Secrets(title: "Cards", names: names { $0.cards.map(\.title) }),
-      Secrets(title: "Servers with a password", names: names { $0.hosts.filter { $0.auth == .password }.map(\.displayName) }),
-      Secrets(title: "Databases", names: names { $0.databases.map(\.name) }),
+      Secrets(title: String(localized: "Logins"), names: names { $0.logins.map(\.displayName) }),
+      Secrets(title: String(localized: "Passkeys"), names: names { $0.passkeys.map(\.relyingParty) }),
+      Secrets(title: String(localized: "Cards"), names: names { $0.cards.map(\.title) }),
+      Secrets(
+        title: String(localized: "Servers with a password"),
+        names: names { $0.hosts.filter { $0.auth == .password }.map(\.displayName) }),
+      Secrets(title: String(localized: "Databases"), names: names { $0.databases.map(\.name) }),
     ].filter { !$0.names.isEmpty }
   }
 }
@@ -224,8 +226,10 @@ public struct VaultLostDeviceSheet: View {
   private var appleAccountStep: some View {
     FormCard(
       "1. Remove It from Your Apple Account",
-      footer: "This comes first, and only you can do it. Until then it keeps getting your vault keys and passwords through "
-        + "iCloud Keychain, new ones included, whatever the steps below do."
+      footer: """
+        This comes first, and only you can do it. Until then it keeps getting your vault keys and passwords through \
+        iCloud Keychain, new ones included, whatever the steps below do.
+        """
     ) {
       FormRow(
         "Apple Account", help: help(VaultLostDeviceFlow.appleAccount, "Devices ▸ \(flow.device.deviceName) ▸ Remove from Account."),
@@ -260,8 +264,10 @@ public struct VaultLostDeviceSheet: View {
       "3. Take It Off Your Servers",
       footer: flow.servers.isEmpty
         ? "To take it off other machines, do this step in the Vault app, which can sign in to them."
-        : "Signs in with this \(KitDevice.name)’s key or the saved password and takes its lines out of ~/.ssh/authorized_keys. "
-          + "Other lines stay. A server whose key you never accepted isn’t contacted."
+        : """
+          Signs in with this \(KitDevice.name)’s key or the saved password and takes its lines out of \
+          ~/.ssh/authorized_keys. Other lines stay. A server whose key you never accepted isn’t contacted.
+          """
     ) {
       if flow.canSweepThisMac {
         FormRow(
@@ -300,22 +306,26 @@ public struct VaultLostDeviceSheet: View {
     let secrets = flow.secretsToChange
     return FormCard(
       "5. Change These by Hand",
-      footer: "It could read these, and a new vault key doesn’t change them. Nothing here can do it for you: each lives with the "
-        + "site or server it belongs to."
+      footer: """
+        It could read these, and a new vault key doesn’t change them. Nothing here can do it for you: each lives with \
+        the site or server it belongs to.
+        """
     ) {
       if secrets.isEmpty {
         FormRow("Nothing Saved", help: "No logins, cards, passkeys or passwords in your vault.", systemImage: "checkmark", hue: .green)
       }
       ForEach(secrets, id: \.title) { group in
         FormRow(
-          "\(group.title) (\(group.names.count))", help: group.names.joined(separator: ", "), systemImage: "exclamationmark.triangle",
-          hue: .orange)
+          "\(group.title) (\(group.names.count))", help: "\(group.names.joined(separator: ", "))",
+          systemImage: "exclamationmark.triangle", hue: .orange)
       }
     }
   }
 
   private func actionRow(_ action: VaultLostDeviceActions.Action, title: String) -> some View {
-    FormRow(action.name, help: action.unavailable ?? help(action.id, nil), systemImage: action.systemImage, hue: .blue) {
+    let text: LocalizedStringKey? =
+      if let unavailable = action.unavailable { "\(unavailable)" } else { help(action.id, nil) }
+    return FormRow("\(action.name)", help: text, systemImage: action.systemImage, hue: .blue) {
       if action.unavailable == nil {
         trailing(action.id, title: title) { flow.run(action) }
       }
@@ -323,12 +333,12 @@ public struct VaultLostDeviceSheet: View {
   }
 
   /// What the step says: how it went, or what it does.
-  private func help(_ id: String, _ waiting: String?) -> String? {
+  private func help(_ id: String, _ waiting: LocalizedStringKey?) -> LocalizedStringKey? {
     switch flow.state(id) {
     case .waiting, .working: waiting
-    case .done(let line): line
+    case .done(let line): "\(line)"
     case .skipped: "Skipped."
-    case .failed(let line): line
+    case .failed(let line): "\(line)"
     }
   }
 

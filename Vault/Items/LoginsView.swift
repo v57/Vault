@@ -80,7 +80,7 @@ struct LoginsView: View {
             }
           }
           KitSection(
-            filter == .all ? "All Logins" : filter.title,
+            filter == .all ? "All Logins" : "\(filter.title)",
             meta: ["\(logins.count) logins", "\(logins.filter(\.hasOneTimeCode).count) with \(idiom == .phone ? "codes" : "one-time codes")",
                    sharedCount(logins) > 0 && idiom != .phone ? "\(sharedCount(logins)) shared" : ""],
             systemImage: "key.horizontal"

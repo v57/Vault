@@ -465,7 +465,9 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
           if asksBeforeRemovingAll { confirmsRemoveAll = true } else { remove?(tree.projects().map(\.id)) }
         }
         .kitMenuPreview(
-          (asksBeforeRemovingAll ? "Asks, then empties" : "Empties") + " this list. The projects stay in the other apps, and on disk.")
+          asksBeforeRemovingAll
+            ? "Asks, then empties this list. The projects stay in the other apps, and on disk."
+            : "Empties this list. The projects stay in the other apps, and on disk.")
       }
     }
   }
@@ -535,10 +537,15 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   private func groupRow(_ group: VaultProjectGroup, count: Int) -> some View {
     let isCollapsed = collapsedGroups.contains(group.id)
     let projects = tree.projects(in: group.id)
-    let row = SidebarRow(
-      group.name,
-      subtitle: group.note.flatMap { $0.isEmpty ? nil : $0 } ?? (count == 1 ? "1 project" : "\(count) projects")
-    ) {
+    let subtitle: LocalizedStringKey =
+      if let note = group.note, !note.isEmpty {
+        "\(note)"
+      } else if count == 1 {
+        "1 project"
+      } else {
+        "\(count) projects"
+      }
+    let row = SidebarRow("\(group.name)", subtitle: subtitle) {
       Avatar(
         name: group.name, kind: .thing, systemImage: isCollapsed ? "folder" : "folder.fill",
         hue: StableHue.pick(group.name), status: groupStatus?(group, projects) ?? .idle, size: rowIconSize)
@@ -577,8 +584,9 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
               withAnimation(.kit) { remove(projects.map(\.id)) }
             }
             .kitMenuPreview(
-              "Takes \(group.name) off this list, with "
-                + (projects.count == 1 ? "its project. Its folder stays." : "its \(projects.count) projects. Their folders stay."))
+              projects.count == 1
+                ? "Takes \(group.name) off this list, with its project. Its folder stays."
+                : "Takes \(group.name) off this list, with its \(projects.count) projects. Their folders stay.")
           }
         }
       }

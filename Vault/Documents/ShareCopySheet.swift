@@ -58,7 +58,7 @@ struct ShareCopySheet: View {
               TextField("Wohnbau GmbH, rental application", text: $purpose).kitField()
             }
             FormCard {
-              FormRow("Watermark", help: watermark ? watermarkText : "No watermark", systemImage: "seal", hue: .red) {
+              FormRow("Watermark", help: watermark ? "\(watermarkText)" : "No watermark", systemImage: "seal", hue: .red) {
                 Toggle("Watermark", isOn: $watermark).toggleStyle(.kitSwitch).labelsHidden()
               }
               ForEach(hideable, id: \.key) { item in
@@ -68,7 +68,7 @@ struct ShareCopySheet: View {
                 }
               }
               if let page = current {
-                FormRow("Include this page", help: page.label, systemImage: "doc", hue: .blue) {
+                FormRow("Include this page", help: "\(page.label)", systemImage: "doc", hue: .blue) {
                   Toggle("Include", isOn: Binding(get: { chosen.contains(page.id) }, set: { if $0 { chosen.insert(page.id) } else { chosen.remove(page.id) } }))
                     .toggleStyle(.kitSwitch).labelsHidden()
                 }
@@ -106,13 +106,13 @@ struct ShareCopySheet: View {
   private var watermarkText: String {
     let day = Date.now.formatted(.dateTime.day().month(.abbreviated).year())
     let who = purpose.trimmingCharacters(in: .whitespaces)
-    return who.isEmpty ? "Copy · \(day)" : "For \(who) only · \(day)"
+    return who.isEmpty ? String(localized: "Copy · \(day)") : String(localized: "For \(who) only · \(day)")
   }
 
   private struct Hideable {
     var key: String
     var label: String
-    var help: String
+    var help: LocalizedStringKey
   }
 
   /// The secret fields set on the document, and a passport's or ID's machine-readable zone.

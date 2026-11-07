@@ -25,7 +25,7 @@ struct HubView: View {
           HubSection(hub: hub)
         }
         if let error = app.hubs.error {
-          Banner("This \(ThisDevice.word) can’t connect.", message: error, systemImage: "exclamationmark.triangle", hue: .red)
+          Banner("This \(ThisDevice.word) can’t connect.", message: "\(error)", systemImage: "exclamationmark.triangle", hue: .red)
         }
       }
       .padding(.top, KitMetrics.gutter)
@@ -174,7 +174,7 @@ private struct HubSection: View {
         }
       }
       ForEach(hub.waitingElsewhere) { device in
-        SidebarRow(device.name, subtitle: "\(HubPlatform.name(device.platform)) · waiting for an owner") {
+        SidebarRow("\(device.name)", subtitle: "\(HubPlatform.name(device.platform)) · waiting for an owner") {
           RowTile(systemImage: HubPlatform.systemImage(device.platform))
         } trailing: {
           Chip("Waiting", hue: .orange).controlSize(.small)

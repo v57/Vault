@@ -28,7 +28,7 @@ public struct VaultAccountSheet: View {
 
   public var body: some View {
     KitSheet(
-      title: account == nil ? "New Account" : account!.name,
+      title: account == nil ? "New Account" : "\(account!.name)",
       meta: account == nil
         ? "A vault of its own for a client, an employer or a team: its projects, hosts, passwords and settings stay apart from Personal's."
         : "Its tile in the account picker."
@@ -39,7 +39,7 @@ public struct VaultAccountSheet: View {
       FormCard {
         FormRow(
           "Name", help: "Shown in every app's account picker", systemImage: "character.cursor.ibeam", hue: hue,
-          error: error, field: TextField("Acme Studio", text: $name))
+          error: error.map { "\($0)" }, field: TextField("Acme Studio", text: $name))
         FormRow("Colour", help: "The account's tile; the windows keep the app's accent", systemImage: "paintpalette",
                 hue: hue) {
           VaultHuePicker(selection: $hue)

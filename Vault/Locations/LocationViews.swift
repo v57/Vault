@@ -65,7 +65,7 @@ struct AddRemoteSheet: View {
         systemImage: "shield", hue: .blue)
       if let error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text) }
     } footer: {
-      SheetStatus(testLine.isEmpty ? "Not tested yet" : testLine, systemImage: LocationKind(draft.kind).systemImage, hue: test.isFinished && test != .done ? .red : .green, status: test)
+      SheetStatus(testLine.isEmpty ? "Not tested yet" : "\(testLine)", systemImage: LocationKind(draft.kind).systemImage, hue: test.isFinished && test != .done ? .red : .green, status: test)
       Button("Test") { runTest() }.disabled(draft.name.isEmpty)
       Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
       Button("Add") { add() }.buttonStyle(.kitPrimary).keyboardShortcut(.defaultAction).disabled(draft.name.isEmpty)
@@ -123,6 +123,7 @@ struct LocationView: View {
   var body: some View {
     let location = app.remotes.locations.first { $0.id == locationID }
     let remote = app.vault.remote(id: locationID)
+    let title: LocalizedStringKey = if let location { "\(location.name)" } else { "Location" }
     ListAndInspector(name: "location") {
       VStack(spacing: 0) {
         HStack(spacing: 4) {
@@ -138,7 +139,7 @@ struct LocationView: View {
             title: location?.isOffline == true ? "\(location?.name ?? "") Is Offline" : "Can’t Browse \(location?.kind.title ?? "This Remote") Yet",
             message: location?.isOffline == true
               ? "Vault couldn’t reach it the last time it checked. It tries again when a folder that syncs through it opens."
-              : NotYetAvailable(what: "Browsing \(location?.kind.title ?? "") remotes").errorDescription)
+              : "\(NotYetAvailable(what: "Browsing \(location?.kind.title ?? "") remotes").errorDescription ?? "")")
         } else {
           KitGrid(entries, columns: [
             KitGridColumn("Name", width: 300) { KitFileCell($0.name, isFolder: $0.isDirectory) },
@@ -174,7 +175,7 @@ struct LocationView: View {
         }
       }
     }
-    .kitToolbar(location?.name ?? "Location", meta: [location?.kind.title ?? "", location?.detail ?? ""], systemImage: location?.kind.systemImage ?? "globe", hue: .indigo) {
+    .kitToolbar(title, meta: [location?.kind.title ?? "", location?.detail ?? ""], systemImage: location?.kind.systemImage ?? "globe", hue: .indigo) {
       ToolGroup { Button("Refresh", systemImage: "arrow.clockwise") { Task { await load() } } }
     }
     .task(id: path) { await load() }

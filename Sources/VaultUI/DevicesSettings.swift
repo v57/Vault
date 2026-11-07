@@ -42,20 +42,25 @@ public struct VaultDevicesSettings<Control: View>: View {
     vault.deviceKeys.filter { $0.id == vault.deviceID } + vault.deviceKeys.filter { $0.id != vault.deviceID }
   }
 
+  /// The app's note, then the card's own sentences, localized here since they're joined.
   private var footer: String {
     guard devices.contains(where: { $0.id != vault.deviceID }) else {
-      return "Your other devices show up here once a v57 app runs on them."
+      return String(localized: "Your other devices show up here once a v57 app runs on them.")
     }
     return [
       note,
-      "\(idiom == .mac ? "Right-click" : "Touch and hold") a device to rename or remove it. Removing tidies up after one "
-        + "you don’t use any more. It doesn’t cut it off: it keeps the keys and passwords it has, and it can come back. For "
-        + "one that’s lost or stolen, use Lost Device.",
+      idiom == .mac
+        ? String(localized: "Right-click a device to rename or remove it.")
+        : String(localized: "Touch and hold a device to rename or remove it."),
+      String(localized: """
+        Removing tidies up after one you don’t use any more. It doesn’t cut it off: it keeps the keys and passwords \
+        it has, and it can come back. For one that’s lost or stolen, use Lost Device.
+        """),
     ].compactMap { $0 }.joined(separator: " ")
   }
 
   public var body: some View {
-    FormCard("Your Devices", footer: footer) {
+    FormCard("Your Devices", footer: "\(footer)") {
       ForEach(devices) { row($0) }
     }
     if !vault.revokedDevices.isEmpty {
@@ -91,7 +96,7 @@ public struct VaultDevicesSettings<Control: View>: View {
       .kitConfirmation(
         "Remove \(removing?.deviceName ?? "this device")?",
         isPresented: Binding { removing != nil } set: { if !$0 { removing = nil } },
-        message: removing.map(message) ?? "", systemImage: "trash", confirm: "Remove"
+        message: "\(removing.map(message) ?? "")", systemImage: "trash", confirm: "Remove"
       ) { [removing] in
         // The confirmation clears `removing` before it runs this.
         if let removing { vaults.removeDevice(removing.id) }
@@ -115,10 +120,12 @@ public struct VaultDevicesSettings<Control: View>: View {
 
   private func message(_ device: VaultDeviceKey) -> String {
     let onHub = vault.hubHosts.contains { vault.vaultDevice(of: $0) == device.id }
-    return "It goes from every v57 app and can’t sign in to your Macs any more. Projects only on it go too, unless "
-      + "their folders are on this \(KitDevice.name). This doesn’t cut it off: it keeps the keys and passwords it has, and if "
-      + "it still runs a v57 app, it comes back when that app opens. For one that’s lost or stolen, use Lost Device."
-      + (onHub ? " Its Hub keeps listing it until you remove it there." : "")
+    let message = String(localized: """
+      It goes from every v57 app and can’t sign in to your Macs any more. Projects only on it go too, unless their \
+      folders are on this \(KitDevice.name). This doesn’t cut it off: it keeps the keys and passwords it has, and if \
+      it still runs a v57 app, it comes back when that app opens. For one that’s lost or stolen, use Lost Device.
+      """)
+    return onHub ? message + " " + String(localized: "Its Hub keeps listing it until you remove it there.") : message
   }
 
   private func notTrustedDetails(_ device: VaultRevokedDevice) -> String {

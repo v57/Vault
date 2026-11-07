@@ -48,7 +48,7 @@ public struct VaultProfileSheet: View {
   private var emailError: String? {
     let email = profile.email
     guard !email.isEmpty else { return nil }
-    return Self.isEmail(email) ? nil : "Not an email address"
+    return Self.isEmail(email) ? nil : String(localized: "Not an email address")
   }
 
   /// One `@` with something on both sides, a dot in the domain and no spaces: enough to catch a slip, not RFC 5322.
@@ -63,7 +63,7 @@ public struct VaultProfileSheet: View {
     let profile = profile
     KitSheet(
       title: account.isPersonal ? "Your Name" : "Your Name at \(account.name)",
-      meta: [reason, Self.uses].compactMap { $0 }.joined(separator: " ")
+      meta: "\([reason, Self.uses].compactMap { $0 }.joined(separator: " "))"
     ) {
       Avatar(name: profile.name.isEmpty ? "?" : profile.name, kind: .person, hue: account.hue, size: 32)
     } content: {
@@ -73,7 +73,7 @@ public struct VaultProfileSheet: View {
           field: TextField("Ada Lovelace", text: $name).autocorrectionDisabled())
         FormRow(
           "Email", help: "For git, GitHub matches it to your account", systemImage: "envelope", hue: account.hue,
-          error: emailError, field: emailField)
+          error: emailError.map { "\($0)" }, field: emailField)
       }
       if let option {
         FormCard {
@@ -91,7 +91,9 @@ public struct VaultProfileSheet: View {
     }
   }
 
-  static let uses = "Your commits, your keys on servers and your Hub show them. They stay in your vault."
+  static var uses: String {
+    String(localized: "Your commits, your keys on servers and your Hub show them. They stay in your vault.")
+  }
 
   private var emailField: some View {
     // A String, not a LocalizedStringKey: a key's Markdown turns the address into a blue link.

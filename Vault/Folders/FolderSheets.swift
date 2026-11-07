@@ -67,7 +67,8 @@ struct DecryptSheet: View {
           FormCard {
             FormRow(
               "Vault’s own container",
-              help: ProjectsView.tilde(app.folders.decryptedRoot.appendingPathComponent(name).path), systemImage: "folder", hue: .teal
+              help: "\(ProjectsView.tilde(app.folders.decryptedRoot.appendingPathComponent(name).path))",
+              systemImage: "folder", hue: .teal
             ) {
               Button("Show") { KitDesktop.reveal([app.folders.decryptedRoot]) }.buttonStyle(.kitPlain)
             }

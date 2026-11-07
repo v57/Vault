@@ -198,7 +198,15 @@ private struct SyncInspector: View {
       KitSection("Your other devices", meta: "each chooses for itself", systemImage: "laptopcomputer", hue: .gray) {
         ForEach(others) { other in
           let storage = record.storages[other.id]
-          InspectorRow(other.deviceName, value: storage == nil ? "Not synced" : "\(record.mode(for: other.id) == .readOnly ? "Read-only" : "Read-write") · \(storage == .encrypted ? "Encrypted" : other.platform == "iOS" ? "Plain in Files" : "Plain")", copyable: false)
+          let mode =
+            record.mode(for: other.id) == .readOnly ? String(localized: "Read-only") : String(localized: "Read-write")
+          let kind =
+            storage == .encrypted
+            ? String(localized: "Encrypted")
+            : other.platform == "iOS" ? String(localized: "Plain in Files") : String(localized: "Plain")
+          InspectorRow(
+            "\(other.deviceName)", value: storage == nil ? String(localized: "Not synced") : "\(mode) · \(kind)",
+            copyable: false)
         }
       }
     }
@@ -226,7 +234,10 @@ private struct RecordsCard: View {
     ) {
       InspectorRow("iCloud", value: iCloud ? app.syncedLine.prefix(1).uppercased() + app.syncedLine.dropFirst() : "Off", copyable: false)
       ForEach(hubs) { hub in
-        InspectorRow(hub.name, value: hub.recordSyncLine.isEmpty ? "Waiting for the connection" : hub.recordSyncLine, copyable: false)
+        InspectorRow(
+          "\(hub.name)",
+          value: hub.recordSyncLine.isEmpty ? String(localized: "Waiting for the connection") : hub.recordSyncLine,
+          copyable: false)
       }
       InspectorRow(
         "This folder’s files",

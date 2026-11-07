@@ -358,7 +358,7 @@ private struct EventRow: View {
             .kitFont(.caption).lineLimit(1)
         }
         Spacer(minLength: 8)
-        Chip(days < 0 ? "passed" : DocumentDates.left(event.date), hue: days < 0 ? .red : days <= 30 ? .red : .orange)
+        Chip(days < 0 ? "passed" : "\(DocumentDates.left(event.date))", hue: days < 0 ? .red : days <= 30 ? .red : .orange)
           .controlSize(.small)
       }
       .padding(.horizontal, 8)

@@ -27,7 +27,7 @@ public struct VaultAccountsSettings: View {
   public var body: some View {
     FormCard("This \(KitDevice.name)") {
       FormRow(
-        VaultDevice.name, help: "Its name on your Hub, its SSH key and the servers that let it in",
+        "\(VaultDevice.name)", help: "Its name on your Hub, its SSH key and the servers that let it in",
         systemImage: KitDevice.systemImage, hue: .gray
       ) {
         Button("Rename…") { renamingDevice = true }.buttonStyle(.kit)
@@ -35,7 +35,7 @@ public struct VaultAccountsSettings: View {
     }
     ForEach(vaults.allAccounts) { account in
       FormCard(
-        account.isPersonal ? "Personal" : account.name,
+        account.isPersonal ? "Personal" : "\(account.name)",
         footer: account.isPersonal
           ? "Always here: the vault every app used before accounts. Each window shows one account; ⌃⌘1…⌃⌘9 switch."
           : nil
@@ -44,7 +44,7 @@ public struct VaultAccountsSettings: View {
         profileRow(account)
         if let vault = opened[account.id] {
           ForEach(vault.appleTeams) { team in
-            FormRow(team.name.isEmpty ? team.teamID : team.name, help: "Apple team \(team.teamID)",
+            FormRow("\(team.name.isEmpty ? team.teamID : team.name)", help: "Apple team \(team.teamID)",
                     systemImage: "apple.logo", hue: .gray) {
               Button("Remove", role: .destructive) { vault.delete(team) }.buttonStyle(.kit)
             }
@@ -93,8 +93,15 @@ public struct VaultAccountsSettings: View {
     let vault = opened[account.id]
     let projects = vault?.projects.count ?? 0
     let hosts = vault?.hosts.count ?? 0
+    let help: LocalizedStringKey =
+      switch (projects, hosts) {
+      case (1, 1): "1 project · 1 host"
+      case (1, _): "1 project · \(hosts) hosts"
+      case (_, 1): "\(projects) projects · 1 host"
+      default: "\(projects) projects · \(hosts) hosts"
+      }
     return FormRow(
-      account.name, help: "\(projects) project\(projects == 1 ? "" : "s") · \(hosts) host\(hosts == 1 ? "" : "s")",
+      "\(account.name)", help: help,
       systemImage: account.isPersonal ? "person.crop.circle" : "building.2", hue: account.hue
     ) {
       if !account.isPersonal {
@@ -108,9 +115,12 @@ public struct VaultAccountsSettings: View {
 
   private func profileRow(_ account: VaultAccount) -> some View {
     let profile = vaults.profile(for: account)
-    let help =
-      profile.signature
-      ?? (profile.name.isEmpty ? "Not set: the first app that needs them asks" : "\(profile.name), no email yet")
+    let help: LocalizedStringKey =
+      if let signature = profile.signature { "\(signature)" } else if profile.name.isEmpty {
+        "Not set: the first app that needs them asks"
+      } else {
+        "\(profile.name), no email yet"
+      }
     return FormRow("Your Name", help: help, systemImage: "person.text.rectangle", hue: .gray) {
       Button(profile.isComplete ? "Edit…" : "Set…") { naming = account }.buttonStyle(.kit)
     }

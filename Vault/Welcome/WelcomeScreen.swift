@@ -82,7 +82,7 @@ struct WelcomeScreen: View {
     .emptyState(systemImage: "key", status: waiting ? .working : .idle)
   }
 
-  private var firstEncryptLine: String {
+  private var firstEncryptLine: LocalizedStringKey {
     app.recovery.isOn
       ? "Only v57 apps can open it."
       : "Only v57 apps can open it. If your keys are lost, so are its files: create a recovery key"

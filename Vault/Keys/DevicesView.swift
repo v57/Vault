@@ -28,7 +28,7 @@ struct DevicesView: View {
       })) {
         if let device = app.thisDevice {
           KitSection(
-            idiom == .phone ? "This \(ThisDevice.word)" : device.deviceName,
+            idiom == .phone ? "This \(ThisDevice.word)" : "\(device.deviceName)",
             meta: idiom == .phone ? [ThisDevice.system, "Secure Enclave"] : ["This \(ThisDevice.word)", ThisDevice.system, "Secure Enclave"],
             systemImage: DeviceGlyph.systemImage(device)
           ) {
@@ -61,8 +61,13 @@ struct DevicesView: View {
         ) {
           ForEach(app.otherDevices) { device in
             let day = device.updated.map { RelativeTime.day($0) } ?? ""
-            let seen = "seen \(day == "Today" || day == "Yesterday" ? day.lowercased() : day)"
-            SidebarRow(device.deviceName, subtitle: idiom == .phone ? seen : "\(device.platform == "iOS" ? "iPadOS" : "macOS") · key \(ShortKey.fingerprint(device.fingerprint)) · \(seen)") {
+            let seen = String(localized: "seen \(day == "Today" || day == "Yesterday" ? day.lowercased() : day)")
+            SidebarRow(
+              "\(device.deviceName)",
+              subtitle: idiom == .phone
+                ? "\(seen)"
+                : "\(device.platform == "iOS" ? "iPadOS" : "macOS") · key \(ShortKey.fingerprint(device.fingerprint)) · \(seen)"
+            ) {
               RowTile(systemImage: DeviceGlyph.systemImage(device))
             } trailing: {
               Chip("Up to date", hue: .green).controlSize(.small)
@@ -74,7 +79,7 @@ struct DevicesView: View {
             }
           }
           ForEach(app.deviceVault.revokedDevices) { device in
-            SidebarRow(device.name, subtitle: "Taken out through Lost Device") {
+            SidebarRow("\(device.name)", subtitle: "Taken out through Lost Device") {
               RowTile(systemImage: "exclamationmark.shield")
             } trailing: {
               Chip("Not trusted", hue: .red).controlSize(.small)
@@ -234,7 +239,11 @@ private struct PersonInspector: View {
     }
     KitSection("Shared with \(first)", meta: ["\(shared.count) folder", otherShares.isEmpty ? "" : "\(otherShares.count) login collection"], systemImage: "folder", hue: .teal) {
       ForEach(shared) { folder in
-        InspectorRow(folder.name, value: person.record.roles[folder.id] == .readOnly ? "Read-only" : "Read-write", copyable: false)
+        InspectorRow(
+          "\(folder.name)",
+          value: person.record.roles[folder.id] == .readOnly
+            ? String(localized: "Read-only") : String(localized: "Read-write"),
+          copyable: false)
       }
       ForEach(otherShares.sorted(by: { $0.key < $1.key }), id: \.key) { _, role in
         InspectorRow("Design logins", value: role == .readOnly ? "Read-only" : "Read-write", copyable: false)
@@ -295,10 +304,7 @@ private struct HubDevicesRow: View {
     } label: {
       SidebarRow(
         "On \(hub.name)",
-        subtitle: [
-          "\(hub.members.count) devices" + (idiom == .phone ? "" : ", Linux, Windows and Android too"),
-          idiom == .phone ? (waiting > 0 ? "\(waiting) \(waiting == 1 ? "waits" : "wait") to join" : nil) : firstWaiting.map { "\($0) waits to join" },
-        ].compactMap { $0 }.joined(separator: " · ")
+        subtitle: "\(subtitle(waiting: waiting, firstWaiting: firstWaiting))"
       ) {
         RowTile(systemImage: "point.3.connected.trianglepath.dotted")
       } trailing: {
@@ -309,6 +315,26 @@ private struct HubDevicesRow: View {
       }
     }
     .buttonStyle(.plain)
+  }
+
+  /// "3 devices, Linux, Windows and Android too · Pixel waits to join", localized here since it's joined.
+  private func subtitle(waiting: Int, firstWaiting: String?) -> String {
+    let count = hub.members.count
+    let waits: String? =
+      if idiom != .phone {
+        firstWaiting.map { String(localized: "\($0) waits to join") }
+      } else if waiting == 0 {
+        nil
+      } else if waiting == 1 {
+        String(localized: "1 waits to join")
+      } else {
+        String(localized: "\(waiting) wait to join")
+      }
+    return [
+      idiom == .phone
+        ? String(localized: "\(count) devices") : String(localized: "\(count) devices, Linux, Windows and Android too"),
+      waits,
+    ].compactMap { $0 }.joined(separator: " · ")
   }
 }
 

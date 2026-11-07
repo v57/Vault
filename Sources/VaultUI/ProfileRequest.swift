@@ -122,7 +122,7 @@ struct VaultProfileOptionSheet: View {
   @Environment(\.kitDismiss) private var dismiss
 
   var body: some View {
-    KitSheet(title: "\(option.title)?", meta: profile.signature, width: 440) {
+    KitSheet(title: "\(option.title)?", meta: profile.signature.map { "\($0)" }, width: 440) {
       Avatar(name: profile.name, kind: .person, hue: account.hue, size: 32)
     } content: {
       Text(option.help)

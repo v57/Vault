@@ -65,7 +65,7 @@ struct PhoneFolderView: View {
         if session == nil, path.isEmpty, folder.isEncrypted {
           KitSection("Encrypted", meta: "on every device", systemImage: "lock", hue: .teal) {
             ForEach(app.devices.filter { folder.record.storages[$0.id] != nil || $0.id == app.vault.deviceID }) { device in
-              InspectorRow(device.id == app.vault.deviceID ? "This \(ThisDevice.word)" : device.deviceName) {
+              InspectorRow(device.id == app.vault.deviceID ? "This \(ThisDevice.word)" : "\(device.deviceName)") {
                 if folder.record.storage(for: device.id) == .encrypted {
                   Chip("Encrypted", hue: .teal).controlSize(.small)
                 } else {
@@ -183,7 +183,8 @@ struct FilePreviewPage: View {
         KitFilePreview(name: entry.name, data: data)
           .padding(KitMetrics.gutter + 4)
       } else {
-        EmptyState(systemImage: "doc", title: entry.name, message: error ?? "Reading the sealed chunks…", status: error == nil ? .working : .failed(error))
+        let message: LocalizedStringKey = if let error { "\(error)" } else { "Reading the sealed chunks…" }
+        EmptyState(systemImage: "doc", title: "\(entry.name)", message: message, status: error == nil ? .working : .failed(error))
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -50,8 +50,10 @@
       FormCard(
         "This Mac",
         footer: loginIsOn
-          ? "Your other devices find this Mac’s projects and work on them here over SSH, without a Hub. "
-            + "Each device signs in with its own key, once you allow it below." : nil
+          ? """
+            Your other devices find this Mac’s projects and work on them here over SSH, without a Hub. \
+            Each device signs in with its own key, once you allow it below.
+            """ : nil
       ) {
         if remoteLoginIsOn == false {
           FormRow(
@@ -87,8 +89,10 @@
       if remoteLoginIsOn == false {
         FormCard(
           "With Remote Login On",
-          footer: "From the v57 apps on your other devices. Each device signs in with its own key, and only once you "
-            + "allow it here. Nothing else changes."
+          footer: """
+            From the v57 apps on your other devices. Each device signs in with its own key, and only once you \
+            allow it here. Nothing else changes.
+            """
         ) {
           // What the v57 apps on the user's other devices (Mac, iPhone, iPad, Windows, Linux) do with this Mac.
           FormRow(
@@ -124,8 +128,10 @@
         FormCard(
           "Security",
           footer: passwordLoginIsOn
-            ? "Your devices have their own keys, so they keep working with this off. Leave it on only if you sign in to "
-              + "this Mac with its password from another computer. macOS asks for your password to change this."
+            ? """
+              Your devices have their own keys, so they keep working with this off. Leave it on only if you sign in to \
+              this Mac with its password from another computer. macOS asks for your password to change this.
+              """
             : "Only your devices and the keys below can sign in. macOS asks for your password to change this."
         ) {
           FormRow(
@@ -150,7 +156,8 @@
         footer: "Other keys in ~/.ssh/authorized_keys, added by hand or by another app. Each can sign in to this Mac as you."
       ) {
         ForEach(otherKeys) { entry in
-          FormRow(entry.comment ?? "Unnamed Key", help: Self.fingerprint(entry.line), systemImage: "key", hue: .gray) {
+          let name: LocalizedStringKey = if let comment = entry.comment { "\(comment)" } else { "Unnamed Key" }
+          FormRow(name, help: Self.fingerprint(entry.line).map { "\($0)" }, systemImage: "key", hue: .gray) {
             Button("Remove…", role: .destructive) { removing = entry }.buttonStyle(.kit)
           }
         }
@@ -246,6 +253,14 @@
 
     private var trimmed: String { line.trimmingCharacters(in: .whitespacesAndNewlines) }
 
+    private var error: LocalizedStringKey? {
+      if !trimmed.isEmpty && !VaultAuthorizedKeys.isKeyLine(trimmed) {
+        "Paste one public key line, e.g. the contents of ~/.ssh/id_ed25519.pub."
+      } else {
+        failure.map { "\($0)" }
+      }
+    }
+
     var body: some View {
       KitSheet(
         title: "Add Key", meta: "It can sign in to this Mac as you.", systemImage: "key", hue: .gray, width: 480
@@ -253,8 +268,7 @@
         FormCard {
           FormRow(
             "Public Key", systemImage: "key", hue: .gray,
-            error: !trimmed.isEmpty && !VaultAuthorizedKeys.isKeyLine(trimmed)
-              ? "Paste one public key line, e.g. the contents of ~/.ssh/id_ed25519.pub." : failure,
+            error: error,
             field: TextField("Public key", text: $line, prompt: Text("ssh-ed25519 AAAA… name@laptop"), axis: .vertical)
               .kitFont(.mono)
               .lineLimit(3...6)

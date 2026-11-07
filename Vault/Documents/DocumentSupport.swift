@@ -78,11 +78,11 @@ enum DocumentDates {
   static func left(_ date: Date, now: Date = .now) -> String {
     let days = DocumentDay.days(from: now, to: date)
     switch days {
-    case 0: return "today"
-    case 1: return "tomorrow"
-    case -1: return "yesterday"
-    case ..<0: return "\(-days) days ago"
-    default: return "\(days) days"
+    case 0: return String(localized: "today")
+    case 1: return String(localized: "tomorrow")
+    case -1: return String(localized: "yesterday")
+    case ..<0: return String(localized: "\(-days) days ago")
+    default: return String(localized: "\(days) days")
     }
   }
 }

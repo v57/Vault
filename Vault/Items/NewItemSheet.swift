@@ -160,14 +160,16 @@ private struct LoginForm: View {
     LabeledField("One-time code") {
       FormCard {
         if let code {
-          FormRow("One-time code", help: code.issuer ?? code.account ?? "Added", systemImage: "clock") {
+          let name: LocalizedStringKey = if let name = code.issuer ?? code.account { "\(name)" } else { "Added" }
+          FormRow("One-time code", help: name, systemImage: "clock") {
             KitOneTimeCode(period: TimeInterval(code.period), showsSeconds: false) { code.code(at: $0) }
           }
         } else {
-          FormRow(
-            "Add a code", help: codeError ?? (idiom == .phone ? "Paste the setup key" : "Paste the setup key, or scan the QR code the site shows on screen."),
-            systemImage: "clock", error: codeError
-          ) {
+          let help: LocalizedStringKey =
+            if let codeError { "\(codeError)" } else if idiom == .phone { "Paste the setup key" } else {
+              "Paste the setup key, or scan the QR code the site shows on screen."
+            }
+          FormRow("Add a code", help: help, systemImage: "clock", error: codeError.map { "\($0)" }) {
             HStack(spacing: 6) {
               if KitQRReader.canScanScreen {
                 Button("Scan Screen") { scanScreen() }
@@ -433,9 +435,8 @@ struct EditHostSheet: View {
 
   var body: some View {
     let host = app.vault.host(id: hostID)
-    KitSheet(
-      title: "Edit SSH Host", meta: host?.displayName ?? "This host was deleted", systemImage: "server.rack", width: 660
-    ) {
+    let meta: LocalizedStringKey = if let host { "\(host.displayName)" } else { "This host was deleted" }
+    KitSheet(title: "Edit SSH Host", meta: meta, systemImage: "server.rack", width: 660) {
       if let host {
         HostForm(editing: host, onSave: { dismiss() })
       } else {

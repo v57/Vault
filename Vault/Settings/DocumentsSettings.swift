@@ -20,7 +20,7 @@ struct DocumentsSettingsPane: View {
       ForEach(Array(collections.enumerated()), id: \.element.id) { index, collection in
         let count = vault.documents.filter { $0.collection == collection.id }.count
         FormRow(
-          collection.name, help: count == 1 ? "1 document" : "\(count) documents",
+          "\(collection.name)", help: count == 1 ? "1 document" : "\(count) documents",
           systemImage: DocumentSymbol.image(collection.symbol), hue: Hue(colorName: collection.color)
         ) {
           RowActions(
@@ -51,7 +51,7 @@ struct DocumentsSettingsPane: View {
     FormCard("People", footer: "Whose a document is. Not the people you share with: a child can have a passport here without a device or keys.") {
       ForEach(Array(vault.holders.enumerated()), id: \.element.id) { index, person in
         let count = vault.documents.filter { $0.holder == person.id }.count
-        FormRow(person.name, help: count == 1 ? "1 document" : "\(count) documents", systemImage: "person.fill", hue: Hue(colorName: person.color)) {
+        FormRow("\(person.name)", help: count == 1 ? "1 document" : "\(count) documents", systemImage: "person.fill", hue: Hue(colorName: person.color)) {
           RowActions(
             canMoveUp: index > 0, canMoveDown: index < vault.holders.count - 1, canDelete: true,
             edit: { editing = .holder(person) }, move: { moveHolder(person, by: $0) }, delete: { deleting = .holder(person) })
@@ -67,7 +67,7 @@ struct DocumentsSettingsPane: View {
     }
     .kitSheet(item: $editing) { edit in GroupEditSheet(edit: edit) }
     .kitConfirmation(
-      deleting.map { "Delete “\($0.name)”?" } ?? "", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+      deleteTitle, isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
       message: deleting.map(deleteMessage) ?? "", systemImage: "trash", confirm: "Delete"
     ) {
       if let deleting { delete(deleting) }
@@ -75,14 +75,24 @@ struct DocumentsSettingsPane: View {
     }
   }
 
-  private func deleteMessage(_ edit: GroupEdit) -> String {
+  private var deleteTitle: LocalizedStringKey {
+    if let deleting { "Delete “\(deleting.name)”?" } else { "" }
+  }
+
+  private func deleteMessage(_ edit: GroupEdit) -> LocalizedStringKey {
     switch edit {
     case .collection(let collection):
-      let count = vault.documents.filter { $0.collection == collection.id }.count
-      return count == 0 ? "It has no documents." : "Its \(count == 1 ? "document goes" : "\(count) documents go") to the Inbox, on all your devices."
+      switch vault.documents.filter({ $0.collection == collection.id }).count {
+      case 0: "It has no documents."
+      case 1: "Its document goes to the Inbox, on all your devices."
+      case let count: "Its \(count) documents go to the Inbox, on all your devices."
+      }
     case .holder(let person):
-      let count = vault.documents.filter { $0.holder == person.id }.count
-      return count == 0 ? "No documents are theirs." : "\(count == 1 ? "Their document stays" : "Their \(count) documents stay"), as no one’s."
+      switch vault.documents.filter({ $0.holder == person.id }).count {
+      case 0: "No documents are theirs."
+      case 1: "Their document stays, as no one’s."
+      case let count: "Their \(count) documents stay, as no one’s."
+      }
     }
   }
 

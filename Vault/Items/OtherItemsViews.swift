@@ -83,7 +83,9 @@ struct ProjectsView: View {
       KitList(selection: $app.selectedProject) {
         KitSection("Projects", meta: ["\(projects.count) projects", "\(vault.localProjects.count) on this device"], systemImage: "folder", hue: .brown) {
           ForEach(projects) { project in
-            SidebarRow(value: project.id, project.name, subtitle: project.localPath.map(Self.tilde) ?? "Not on this device") {
+            let place: LocalizedStringKey =
+              if let path = project.localPath { "\(Self.tilde(path))" } else { "Not on this device" }
+            SidebarRow(value: project.id, "\(project.name)", subtitle: place) {
               if let icon = project.icon {
                 Avatar(name: project.name, imageData: icon, kind: .thing, size: KitMetrics.rowTile(.pad) - 4)
               } else {
@@ -177,7 +179,7 @@ struct NotesView: View {
       KitList(selection: $selected) {
         KitSection("Notes", meta: ["\(notes.count) notes", "\(notes.filter(\.encrypted).count) encrypted"], systemImage: "doc.text", hue: .yellow) {
           ForEach(notes) { note in
-            SidebarRow(value: note.id, note.name, subtitle: note.folder.isEmpty ? "Notes" : note.folder, systemImage: "doc.text") {
+            SidebarRow(value: note.id, "\(note.name)", subtitle: note.folder.isEmpty ? "Notes" : "\(note.folder)", systemImage: "doc.text") {
               if note.encrypted { Image(systemName: "lock").font(.system(size: 10)).foregroundStyle(.kitTertiary) }
             }
           }

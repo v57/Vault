@@ -109,7 +109,7 @@ struct AutoFillPicker: View {
         if !model.passkeys.isEmpty {
           KitSection("Passkeys", meta: "\(model.passkeys.count) for \(model.passkeys[0].relyingParty)", systemImage: "person.badge.key") {
             ForEach(model.passkeys) { passkey in
-              SidebarRow(value: "passkey:" + passkey.id, passkey.userName, subtitle: "Passkey · \(passkey.relyingParty)") {
+              SidebarRow(value: "passkey:" + passkey.id, "\(passkey.userName)", subtitle: "Passkey · \(passkey.relyingParty)") {
                 Tile(systemImage: "person.badge.key", hue: StableHue.pick(passkey.relyingParty), size: 24)
               } trailing: {
                 Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.kitTertiary)

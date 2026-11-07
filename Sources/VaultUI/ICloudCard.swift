@@ -26,13 +26,15 @@ public struct VaultICloudCard: View {
             .kitLabelsHidden()
         }
         if let error = status.error {
-          FormRow("Couldn’t change it", help: error, systemImage: "exclamationmark.triangle", hue: .red)
+          FormRow("Couldn’t change it", help: "\(error)", systemImage: "exclamationmark.triangle", hue: .red)
         }
       }
       .kitConfirmation(
         "Turn Off iCloud?", isPresented: $isConfirming,
-        message: "Every v57 app on this device stops syncing through iCloud and iCloud Keychain. What’s already there "
-          + "stays, and your other devices keep it.",
+        message: """
+          Every v57 app on this device stops syncing through iCloud and iCloud Keychain. What’s already there \
+          stays, and your other devices keep it.
+          """,
         systemImage: "icloud.slash", confirm: "Turn Off"
       ) {
         withAnimation(.kit) { status.setOff(true) }
@@ -56,11 +58,15 @@ public struct VaultICloudCard: View {
     }
   }
 
-  private var footer: String {
+  private var footer: LocalizedStringKey {
     status.isOff
-      ? "Nothing goes to iCloud from this device. Changes stay here, and go up if you turn it on again. What’s already "
-        + "in iCloud stays there."
-      : "Keeps your v57 data on your other devices, encrypted on this device first. Passwords and keys go through "
-        + "iCloud Keychain."
+      ? """
+        Nothing goes to iCloud from this device. Changes stay here, and go up if you turn it on again. What’s already \
+        in iCloud stays there.
+        """
+      : """
+        Keeps your v57 data on your other devices, encrypted on this device first. Passwords and keys go through \
+        iCloud Keychain.
+        """
   }
 }

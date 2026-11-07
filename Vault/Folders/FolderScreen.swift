@@ -257,7 +257,7 @@ private struct FolderInspector: View {
     } else if folder.isEncrypted {
       KitSection("Encrypted", meta: ["names too", "64 KB sealed chunks"], systemImage: "lock", hue: .teal) {
         ForEach(app.devices) { device in
-          InspectorRow(device.id == vault.deviceID ? "This \(ThisDevice.word)" : device.deviceName) {
+          InspectorRow(device.id == vault.deviceID ? "This \(ThisDevice.word)" : "\(device.deviceName)") {
             switch folder.record.storage(for: device.id) {
             case .encrypted where folder.record.storages[device.id] != nil || device.id == vault.deviceID:
               Chip("Encrypted", hue: .teal).controlSize(.small)

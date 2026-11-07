@@ -26,9 +26,9 @@ struct SettingsView: View {
   @State private var iCloud = VaultICloudStatus.shared
 
   /// The connected Hubs' names, or Off.
-  private var hubValue: String {
+  private var hubValue: LocalizedStringKey {
     let names = app.hubs.hubs.filter { $0.status == .connected }.map(\.name)
-    return names.isEmpty ? "Off" : ListFormatter.localizedString(byJoining: names)
+    return names.isEmpty ? "Off" : "\(ListFormatter.localizedString(byJoining: names))"
   }
 
   var body: some View {
@@ -116,7 +116,7 @@ private struct SyncPane: View {
     if app.vault.store?.formatStatus.note != nil || !replaced.isEmpty {
       FormCard {
         if let note = app.vault.store?.formatStatus.note {
-          FormRow("Other devices", help: note, systemImage: "clock", hue: .orange)
+          FormRow("Other devices", help: "\(note)", systemImage: "clock", hue: .orange)
         }
         if !replaced.isEmpty {
           FormRow(
@@ -157,12 +157,7 @@ private struct SyncPane: View {
       ForEach(app.hubs.hubs.filter { $0.status != .off }) { hub in
         FormRow(
           idiom == .phone ? "Records through \(hub.name)" : "Vault records through \(hub.name)",
-          help: [
-            hub.syncsRecords ? (hub.recordSyncLine.isEmpty ? "Waiting for the connection." : hub.recordSyncLine + ".") : "Off.",
-            idiom == .phone
-              ? "Turned on on the Hub screen"
-              : "Per device and per Hub, off until turned on on the Hub screen; this \(ThisDevice.word) carries changes between iCloud and the Hub.",
-          ].joined(separator: " "),
+          help: "\(recordsHelp(hub))",
           systemImage: "point.3.connected.trianglepath.dotted", hue: .purple
         ) {
           Toggle("Records through \(hub.name)", isOn: Binding(get: { hub.syncsRecords }, set: { app.hubs.setSyncs(hub.id, $0) }))
@@ -186,6 +181,21 @@ private struct SyncPane: View {
       }
     }
   }
+
+  /// How a Hub's record sync stands, then what turns it on; localized here since the sentences are joined.
+  private func recordsHelp(_ hub: HubItem) -> String {
+    [
+      hub.syncsRecords
+        ? (hub.recordSyncLine.isEmpty ? String(localized: "Waiting for the connection.") : hub.recordSyncLine + ".")
+        : String(localized: "Off."),
+      idiom == .phone
+        ? String(localized: "Turned on on the Hub screen")
+        : String(localized: """
+          Per device and per Hub, off until turned on on the Hub screen; this \(ThisDevice.word) carries changes \
+          between iCloud and the Hub.
+          """),
+    ].joined(separator: " ")
+  }
 }
 
 /// Board 12: off by default, made only on request. What it brings back, and what it doesn't.
@@ -198,7 +208,7 @@ struct RecoveryKeyPane: View {
     let isOn = app.recovery.isOn
     VStack(alignment: .leading, spacing: 18) {
       FormCard(footer: "If iCloud Keychain loses your keys and there’s no recovery key, your encrypted folders, notes and passwords can’t be opened. There’s no other way in, by design.") {
-        FormRow("Recovery key", help: isOn ? "On. Keep the kit somewhere safe." : "Off. iCloud Keychain holds the only copy of your keys.", systemImage: "key", hue: .orange, error: error) {
+        FormRow("Recovery key", help: isOn ? "On. Keep the kit somewhere safe." : "Off. iCloud Keychain holds the only copy of your keys.", systemImage: "key", hue: .orange, error: error.map { "\($0)" }) {
           if !isOn {
             Button("Create Recovery Key…") { create() }.buttonStyle(.kit)
               .disabled(!app.recovery.isAvailable)
