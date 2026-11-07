@@ -28,9 +28,25 @@ public enum SafetyCode {
     text.filter(\.isNumber) == compute(a, b).joined()
   }
 
-  /// 30 digits for one side.
+  /// 30 digits for one side, worked out once per key: the iterated hash takes milliseconds by design, and a person's
+  /// page asked for the code on every update.
   static func digits(for identity: PublicIdentity) -> String {
     let keys = identity.signingKey + identity.agreementKey
+    cacheLock.lock()
+    let cached = cache[keys]
+    cacheLock.unlock()
+    if let cached { return cached }
+    let digits = hashDigits(keys)
+    cacheLock.lock()
+    cache[keys] = digits
+    cacheLock.unlock()
+    return digits
+  }
+
+  private static let cacheLock = NSLock()
+  nonisolated(unsafe) private static var cache: [Data: String] = [:]
+
+  private static func hashDigits(_ keys: Data) -> String {
     var hash = Data(SHA512.hash(data: Data(version) + keys + Data("dev.v57.safety-code".utf8)))
     for _ in 0..<iterations {
       hash = Data(SHA512.hash(data: hash + keys))
