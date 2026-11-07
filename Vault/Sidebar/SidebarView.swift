@@ -14,11 +14,7 @@ struct SidebarView: View {
   @State private var showsNew = false
 
   var body: some View {
-    @Bindable var app = app
-    KitSidebar(
-      selection: $app.selection, searchText: $search, searchPrompt: "Search Vault",
-      columnVisibility: idiom.isTouch ? $columnVisibility : nil
-    ) {
+    SelectingSidebar(searchText: $search, columnVisibility: idiom.isTouch ? $columnVisibility : nil) {
       // The window's account; nothing while Personal is the only one.
       VaultAccountPicker(meta: "\(app.itemCount) items")
       itemsSection
@@ -32,8 +28,7 @@ struct SidebarView: View {
       }
       Button("New", systemImage: "plus") { showsNew = true }
         .kitMenu(isPresented: $showsNew) { NewMenu() }
-    }
-    .status {
+    } status: {
       HStack(spacing: 6) {
         StatusDot(hue: app.vault.sync?.isRunning == true || app.isDemo ? .green : .gray)
         Text(idiom.isTouch ? "iCloud" : app.cloudSummary)
@@ -82,6 +77,41 @@ struct SidebarView: View {
         Text(app.recovery.isOn ? "On" : "Off").kitFont(.caption)
       }
     }
+  }
+}
+
+/// The kit's sidebar on the app's selection. Its own view: `$app.selection` reads the selection as the binding is
+/// made, so made in `SidebarView` it rebuilt every section and row on each click.
+private struct SelectingSidebar<Content: View, BottomBar: View, Status: View>: View {
+  @Binding var searchText: String
+  let columnVisibility: Binding<NavigationSplitViewVisibility>?
+  let content: Content
+  let bottomBar: BottomBar
+  let status: Status
+  @Environment(AppModel.self) private var app
+
+  init(
+    searchText: Binding<String>, columnVisibility: Binding<NavigationSplitViewVisibility>?,
+    @ViewBuilder content: () -> Content, @ViewBuilder bottomBar: () -> BottomBar, @ViewBuilder status: () -> Status
+  ) {
+    _searchText = searchText
+    self.columnVisibility = columnVisibility
+    self.content = content()
+    self.bottomBar = bottomBar()
+    self.status = status()
+  }
+
+  var body: some View {
+    @Bindable var app = app
+    KitSidebar(
+      selection: $app.selection, searchText: $searchText, searchPrompt: "Search Vault",
+      columnVisibility: columnVisibility
+    ) {
+      content
+    } bottomBar: {
+      bottomBar
+    }
+    .status { status }
   }
 }
 

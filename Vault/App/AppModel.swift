@@ -273,7 +273,18 @@ final class AppModel {
       + vault.projects.count
   }
 
-  var notes: [VaultNote] { (try? vault.store?.records(VaultNote.self)) ?? [] }
+  /// The notes, read again only when the store changed: each read decrypts every note, and the sidebar asked three
+  /// times on each update.
+  var notes: [VaultNote] {
+    guard let store = vault.store else { return [] }
+    let revision = store.revision
+    if let cached = notesCache, cached.revision == revision { return cached.notes }
+    let notes = (try? store.records(VaultNote.self)) ?? []
+    notesCache = (revision, notes)
+    return notes
+  }
+
+  @ObservationIgnored private var notesCache: (revision: Int64, notes: [VaultNote])?
 
   /// Devices that published a key: this one and the others.
   var devices: [VaultDeviceKey] { deviceVault.deviceKeys.filter { $0.id == vault.deviceID } + otherDevices }

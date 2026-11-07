@@ -255,7 +255,8 @@ final class FolderLibrary {
 
   /// Seals every copy's changes, locks the expired ones, redraws the countdowns.
   private func heartbeat() {
-    tick = .now
+    // Only countdowns read it: with nothing decrypted, a bump rebuilt the Folders section and its rows for nothing.
+    if !sessions.isEmpty { tick = .now }
     for (id, live) in sessions {
       if live.session.isExpired {
         lock(id)
