@@ -30,9 +30,9 @@ public enum AppSandbox {
   /// `Application Support/<bundle id>` on a Mac without it. Not created here.
   public static var supportDirectory: URL {
     #if os(macOS)
-      if !isOn { return URL.applicationSupportDirectory.appendingPathComponent(bundleID, isDirectory: true) }
+      if !isOn { return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent(bundleID, isDirectory: true) }
     #endif
-    return URL.applicationSupportDirectory
+    return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
   }
 
   /// The app's documents: Documents in the sandbox (the container's), and `Documents` in `supportDirectory` on a Mac
@@ -41,7 +41,8 @@ public enum AppSandbox {
     #if os(macOS)
       if !isOn { return supportDirectory.appendingPathComponent("Documents", isDirectory: true) }
     #endif
-    return URL.documentsDirectory
+    // FileManager rather than `URL.documentsDirectory`, which corelibs Foundation (Linux, Windows) doesn't have.
+    return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
   }
 
   /// The data folder of the app's sandbox container (`~/Library/Containers/<bundle id>/Data`), where a sandboxed build
