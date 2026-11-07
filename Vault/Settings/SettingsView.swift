@@ -35,6 +35,7 @@ struct SettingsView: View {
     // The values show on iPhone, where the panes are rows.
     KitSettings(selection: $pane, window: .titled) {
       SettingsPane("General", systemImage: "gearshape", hue: .gray) { GeneralPane() }
+      SettingsPane("Documents", systemImage: "doc.text.image", hue: .blue, value: "\(app.vault.documentCollections.count) collections") { DocumentsSettingsPane() }
       SettingsPane("Sync", systemImage: "arrow.triangle.2.circlepath", hue: .blue, value: iCloud.isOff ? "Off" : "iCloud") { SyncPane() }
       SettingsPane("Recovery Key", systemImage: "key", hue: .orange, value: app.recovery.isOn ? "On" : "Off") { RecoveryKeyPane() }
       SettingsPane("AutoFill", systemImage: "rectangle.and.pencil.and.ellipsis", hue: .gray, value: "Off") { AutoFillPane() }
