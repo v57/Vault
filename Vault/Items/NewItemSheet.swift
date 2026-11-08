@@ -332,10 +332,10 @@ private struct CardForm: View {
         LabeledField("Holder") { TextField("Name on the card", text: $holder).kitField() }
       }
       FieldRow {
-        LabeledField("Number") { SecureField("1234 5678 9012 3456", text: $number).kitField(mono: true) }
+        LabeledField("Number") { SecureField("1234 5678 9012 3456", text: $number).kitField(mono: true, content: .secretNumber) }
         HStack(spacing: 12) {
-          LabeledField("Expires") { TextField("MM/YY", text: $expiry).kitField(mono: true) }
-          LabeledField("Code") { SecureField("123", text: $code).kitField(mono: true) }
+          LabeledField("Expires") { TextField("MM/YY", text: $expiry).kitField(mono: true, content: .number) }
+          LabeledField("Code") { SecureField("123", text: $code).kitField(mono: true, content: .secretNumber) }
         }
       }
     }
