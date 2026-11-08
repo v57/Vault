@@ -153,7 +153,7 @@ struct HostInspector: View {
       InspectorHeader(host.displayName, meta: [String(localized: "SSH host"), "\(host.user)@\(host.name.isEmpty ? host.hostname : host.name)"], systemImage: "server.rack") {}
     }
     KitSection("Connection", meta: [
-        String(localized: "port \(host.port)"),
+        String(localized: "port \(String(host.port))"),
         host.jumpHostID == nil
           ? String(localized: "no jump host")
           : String(localized: "through \(vault.host(id: host.jumpHostID)?.displayName ?? String(localized: "a jump host"))"),

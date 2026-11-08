@@ -294,7 +294,7 @@ struct HubDeviceInspector: View {
     }
     if let ssh = device.ssh {
       let host = app.vault.hubHosts.first { $0.hub?.deviceID == device.id && $0.hub?.hubID == hub.id }
-      KitSection("SSH via Hub", meta: [device.address ?? String(localized: "no address yet"), String(localized: "port \(ssh.port)")], systemImage: "server.rack", hue: .teal) {
+      KitSection("SSH via Hub", meta: [device.address ?? String(localized: "no address yet"), String(localized: "port \(String(ssh.port))")], systemImage: "server.rack", hue: .teal) {
         if let address = device.address { InspectorRow("Address", copyText: address) { Text(address).kitFont(.mono) } }
         if let user = ssh.user { InspectorRow("User", value: user) }
         if let key = ssh.hostKey {
