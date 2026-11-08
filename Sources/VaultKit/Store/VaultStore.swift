@@ -85,6 +85,8 @@ public final class VaultStore: @unchecked Sendable {
   var _vaultMark: Date?
   /// The old file as the last import saw it.
   var _oldFileSeen: String?
+  /// Set when this build's CloudKit environment isn't the one the vault syncs in (`VaultStore+Environment`).
+  var _writeRefusal: VaultEnvironmentMismatch?
   /// While a sweep runs: `withKeySweep`.
   private var _sweepDepth = 0
   private var _sweepKeys: [String: SymmetricKey]?
@@ -181,6 +183,7 @@ public final class VaultStore: @unchecked Sendable {
   /// can too.
   public static let shared: VaultStore? = {
     guard let store = try? VaultStore() else { return nil }
+    store.checkCloudEnvironment(VaultCloudEnvironment.current)
     // The kit follows the secrets, whichever app changes them. Touches the keychain only with a kit on.
     VaultSecrets.didChange = { name, value in
       try? VaultRecovery(store: store).secretChanged(name, value: value)

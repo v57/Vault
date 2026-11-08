@@ -71,8 +71,8 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   ///
   /// Every app on a device shares one store, and what one app sends is sent for all of them, so they must all sync
   /// in one environment: a debug build signed for Development would take the others' writes to a database none of
-  /// them reads. On the Mac a build without `icloud-container-environment` = `Production` stays off; iOS can't read
-  /// its entitlements, so there it's the app's job.
+  /// them reads. A build without `icloud-container-environment` = `Production` stays off (`VaultCloudEnvironment`
+  /// reads it on iOS too), and its store is read-only once the vault has synced in Production (security audit M2).
   public static var isEntitled: Bool {
     #if os(macOS)
       guard let task = SecTaskCreateFromSelf(nil) else { return false }
@@ -87,7 +87,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       return containers?.contains(VaultConfiguration.cloudContainer) == true && services?.contains("CloudKit") == true
         && environment == "Production"
     #else
-      return true
+      return VaultCloudEnvironment.current == VaultCloudEnvironment.production
     #endif
   }
 
@@ -193,7 +193,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   private var changeObserver: VaultChangeObserver?
   /// Follows the user's iCloud switch (`VaultICloud`).
   private var switchObserver: VaultChangeObserver?
-  private static let productionMark = "environment.production"
+  private static let productionMark = VaultStore.productionMark
 
   deinit {
     for observer in observers { NotificationCenter.default.removeObserver(observer) }
@@ -252,6 +252,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       try? store.resetServerState()
       try? store.setEngineState(Data("1".utf8), for: Self.productionMark)
     }
+    store.recordCloudEnvironment(VaultCloudEnvironment.production)
     // Opens the accounts' stores, so a store that's still to migrate does it now, before anything is fetched.
     _ = zones.activeZones()
     let saved = zones.needsFullFetch ? nil : (try? store.engineState(name)).flatMap {

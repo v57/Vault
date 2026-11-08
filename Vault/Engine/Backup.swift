@@ -56,6 +56,7 @@ final class LiveRecovery: RecoveryService {
 
   func recover(_ text: String) async throws -> String {
     guard let recovery else { throw NotYetAvailable(what: "The recovery key") }
+    if let refusal = recovery.store.writeRefusal { throw refusal }
     let recovered = try await recovery.recover(text)
     let result = try recovery.restore(recovered, alongWith: Self.accountStores())
     revision += 1
@@ -121,6 +122,8 @@ enum BackupActions {
     guard let personal = Vaults.shared.personal.store, let accounts = Vaults.shared.stores else {
       throw BackupUnavailable()
     }
+    // Nothing goes back, the keychain included, into a vault this build may not write (security audit M2).
+    if let refusal = personal.writeRefusal { throw refusal }
     let targets = VaultBackup.Targets(personal: personal) { try accounts.store(forAccount: $0) }
     let result = try VaultBackup.restore(contents, to: targets, devicesOwnKeys: devicesOwnKeys)
     Vaults.reloadAll()

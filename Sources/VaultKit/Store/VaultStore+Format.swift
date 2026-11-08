@@ -236,6 +236,7 @@ extension VaultStore {
 
   /// A write can't wait for the keys (`VaultStore+Format`'s header), so it moves the store on when it can.
   func openForWriting() throws {
+    if let refusal = _writeRefusal { throw refusal }
     guard _isWaiting else { return }
     if try keys.allKeys.isEmpty { _ = try keys.primary() }
     try buildFormat2File()

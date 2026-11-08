@@ -93,6 +93,7 @@ public final class VaultAccountStores: @unchecked Sendable {
       let store = try VaultStore(
         directory: personal.directory, fileName: Self.fileName(forAccount: id), accountID: id, keys: personal.keys,
         deviceID: personal.deviceID, notifier: notifier, owner: personal.owner)
+      store.refuseWrites(personal.writeRefusal)
       stores[id] = store
       return (store, true)
     }

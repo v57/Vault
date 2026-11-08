@@ -89,6 +89,7 @@ public final class Vault {
       self.store = VaultStore.shared
       if self.store == nil { self.error = "The shared store couldn’t be opened." }
     }
+    if let refusal = self.store?.writeRefusal { error = refusal.localizedDescription }
     observer = VaultChangeObserver { [weak self] in
       Task { @MainActor in self?.reload() }
     }
