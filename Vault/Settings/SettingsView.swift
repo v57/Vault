@@ -93,6 +93,7 @@ struct SettingsView: View {
 private struct GeneralPane: View {
   @KitStorage("defaultLockMinutes") private var lockMinutes = LockAfter.thirty.rawValue
   @State private var locks = VaultAppLock.isEnabled
+  @Environment(\.kitIdiom) private var idiom
 
   var body: some View {
     FormCard {
@@ -113,8 +114,10 @@ private struct GeneralPane: View {
         .kitLabelsHidden()
       }
       FormRow("Lock decrypted folders after", help: "What the Decrypt sheet picks first.", systemImage: "lock", hue: .orange) {
+        // On iPhone it goes under the title: the wide style's tighter segments fit the row.
         KitSegmented(selection: Binding(get: { LockAfter(rawValue: lockMinutes) ?? .thirty }, set: { lockMinutes = $0.rawValue }))
           .controlSize(.small)
+          .kitSegmentedStyle(idiom == .phone ? .wide : .automatic)
       }
     }
   }
