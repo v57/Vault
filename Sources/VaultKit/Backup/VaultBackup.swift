@@ -83,6 +83,18 @@ public enum VaultBackup {
     return try seal(contents, passphrase: passphrase, rounds: rounds)
   }
 
+  static let hubKeyNames: Set<String> = ["hub.device-key", "hub.client-key"]
+
+  /// The device group, where Vault keeps the Hub keys; nil in memory runs and builds without it.
+  static var hubKeyItems: (any VaultKeyItems)? {
+    #if canImport(Security)
+      guard !VaultSecrets.isInMemory, VaultKeychain.isEntitled(to: VaultConfiguration.deviceGroup) else { return nil }
+      return KeychainKeyItems(keychain: VaultKeychain(accessGroup: VaultConfiguration.deviceGroup))
+    #else
+      return nil
+    #endif
+  }
+
   /// What `make` seals.
   static func contents(of sources: Sources) throws -> VaultBackupContents {
     var contents = VaultBackupContents(
@@ -90,6 +102,12 @@ public enum VaultBackup {
       app: Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName)
     contents.keyItems = try sources.keys.backupItems(synced: true)
     contents.deviceItems = try sources.keys.backupItems(synced: false).filter { VaultBackupContents.deviceItemNames.contains($0.name) }
+    // The Hub keys, in the device group since 2026-11-08 (`HubKeyStore`).
+    if let hubKeys = hubKeyItems {
+      for name in hubKeyNames where !contents.deviceItems.contains(where: { $0.name == name }) {
+        if let data = try hubKeys.read(name, synced: false) { contents.deviceItems.append(.init(name: name, data: data)) }
+      }
+    }
     (contents.sharedSecrets, contents.vaultOnlySecrets) = try items(of: sources.secrets)
     (contents.sharedIdentity, contents.vaultOnlyIdentity) = try items(of: sources.identity)
     for store in sources.stores {
@@ -214,6 +232,13 @@ public enum VaultBackup {
     if devicesOwnKeys {
       for item in contents.deviceItems where VaultBackupContents.deviceItemNames.contains(item.name) {
         if item.name == VaultIdentity.account, !deviceKeyOpensHere(item.data) { continue }
+        if hubKeyNames.contains(item.name), let hubKeys = hubKeyItems {
+          if try hubKeys.read(item.name, synced: false) != item.data {
+            try hubKeys.replace(item.data, named: item.name, synced: false, label: item.label ?? "Hub key")
+            result.deviceItems += 1
+          }
+          continue
+        }
         if try targets.keys.restoreBackupItem(item, synced: false, replacing: true) { result.deviceItems += 1 }
       }
     }
