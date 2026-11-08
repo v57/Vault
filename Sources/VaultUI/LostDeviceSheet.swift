@@ -294,7 +294,7 @@ public struct VaultLostDeviceSheet: View {
         : "It’s still in your Apple Account as far as this \(KitDevice.name) knows, so it would get the new key too: step 1 first."
     ) {
       FormRow(
-        "New Vault Key", help: help(VaultLostDeviceFlow.rotate, "Seals every record again. Your other devices get it through iCloud Keychain."),
+        "New Vault Key", help: help(VaultLostDeviceFlow.rotate, "Seals every record again. Your other devices get it through iCloud Keychain, so iCloud has to be on here (Settings › Privacy)."),
         systemImage: "key.horizontal", hue: .orange
       ) {
         trailing(VaultLostDeviceFlow.rotate, title: "Make New Key") { flow.rotateKeys() }

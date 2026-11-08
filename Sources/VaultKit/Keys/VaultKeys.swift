@@ -156,6 +156,19 @@ final class MemoryKeyItems: VaultKeyItems, @unchecked Sendable {
   }
 }
 
+/// A rotation refused while iCloud is off on this device.
+public enum VaultKeyRotationError: LocalizedError, Equatable {
+  case iCloudOff
+
+  public var errorDescription: String? {
+    switch self {
+    case .iCloudOff:
+      "iCloud is off on this device, so a new vault key would stay here and your other devices couldn’t read what’s "
+        + "sealed with it. Turn iCloud on in Settings › Privacy first."
+    }
+  }
+}
+
 /// The keys, their rotations and the id key, over `VaultKeyItems`. Item names:
 ///
 /// - `key.<id>`: a key. Old builds read every item with this prefix and nothing else.
@@ -187,6 +200,8 @@ final class VaultKeyRing: @unchecked Sendable {
   let items: any VaultKeyItems
   /// How long what was read stays good: another device's rotation shows up within this.
   private let staleAfter: TimeInterval
+  /// Whether a rotation would stay on this device: iCloud off (`VaultICloud`) for keys in the keychain.
+  let rotationStaysHere: @Sendable () -> Bool
   private let lock = NSRecursiveLock()
   private var keys: [String: SymmetricKey] = [:]
   private var epochs: [VaultKeyEpoch: Claim] = [:]
@@ -196,10 +211,12 @@ final class VaultKeyRing: @unchecked Sendable {
   private var idKeys: [String: SymmetricKey] = [:]
   private var loaded: Date?
 
-  init(items: any VaultKeyItems, staleAfter: TimeInterval) {
+  init(items: any VaultKeyItems, staleAfter: TimeInterval, rotationStaysHere: @escaping @Sendable () -> Bool = { false }) {
     self.items = items
     self.staleAfter = staleAfter
+    self.rotationStaysHere = rotationStaysHere
   }
+
 
   static func epochName(_ epoch: VaultKeyEpoch) -> String { "\(epochPrefix)\(epoch.epoch).\(epoch.keyID)" }
 
@@ -304,7 +321,10 @@ final class VaultKeyRing: @unchecked Sendable {
   }
 
   func rotate(kitCheck: String?) throws -> VaultKeyEpoch {
-    try lock.withLock {
+    // With iCloud off the key and its epoch would be this device's alone (security audit H3): the user's other devices
+    // would keep sealing with the old key, and refuse nothing.
+    guard !rotationStaysHere() else { throw VaultKeyRotationError.iCloudOff }
+    return try lock.withLock {
       try load()
       // Before the current key changes, so ids keep coming from the key they always came from. A device that only has a
       // later key can still rotate: whoever has the first key makes it.
@@ -396,7 +416,7 @@ public final class KeychainKeyProvider: VaultKeyProvider, @unchecked Sendable {
   private let ring: VaultKeyRing
 
   public init(keychain: VaultKeychain = VaultKeychain()) {
-    ring = VaultKeyRing(items: KeychainKeyItems(keychain: keychain), staleAfter: 15)
+    ring = VaultKeyRing(items: KeychainKeyItems(keychain: keychain), staleAfter: 15, rotationStaysHere: { VaultICloud.isOff })
   }
 
   /// Keychain items are named `key.<id>`.
@@ -425,11 +445,16 @@ public final class MemoryKeyProvider: VaultKeyProvider, @unchecked Sendable {
   let ring: VaultKeyRing
   let items: MemoryKeyItems
 
-  public init(keys: [String: SymmetricKey] = ["0000000000000001": SymmetricKey(size: .bits256)]) {
+  public convenience init(keys: [String: SymmetricKey] = ["0000000000000001": SymmetricKey(size: .bits256)]) {
+    self.init(keys: keys, rotationStaysHere: { false })
+  }
+
+  /// `rotationStaysHere` stands in for iCloud being off.
+  init(keys: [String: SymmetricKey] = ["0000000000000001": SymmetricKey(size: .bits256)], rotationStaysHere: @escaping @Sendable () -> Bool) {
     items = MemoryKeyItems(
       synced: Dictionary(
         uniqueKeysWithValues: keys.map { (VaultKeyRing.keyPrefix + $0.key, $0.value.withUnsafeBytes { Data($0) }) }))
-    ring = VaultKeyRing(items: items, staleAfter: 0)
+    ring = VaultKeyRing(items: items, staleAfter: 0, rotationStaysHere: rotationStaysHere)
   }
 
   public func primary() throws -> (id: String, key: SymmetricKey) { try ring.primary() }

@@ -36,11 +36,68 @@ struct SecretMoveTests {
 
   private func move(
     shared: any VaultSecretBacking, vaultOnly: any VaultSecretBacking, stores: [VaultStore],
-    identityShared: any VaultSecretBacking = MemorySecretBacking(), identityVaultOnly: any VaultSecretBacking = MemorySecretBacking()
+    identityShared: any VaultSecretBacking = MemorySecretBacking(), identityVaultOnly: any VaultSecretBacking = MemorySecretBacking(),
+    iCloudIsOff: @escaping @Sendable () -> Bool = { false }
   ) -> VaultSecretMove {
     VaultSecretMove(
       secrets: VaultSecretTiers(shared: shared, vaultOnly: vaultOnly),
-      identity: VaultSecretTiers(shared: identityShared, vaultOnly: identityVaultOnly) { _ in true }, stores: stores)
+      identity: VaultSecretTiers(shared: identityShared, vaultOnly: identityVaultOnly) { _ in true }, stores: stores,
+      iCloudIsOff: iCloudIsOff)
+  }
+
+  /// With iCloud off on this device the keychain writes the new copies to this device alone, while deleting the shared
+  /// ones still reaches every device (security audit H3): nothing moves until iCloud is on again, and the shared copies,
+  /// the identity's included, stay where every device has them.
+  @Test func nothingMovesWhileICloudIsOff() throws {
+    let store = try store()
+    let login = VaultLogin(title: "Mail")
+    try store.save(login)
+    let shared = MemorySecretBacking(["password.\(login.id)": data("secret"), "otp.\(login.id)": data("otp")])
+    let vaultOnly = MemorySecretBacking()
+    let identityShared = MemorySecretBacking([VaultPersonalIdentity.account: PersonalIdentity().rawRepresentation])
+    let identityVaultOnly = MemorySecretBacking()
+    let off = Switch(true)
+    let mover = move(
+      shared: shared, vaultOnly: vaultOnly, stores: [store], identityShared: identityShared,
+      identityVaultOnly: identityVaultOnly, iCloudIsOff: { off.value })
+
+    let report = mover.run()
+    #expect(report.waitsForICloud)
+    #expect(!report.isComplete)
+    #expect(report.moved == 0)
+    #expect(Set(shared.names) == ["password.\(login.id)", "otp.\(login.id)"])
+    #expect(vaultOnly.names.isEmpty)
+    #expect(identityShared.names == [VaultPersonalIdentity.account])
+    #expect(identityVaultOnly.names.isEmpty)
+
+    off.value = false
+    let after = mover.run()
+    #expect(after.isComplete)
+    #expect(after.moved == 3)
+    #expect(shared.names.isEmpty)
+  }
+
+  /// And no rotation either: its key and epoch would stay on this device, so the others would neither use the new key
+  /// nor refuse the old one.
+  @Test func noRotationWhileICloudIsOff() throws {
+    let off = Switch(true)
+    let keys = MemoryKeyProvider(rotationStaysHere: { off.value })
+    let store = try VaultStore(directory: temporaryDirectory(), keys: keys, deviceID: "mac", notifier: nil, owner: "mac")
+    try store.save(VaultLogin(title: "Mail"))
+    #expect(throws: VaultKeyRotationError.iCloudOff) { try store.rotateKeys() }
+    #expect(try keys.keyEpochs.isEmpty)
+    off.value = false
+    #expect(try store.rotateKeys().epoch.epoch == 1)
+  }
+
+  final class Switch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var on: Bool
+    init(_ on: Bool) { self.on = on }
+    var value: Bool {
+      get { lock.withLock { on } }
+      set { lock.withLock { on = newValue } }
+    }
   }
 
   private func data(_ text: String) -> Data { Data(text.utf8) }

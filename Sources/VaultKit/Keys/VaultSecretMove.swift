@@ -35,9 +35,12 @@ public struct VaultSecretMove: Sendable {
     public var failed: [String] = []
     /// `password.<id>` whose record isn't in these stores: left in the shared group, readable by every app.
     public var waiting = 0
+    /// Nothing moved: iCloud is off on this device (`VaultICloud`). Written now, the new copies would be this device's
+    /// alone while the deletes of the old ones still reach every device through iCloud Keychain.
+    public var waitsForICloud = false
 
     /// Whether a login's password, a code, a card or a passkey may still be in the shared group after this run.
-    public var isComplete: Bool { failed.isEmpty && waiting == 0 }
+    public var isComplete: Bool { failed.isEmpty && waiting == 0 && !waitsForICloud }
   }
 
   static let supersededPrefix = "superseded."
@@ -57,11 +60,17 @@ public struct VaultSecretMove: Sendable {
   let secrets: VaultSecretTiers
   let identity: VaultSecretTiers
   let stores: [VaultStore]
+  /// Whether iCloud is off on this device: `VaultICloud.isOff` for the keychain's groups.
+  let iCloudIsOff: @Sendable () -> Bool
 
-  init(secrets: VaultSecretTiers, identity: VaultSecretTiers, stores: [VaultStore]) {
+  init(
+    secrets: VaultSecretTiers, identity: VaultSecretTiers, stores: [VaultStore],
+    iCloudIsOff: @escaping @Sendable () -> Bool = { false }
+  ) {
     self.secrets = secrets
     self.identity = identity
     self.stores = stores
+    self.iCloudIsOff = iCloudIsOff
   }
 
   /// The move for this app, nil where it can't run: an app outside the secrets group, or secrets in memory. `stores`:
@@ -70,13 +79,20 @@ public struct VaultSecretMove: Sendable {
     guard let secrets = VaultSecrets.backing as? VaultSecretTiers, secrets.vaultOnly != nil,
       let identity = VaultPersonalIdentity.backing as? VaultSecretTiers, identity.vaultOnly != nil
     else { return nil }
-    return VaultSecretMove(secrets: secrets, identity: identity, stores: stores)
+    return VaultSecretMove(secrets: secrets, identity: identity, stores: stores, iCloudIsOff: { VaultICloud.isOff })
   }
 
+  /// Moves what it can. While iCloud is off on this device it moves nothing and says so (`Report.waitsForICloud`): the
+  /// keychain then writes synced items to this device alone (`VaultKeychain`'s twins), but a delete still reaches every
+  /// device, so the move would take the secrets from all the others and leave the only copy here (security audit H3).
   @discardableResult
   public func run() -> Report {
     var report = Report()
     guard let vaultOnly = secrets.vaultOnly, let identityVaultOnly = identity.vaultOnly else { return report }
+    guard !iCloudIsOff() else {
+      report.waitsForICloud = true
+      return report
+    }
 
     let shared: [(name: String, data: Data)]
     do {
