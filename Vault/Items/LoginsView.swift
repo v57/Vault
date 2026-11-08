@@ -179,8 +179,11 @@ struct LoginInspector: View {
       ActionBar {
         Button("Edit") { app.sheet = .newItem(.login) }
         Button("Copy Password") {
-          if let password = login.password { KitPasteboard.copySecret(password) }
-          copies += 1
+          Task {
+            guard await AppLock.shared.allow(String(localized: "Password")) else { return }
+            if let password = login.password { KitPasteboard.copySecret(password) }
+            copies += 1
+          }
         }
         .effect(.success, on: copies)
         Button("Share…") { app.selection = .devices }
@@ -275,8 +278,11 @@ struct LoginPage: View {
       Button("Edit") { app.sheet = .newItem(.login) }.buttonStyle(.kit)
     } actions: {
       Button("Copy Password", systemImage: "doc.on.doc") {
-        if let password = login.password { KitPasteboard.copySecret(password) }
-        copies += 1
+        Task {
+          guard await AppLock.shared.allow(String(localized: "Password")) else { return }
+          if let password = login.password { KitPasteboard.copySecret(password) }
+          copies += 1
+        }
       }
       .effect(.success, on: copies)
       Button("Share", systemImage: "square.and.arrow.up") { app.selection = .devices }.labelStyle(.iconOnly)
@@ -284,7 +290,10 @@ struct LoginPage: View {
         Button("Copy Username", systemImage: "person") { KitPasteboard.copy(login.username) }
         if login.hasOneTimeCode {
           Button("Copy Code", systemImage: "clock") {
-            if let code = login.oneTimeCode?.code() { KitPasteboard.copySecret(code) }
+            Task {
+              guard await AppLock.shared.allow(String(localized: "One-time code")) else { return }
+              if let code = login.oneTimeCode?.code() { KitPasteboard.copySecret(code) }
+            }
           }
         }
         Button("Copy Website", systemImage: "link") { KitPasteboard.copy(login.website) }.disabled(login.website.isEmpty)

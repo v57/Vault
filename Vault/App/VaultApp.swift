@@ -51,6 +51,7 @@ struct VaultApp: App {
     #if os(macOS)
       Settings {
         SettingsView(updater: updater)
+          .appLock()
           .environment(app)
           .componentKit(accent: .vaultAccent)
       }
@@ -83,6 +84,8 @@ struct MainWindow: View {
         .onChange(of: Vaults.shared.accounts) { AppModel.dropDeletedAccounts() }
       }
     }
+    // Touch ID or Face ID before the vault shows and before a secret is shown or copied (security audit M13).
+    .appLock()
     .task(id: [AnyHashable(personal.vault.logins), AnyHashable(personal.vault.passkeys)]) {
       // What the system offers in password and passkey fields (only once Vault is turned on in AutoFill settings):
       // Personal's, the store the AutoFill extension reads, whichever account the window shows.

@@ -92,9 +92,26 @@ struct SettingsView: View {
 
 private struct GeneralPane: View {
   @KitStorage("defaultLockMinutes") private var lockMinutes = LockAfter.thirty.rawValue
+  @State private var locks = VaultAppLock.isEnabled
 
   var body: some View {
     FormCard {
+      // Security audit M13: on by default; turning it off asks first (`VaultAppLock.setEnabled`).
+      FormRow(
+        "Ask for Touch ID or Face ID",
+        help: "When Vault opens or comes back after 5 minutes, and before a password, card or document number is shown or copied. One unlock lasts 5 minutes, AutoFill included.",
+        systemImage: "faceid", hue: .green
+      ) {
+        Toggle("Ask for Touch ID or Face ID", isOn: Binding(get: { locks }, set: { on in
+          Task {
+            let changed = await VaultAppLock.setEnabled(on, reason: String(localized: "turn off the app lock"))
+            locks = VaultAppLock.isEnabled
+            if changed { AppLock.shared.enabledChanged() }
+          }
+        }))
+        .toggleStyle(.kitSwitch)
+        .kitLabelsHidden()
+      }
       FormRow("Lock decrypted folders after", help: "What the Decrypt sheet picks first.", systemImage: "lock", hue: .orange) {
         KitSegmented(selection: Binding(get: { LockAfter(rawValue: lockMinutes) ?? .thirty }, set: { lockMinutes = $0.rawValue }))
           .controlSize(.small)
@@ -125,7 +142,10 @@ private struct SyncPane: View {
             help: "A password or code changed on two devices at once. The later value is in use, and the other is kept here. It’s never deleted.",
             systemImage: "clock.arrow.circlepath", hue: .orange
           ) {
-            Button("Show \(replaced.count)…") { isShowingReplaced = true }.buttonStyle(.kit)
+            Button("Show \(replaced.count)…") {
+              Task { if await AppLock.shared.allow(String(localized: "Replaced values")) { isShowingReplaced = true } }
+            }
+            .buttonStyle(.kit)
           }
         }
       }

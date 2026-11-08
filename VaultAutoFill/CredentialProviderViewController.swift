@@ -20,8 +20,19 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
   override func viewDidLoad() {
     super.viewDidLoad()
-    model.complete = { [weak self] login in self?.complete(with: login) }
-    model.completeCode = { [weak self] code in self?.complete(code: code) }
+    // Filling asks for Touch ID or Face ID unless Vault was unlocked less than five minutes ago (security audit M13).
+    model.complete = { [weak self] login in
+      Task { @MainActor in
+        guard await Self.unlock(for: login) else { return }
+        self?.complete(with: login)
+      }
+    }
+    model.completeCode = { [weak self] code in
+      Task { @MainActor in
+        guard await VaultAppLock.unlock(reason: String(localized: "fill a one-time code")) else { return }
+        self?.complete(code: code)
+      }
+    }
     model.completePasskey = { [weak self] passkey in
       guard let self, let request = passkeyRequest else { return }
       Task { await self.signIn(with: passkey, clientDataHash: request.clientDataHash, verification: request.verification) }
@@ -58,6 +69,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     guard let id = credentialRequest.credentialIdentity.recordIdentifier, let login = AutoFillModel.login(id: id) else {
       return cancel(.credentialIdentityNotFound)
     }
+    // Without a recent unlock the system shows our interface, which asks (prepareInterfaceToProvideCredential).
+    guard VaultAppLock.isUnlocked else { return cancel(.userInteractionRequired) }
     if #available(macOS 15, iOS 18, *), credentialRequest.type == .oneTimeCode {
       guard let code = login.oneTimeCode?.code() else { return cancel(.credentialIdentityNotFound) }
       complete(code: code)
@@ -73,7 +86,24 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
       Task { await signIn(with: passkey, clientDataHash: request.clientDataHash, verification: request.userVerificationPreference) }
       return
     }
+    // The system picked a login and Vault is locked: ask, then fill it, as the no-UI path would have.
+    if let id = credentialRequest.credentialIdentity.recordIdentifier, let login = AutoFillModel.login(id: id) {
+      Task {
+        guard await Self.unlock(for: login) else { return cancel(.userCanceled) }
+        if #available(macOS 15, iOS 18, *), credentialRequest.type == .oneTimeCode {
+          guard let code = login.oneTimeCode?.code() else { return cancel(.credentialIdentityNotFound) }
+          return complete(code: code)
+        }
+        complete(with: login)
+      }
+      return
+    }
     model.load(identifiers: [credentialRequest.credentialIdentity.serviceIdentifier.identifier], wantsCode: false)
+  }
+
+  /// Touch ID, Face ID or the password before a login is filled, unless an unlock less than five minutes ago holds.
+  private static func unlock(for login: VaultLogin) async -> Bool {
+    await VaultAppLock.unlock(reason: String(localized: "fill the password for \(login.displayName)"))
   }
 
   // MARK: One-time codes
