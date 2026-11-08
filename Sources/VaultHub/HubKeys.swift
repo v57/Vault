@@ -103,12 +103,13 @@ public enum HubKeyScope: Hashable, Sendable {
 /// Where this device keeps its Hub keys. They never leave the device: a key that synced would let a stolen backup
 /// connect as this device.
 ///
-/// - The device key: a this-device-only item in the v57 keychain group, where the Hub app puts its own
+/// - The device key: a this-device-only item in the device group (only Vault and the Hub app), where the Hub app puts its own
 ///   (`shareDeviceKey`, protocol §3), so the Hub app and every v57 app are one device on the Hub. Apps never read a
 ///   file: `~/.hub/device.key` is the key of Hub's launcher and services, which any of the user's processes can read,
 ///   so it's another device, a child that holds only what the owner gives it (protocol §14). `HUB_DEVICE_KEY` counts in
 ///   DEBUG builds only, for running against a test key.
-/// - The key the v57 apps connect with: a this-device-only item in the v57 keychain group.
+/// - The key the v57 apps connect with: a this-device-only item in the device group. Both were in the shared group until
+///   2026-11-08 and move on first read (`Places`).
 /// - On a Hub added since auth v2, neither: keys derived from the device key and the address (`keys(for:)`), so what
 ///   that Hub receives, relays or claims means nothing on another Hub. They are derived when needed and never stored.
 ///
@@ -122,27 +123,88 @@ public enum HubKeyStore {
     #if DEBUG
       if let file = debugDeviceKeyFile { return try fileKey(at: file) }
     #endif
-    return try keychainKey(deviceKeyAccount, label: deviceKeyLabel)
+    return try keychainKey(deviceKeyAccount, label: deviceKeyLabel, in: places)
   }
 
-  /// The device key in the v57 keychain group, nil while there is none.
+  /// The device key in the device group, nil while there is none.
   public static func sharedDeviceKey() throws -> HubKey? {
     if VaultSecrets.isInMemory { return memory(of: "device") }
-    return try VaultKeychain().read(deviceKeyAccount, options: .thisDevice).map { try HubKey(seed: $0) }
+    return try read(deviceKeyAccount, in: places).map { try HubKey(seed: $0) }
   }
 
-  /// Makes the Hub app's device key the one in the v57 keychain group, replacing a key a v57 app made there before
-  /// (the Hub app holds the device's approvals and Hub Network address). Without a key of its own, the Hub app takes
-  /// the group's, else a new one; it then keeps that one as its own.
+  /// Makes the Hub app's device key the one in the device group, replacing a key a v57 app made there before (the Hub
+  /// app holds the device's approvals and Hub Network address). Without a key of its own, the Hub app takes the group's,
+  /// else a new one; it then keeps that one as its own.
   public static func shareDeviceKey(_ own: Data?) throws -> HubKey {
-    let key = try own.map(HubKey.init(seed:)) ?? sharedDeviceKey() ?? HubKey()
     if VaultSecrets.isInMemory {
+      let key = try own.map(HubKey.init(seed:)) ?? memory(of: "device") ?? HubKey()
       lock.withLock { memory["device"] = key }
       return key
     }
-    let keychain = VaultKeychain()
-    if try keychain.read(deviceKeyAccount, options: .thisDevice) != key.seed {
-      try keychain.write(key.seed, account: deviceKeyAccount, options: .init(synchronizable: false, label: deviceKeyLabel))
+    return try share(own, in: places)
+  }
+
+  // MARK: Where they're kept
+
+  /// A keychain group the Hub keys are read from or kept in.
+  protocol Place: Sendable {
+    func read(_ account: String) throws -> Data?
+    func write(_ data: Data, account: String, label: String) throws
+    /// Throws `errSecDuplicateItem` when there is one.
+    func addNew(_ data: Data, account: String, label: String) throws
+    func delete(_ account: String) throws
+  }
+
+  /// `device`: the device group (`VaultConfiguration.deviceGroup`), which only Vault and the Hub app list (security audit
+  /// M4, Hub decision 11). `legacy`: the shared group they were in until then, read once and emptied, in an app that
+  /// still lists it. A build not yet entitled to the device group keeps them where they were.
+  struct Places: Sendable {
+    var device: any Place
+    var legacy: (any Place)?
+  }
+
+  struct KeychainPlace: Place {
+    let keychain: VaultKeychain
+    func read(_ account: String) throws -> Data? { try keychain.read(account, options: .thisDevice) }
+    func write(_ data: Data, account: String, label: String) throws {
+      try keychain.write(data, account: account, options: .init(synchronizable: false, label: label))
+    }
+    func addNew(_ data: Data, account: String, label: String) throws {
+      try keychain.addNew(data, account: account, options: .init(synchronizable: false, label: label))
+    }
+    func delete(_ account: String) throws { try keychain.delete(account, options: .thisDevice) }
+  }
+
+  #if canImport(Security)
+    static let places: Places = {
+      let shared = KeychainPlace(keychain: VaultKeychain())
+      guard VaultKeychain.isEntitled(to: VaultConfiguration.deviceGroup) else { return Places(device: shared, legacy: nil) }
+      let device = KeychainPlace(keychain: VaultKeychain(accessGroup: VaultConfiguration.deviceGroup))
+      return Places(device: device, legacy: VaultKeychain.isShared ? shared : nil)
+    }()
+  #else
+    static let places = Places(device: KeychainPlace(keychain: VaultKeychain()), legacy: nil)
+  #endif
+
+  /// The key in the device group; one still in the shared group moves there first (written, read back, then deleted).
+  static func read(_ account: String, in places: Places) throws -> Data? {
+    if let data = try places.device.read(account) { return data }
+    guard let legacy = places.legacy, let data = try legacy.read(account) else { return nil }
+    do {
+      try places.device.addNew(data, account: account, label: account == deviceKeyAccount ? deviceKeyLabel : clientKeyLabel)
+    } catch {
+      // Another app moved it meanwhile: theirs stands.
+      guard let moved = try places.device.read(account) else { throw error }
+      return moved
+    }
+    if try places.device.read(account) == data { try? legacy.delete(account) }
+    return data
+  }
+
+  static func share(_ own: Data?, in places: Places) throws -> HubKey {
+    let key = try own.map(HubKey.init(seed:)) ?? read(deviceKeyAccount, in: places).map(HubKey.init(seed:)) ?? HubKey()
+    if try read(deviceKeyAccount, in: places) != key.seed {
+      try places.device.write(key.seed, account: deviceKeyAccount, label: deviceKeyLabel)
     }
     return key
   }
@@ -161,9 +223,12 @@ public enum HubKeyStore {
   static let deviceKeyAccount = "hub.device-key"
   static let deviceKeyLabel = "Hub device key"
 
+  static let clientKeyAccount = "hub.client-key"
+  static let clientKeyLabel = "v57 Hub key"
+
   public static func clientKey() throws -> HubKey {
     if VaultSecrets.isInMemory { return inMemory("client") }
-    return try keychainKey("hub.client-key", label: "v57 Hub key")
+    return try keychainKey(clientKeyAccount, label: clientKeyLabel, in: places)
   }
 
   #if DEBUG
@@ -213,16 +278,15 @@ public enum HubKeyStore {
     }
   #endif
 
-  private static func keychainKey(_ account: String, label: String, new: HubKey? = nil) throws -> HubKey {
-    let keychain = VaultKeychain()
-    if let seed = try keychain.read(account, options: .thisDevice) { return try HubKey(seed: seed) }
-    let key = new ?? HubKey()
+  static func keychainKey(_ account: String, label: String, in places: Places) throws -> HubKey {
+    if let seed = try read(account, in: places) { return try HubKey(seed: seed) }
+    let key = HubKey()
     do {
-      try keychain.addNew(key.seed, account: account, options: .init(synchronizable: false, label: label))
+      try places.device.addNew(key.seed, account: account, label: label)
       return key
     } catch {
       // Another v57 app on the device made it first.
-      if let seed = try keychain.read(account, options: .thisDevice) { return try HubKey(seed: seed) }
+      if let seed = try places.device.read(account) { return try HubKey(seed: seed) }
       throw error
     }
   }
