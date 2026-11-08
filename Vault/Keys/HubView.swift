@@ -80,7 +80,7 @@ struct HubView: View {
       VStack(alignment: .leading, spacing: 8) {
         Text("Connect to a Hub you run (on a Mac, a home server or a VPS) to see all your devices, Linux, Windows and Android included, and reach them over SSH from Shell, Database and Code by name.")
           .kitFont(.callout)
-        Text("Hub introduces devices and carries envelopes. It never sees your vault: logins, notes and keys stay end-to-end encrypted.")
+        Text("Hub introduces devices and carries envelopes. It never sees your vault: logins, notes and keys stay end-to-end encrypted. It does see your devices’ names, which devices share a vault, and when and how much each one syncs.")
           .kitFont(.caption)
         Button("Add Hub…") { app.sheet = .addHub }.buttonStyle(.kitPrimary).controlSize(.small)
       }
@@ -368,7 +368,7 @@ struct AddHubSheet: View {
       } else {
         Banner(
           "Hub never sees your vault.",
-          message: "It learns this \(ThisDevice.word)’s name, keys and when it’s online, to introduce your devices. An owner approves this \(ThisDevice.word) with its safety code.",
+          message: "It learns this \(ThisDevice.word)’s name, keys and when it’s online, to introduce your devices, and which vaults it syncs, with the ids and sizes of what it sends. An owner approves this \(ThisDevice.word) with its safety code.",
           systemImage: "shield", hue: .blue)
       }
       if let error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text) }
