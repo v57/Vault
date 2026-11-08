@@ -126,7 +126,7 @@
     }
 
     /// The manager's generic credentials, each at most `CRED_MAX_CREDENTIAL_BLOB_SIZE` bytes.
-    private struct Blobs: CredentialBlobs {
+    private struct Blobs: CredentialBlobs, Sendable {
       private var failure: VaultKeychain.KeychainError { .status(OSStatus(truncatingIfNeeded: GetLastError())) }
 
       func read(_ target: String) throws -> Data? {

@@ -123,3 +123,6 @@ struct ChunkedCredentials<Blobs: CredentialBlobs> {
     for index in 0..<header.count { try? blobs.delete(Self.piece(target, generation: header.generation, index)) }
   }
 }
+
+/// Windows keeps one in a static (`VaultKeychain`'s `Store.chunked`), which Swift 6 allows only for a Sendable value.
+extension ChunkedCredentials: Sendable where Blobs: Sendable {}
