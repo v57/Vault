@@ -57,3 +57,9 @@ that device.
 Vault syncs through your iCloud while **Use iCloud** is on, and connects to a Hub only after you add one. Everything
 else is something you start. [Privacy and Security](Privacy-and-Security.md#what-vault-sends-over-the-network) lists
 each connection.
+
+## For developers
+
+The Swift libraries behind the app, for developers of other apps:
+[VaultKit](VaultKit.md), [VaultFiles](VaultFiles.md), [VaultSync](VaultSync.md), [VaultHub](VaultHub.md) and
+[VaultUI](VaultUI.md). The design is in the repository's [README](../README.md).

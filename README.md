@@ -31,6 +31,19 @@ Vault.shared.save(VaultHost(name: "prod", hostname: "prod.example.com", user: "d
 try VaultSecrets.setPassword(password, for: database.id)
 ```
 
+## Libraries
+
+| Library | Purpose | Platforms | Import |
+|---|---|---|---|
+| [VaultKit](docs/VaultKit.md) | The encrypted store, its records, secrets in the keychain, iCloud sync | macOS 14, iOS/iPadOS 17; Linux and Windows without iCloud | `import VaultKit` |
+| [VaultFiles](docs/VaultFiles.md) | Encrypted folders and temporary decryption | macOS 14, iOS/iPadOS 17, Linux, Windows | `import VaultFiles` |
+| [VaultSync](docs/VaultSync.md) | Folder sync over plain storage (S3, a disk) | macOS 14, iOS/iPadOS 17, Linux, Windows | `import VaultSync` |
+| [VaultHub](docs/VaultHub.md) | The user's own Hubs: devices as SSH hosts, record sync without iCloud | macOS 14, iOS/iPadOS 17, Linux, Windows | `import VaultHub` |
+| [VaultUI](docs/VaultUI.md) | The shared account, device, settings and trust screens, on ComponentKit | macOS 14, iOS/iPadOS 17 | `import VaultUI` |
+
+`VaultStoreCrashHelper` (a test helper that kills a store mid-migration) and `CVaultLinux` (Linux's extended
+attributes) are internal targets, not products. The user guide is in [docs/](docs/README.md).
+
 ## What each app declares
 
 | Entitlement | Value |
