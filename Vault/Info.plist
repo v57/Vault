@@ -36,8 +36,13 @@
 			</array>
 		</dict>
 	</array>
+	<!-- iPhone and iPad: Vault's Documents folder in Files (On My iPhone › Vault), where decrypted folders open and
+	     edits come back to be sealed; files opened in Vault are read where they are (PageReader asks for access). The
+	     build settings say the same, but this file's keys win. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<false/>
+	<true/>
 	<!-- Animations and scrolling at up to 120 fps on an iPhone with ProMotion; without it they stop at 60. -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
