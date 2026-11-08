@@ -9,7 +9,7 @@ import Foundation
 /// a device still on an old build writes to the shared group, and iCloud Keychain brings that in at any time.
 ///
 /// What moves:
-/// - `otp.`, `card.number.`, `card.code.`, `passkey.` and the recovery digest's key, under the same name.
+/// - `otp.`, `card.number.`, `card.code.`, `passkey.`, `document.` and the recovery digest's key, under the same name.
 /// - `password.<id>` as `login.<id>`, when `<id>` is a login in one of the stores. Connection passwords share that name,
 ///   so one whose record isn't here (yet) stays where it is and counts in `waiting`.
 /// - The personal identity, to its own service.

@@ -6,7 +6,9 @@ import Foundation
 ///
 /// The kind (`DocumentKinds`) says which fields it has. Plain fields are `field.<key>` text; a day is
 /// "yyyy-MM-dd" (`DocumentDay`). Fields the kind marks secret (a passport number, an IBAN) are `VaultSecrets` items
-/// (`document.<key>.<id>`), readable only in Vault; the record keeps `secret.<key>` to say one is set.
+/// (`document.<key>.<id>`), readable only in Vault; the record keeps `secret.<key>` to say one is set. The text read
+/// from the pages and the thumbnail carry those values too, so they're sealed (`DocumentSeal`) and read as empty
+/// outside Vault.
 ///
 /// Every version is its own document: people keep a resume per kind of job, and a renewed passport is a new one.
 /// Tags, links, files and copies shared are one field each so two devices editing at once both keep theirs.
@@ -124,8 +126,9 @@ public struct VaultDocument: VaultRecord, Hashable {
     self.files = files
     remindMonths = read.int("remindMonths")
     notes = read.string("notes", default: "")
-    text = read.string("text", default: "")
-    thumbnail = read.data("thumbnail")
+    text = DocumentSeal.read("text", from: values).map { String(decoding: $0, as: UTF8.self) }
+      ?? read.string("text", default: "")
+    thumbnail = DocumentSeal.read("thumbnail", from: values) ?? read.data("thumbnail")
     needsReading = read.bool("unread")
     var copies: [String: SharedCopy] = [:]
     for (key, value) in values where key.hasPrefix("copy.") {
@@ -139,10 +142,11 @@ public struct VaultDocument: VaultRecord, Hashable {
   public var values: [String: JSONValue] {
     var values: [String: JSONValue] = [
       "title": .string(title), "kind": .string(kind), "collection": .string(collection), "holder": .string(holder),
-      "remindMonths": .init(remindMonths), "notes": .string(notes), "text": .string(text),
-      "thumbnail": .init(thumbnail?.base64EncodedString()), "unread": needsReading ? .bool(true) : .null,
+      "remindMonths": .init(remindMonths), "notes": .string(notes), "unread": needsReading ? .bool(true) : .null,
       "order": .init(order), "created": .init(created),
     ]
+    DocumentSeal.write(Data(text.utf8), as: "text", into: &values)
+    DocumentSeal.write(thumbnail, as: "thumbnail", into: &values)
     values.set(fields.filter { !$0.value.isEmpty }, prefixed: "field")
     for tag in tags { values["tag.\(tag)"] = .bool(true) }
     for link in links { values["link.\(link)"] = .bool(true) }
@@ -253,20 +257,24 @@ public struct VaultDocumentFile: VaultRecord, Hashable {
     document = read.string("document", default: "")
     name = read.string("name", default: "")
     contentType = read.string("contentType", default: "image/jpeg")
-    data = read.data("data") ?? Data()
+    data = DocumentSeal.read("data", from: values) ?? read.data("data") ?? Data()
     width = read.int("width", default: 0)
     height = read.int("height", default: 0)
     pageCount = read.int("pageCount", default: 1)
-    text = read.string("text", default: "")
+    text = DocumentSeal.read("text", from: values).map { String(decoding: $0, as: UTF8.self) }
+      ?? read.string("text", default: "")
     created = read.date("created")
   }
 
   public var values: [String: JSONValue] {
-    [
+    // The page and its text are sealed (`DocumentSeal`): a scan shows everything the secret fields keep.
+    var values: [String: JSONValue] = [
       "document": .string(document), "name": .string(name), "contentType": .string(contentType),
-      "data": .string(data.base64EncodedString()), "width": .init(width), "height": .init(height),
-      "pageCount": .init(pageCount), "text": .string(text), "created": .init(created),
+      "width": .init(width), "height": .init(height), "pageCount": .init(pageCount), "created": .init(created),
     ]
+    DocumentSeal.write(data, as: "data", into: &values)
+    DocumentSeal.write(Data(text.utf8), as: "text", into: &values)
+    return values
   }
 
   public var isPDF: Bool { contentType == "application/pdf" }

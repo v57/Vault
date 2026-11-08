@@ -195,11 +195,13 @@ public struct VaultSecretTiers: VaultSecretBacking {
       shared: KeychainSecretBacking(keychain: shared), vaultOnly: holds ? KeychainSecretBacking(keychain: vaultOnly) : nil)
   }
 
-  /// A login's password, a one-time code, a card, a passkey, and what the recovery kit keys its digests with (it tells
+  /// A login's password, a one-time code, a card, a passkey, a document's secret field (a passport number, an IBAN:
+  /// security audit M14), and what the recovery kit keys its digests with (it tells
   /// whoever holds the vault key whether a guess at a secret is right).
   public static func isVaultOnly(_ name: String) -> Bool {
     name == VaultRecovery.digestSecret
-      || ["login.", "otp.", "card.number.", "card.code.", "passkey.", VaultSecretMove.supersededPrefix].contains { name.hasPrefix($0) }
+      || ["login.", "otp.", "card.number.", "card.code.", "passkey.", "document.", VaultSecretMove.supersededPrefix]
+        .contains { name.hasPrefix($0) }
   }
 
   public var seesEverySecret: Bool { vaultOnly != nil }

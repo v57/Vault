@@ -199,6 +199,8 @@ final class AppModel {
       if report?.isComplete == false {
         print("Vault: secrets not moved yet: \(report?.failed.count ?? 0) failed, \(report?.waiting ?? 0) waiting for their records")
       }
+      // Documents and pages an older build or a device without the key wrote in plain fields (security audit M14).
+      for store in stores { _ = try? store.sealDocuments() }
       _ = try? VaultRecovery(store: personal).wrapMissing()
       // What the share extension left, sealed to this device's drop key.
       if let key = try? VaultIncoming.vaultKey() {
