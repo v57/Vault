@@ -105,6 +105,16 @@ public enum VaultIdentity {
     cached = key
   }
 
+  /// Whether this device's Secure Enclave opens a key's wrapped blob: false for another device's (a backup restored
+  /// elsewhere). Opening it signs nothing, so it asks nothing.
+  public static func opensHere(_ blob: Data) -> Bool {
+    guard SecureEnclave.isAvailable else { return false }
+    #if canImport(LocalAuthentication)
+      if (try? bound(blob)) != nil { return true }
+    #endif
+    return (try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob)) != nil
+  }
+
   /// Whether the key exists (without making it).
   public static var exists: Bool {
     (try? keychain.read(account, options: .thisDevice)) != nil

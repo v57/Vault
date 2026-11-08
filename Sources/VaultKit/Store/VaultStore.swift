@@ -698,6 +698,64 @@ public final class VaultStore: @unchecked Sendable {
     return result
   }
 
+  // MARK: Backups
+
+  /// Every item this device can open, deleted ones too, for an encrypted backup (`VaultBackup`), and how many rows don't
+  /// open here (their key hasn't arrived, or the store refuses them): those aren't in it.
+  public func backupItems() throws -> (items: [VaultItem], leftOut: Int) {
+    try withLock {
+      try withKeySweep {
+        var items: [VaultItem] = []
+        var leftOut = 0
+        for id in try database.query("SELECT id FROM items ORDER BY id").compactMap({ $0[0].text }) {
+          if let item = try loadRow(id: id)?.item, !item.kind.isEmpty { items.append(item) } else { leftOut += 1 }
+        }
+        return (items, leftOut)
+      }
+    }
+  }
+
+  public enum BackupRestoreResult: Equatable, Sendable {
+    /// The store had every field already.
+    case unchanged
+    /// Fields came back, and go up with the next sync.
+    case restored
+    /// A row was dropped here later than this copy was made (`checkHighWater`): it stays dropped.
+    case refused
+  }
+
+  /// Puts an item from an encrypted backup back. Its fields merge with the row here by their clocks, as another device's
+  /// would, so a later edit made here wins and a deletion made since stays. It's sealed afresh under the current key, the
+  /// row's own, and goes into the outbox, so iCloud gets it too. A row here that doesn't open is replaced: the backup's
+  /// copy is the one this device can read.
+  @discardableResult
+  public func restoreFromBackup(_ item: VaultItem) throws -> BackupRestoreResult {
+    let result: BackupRestoreResult = try withLock {
+      try openForWriting()
+      return try database.transaction {
+        let local = try loadRow(id: item.id)?.item
+        if local == nil {
+          do {
+            try checkHighWater(id: item.id, item)
+          } catch VaultCrypto.CryptoError.refused {
+            return .refused
+          }
+        }
+        try observe(item.fields.latestClock)
+        let kind = local?.kind.isEmpty == false ? local!.kind : item.kind
+        let merged = local.map { $0.fields.merged(with: item.fields) } ?? item.fields
+        if let local, merged == local.fields { return .unchanged }
+        try clearRefused(id: item.id)
+        try writeRow(id: item.id, kind: kind, fields: merged, queue: true)
+        _ = try foldDuplicates(of: item.id, kind: kind)
+        try bumpRevision()
+        return .restored
+      }
+    }
+    if result == .restored { notifier?.post() }
+    return result
+  }
+
   /// Forgets everything CloudKit knew and queues every item to go up again (the iCloud data was reset, or another account
   /// signed in). What was fetched and is still to be read stays, as it's the user's data whichever server it came from,
   /// without what it said about that server: a deletion, or a record with nothing read of it, says nothing here.

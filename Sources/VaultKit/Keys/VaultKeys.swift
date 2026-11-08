@@ -60,6 +60,45 @@ public protocol VaultKeyProvider: Sendable {
   func marks(prefix: String, synced: Bool) throws -> [(name: String, data: Data)]
   func setMark(_ name: String, data: Data, synced: Bool) throws
   func removeMark(_ name: String, synced: Bool) throws
+  /// Every item the keys are kept in, for an encrypted backup (`VaultBackup`): with `synced` the keys, their rotations,
+  /// the id keys and the marks; without, this device's own items beside them (its id, its SSH key's blob, its Hub keys).
+  func backupItems(synced: Bool) throws -> [VaultKeyBackupItem]
+  /// Puts an item from a backup back: added where there's none, or written over what's there with `replacing`. Returns
+  /// whether it wrote.
+  @discardableResult
+  func restoreBackupItem(_ item: VaultKeyBackupItem, synced: Bool, replacing: Bool) throws -> Bool
+}
+
+/// A keychain item of the vault's keys, as an encrypted backup holds it (`VaultBackup`).
+public struct VaultKeyBackupItem: Codable, Sendable, Equatable {
+  public var name: String
+  public var data: Data
+  public var label: String?
+
+  public init(name: String, data: Data, label: String? = nil) {
+    self.name = name
+    self.data = data
+    self.label = label
+  }
+}
+
+extension VaultKeyProvider {
+  /// For a provider that keeps only keys: those, as `key.<id>`.
+  public func backupItems(synced: Bool) throws -> [VaultKeyBackupItem] {
+    guard synced else { return [] }
+    return try allKeys.sorted { $0.key < $1.key }.map {
+      VaultKeyBackupItem(name: VaultKeyRing.keyPrefix + $0.key, data: $0.value.withUnsafeBytes { Data($0) })
+    }
+  }
+
+  @discardableResult
+  public func restoreBackupItem(_ item: VaultKeyBackupItem, synced: Bool, replacing: Bool) throws -> Bool {
+    guard synced, item.name.hasPrefix(VaultKeyRing.keyPrefix), item.data.count == 32 else { return false }
+    let id = String(item.name.dropFirst(VaultKeyRing.keyPrefix.count))
+    guard try key(id: id) == nil else { return false }
+    try addKeys([id: SymmetricKey(data: item.data)])
+    return true
+  }
 }
 
 /// Where the keys and their marks are kept: the keychain, or memory for tests.
@@ -70,6 +109,12 @@ protocol VaultKeyItems: Sendable {
   func add(_ data: Data, named name: String, synced: Bool, label: String) throws -> Bool
   func replace(_ data: Data, named name: String, synced: Bool, label: String) throws
   func delete(_ name: String, synced: Bool) throws
+  /// The item's label, where the store keeps one.
+  func label(of name: String, synced: Bool) throws -> String?
+}
+
+extension VaultKeyItems {
+  func label(of name: String, synced: Bool) throws -> String? { nil }
 }
 
 /// The items of `KeychainKeyProvider`, in the keychain.
@@ -103,6 +148,10 @@ struct KeychainKeyItems: VaultKeyItems {
 
   func delete(_ name: String, synced: Bool) throws {
     try keychain.delete(name, options: options(synced))
+  }
+
+  func label(of name: String, synced: Bool) throws -> String? {
+    try keychain.attributes(of: name, options: options(synced))?.label
   }
 }
 
@@ -397,6 +446,38 @@ final class VaultKeyRing: @unchecked Sendable {
     try items.delete(Self.markPrefix + name, synced: synced)
   }
 
+  func backupItems(synced: Bool) throws -> [VaultKeyBackupItem] {
+    try lock.withLock {
+      try items.all(synced: synced).sorted { $0.name < $1.name }.map {
+        VaultKeyBackupItem(name: $0.name, data: $0.data, label: try items.label(of: $0.name, synced: synced))
+      }
+    }
+  }
+
+  func restoreBackupItem(_ item: VaultKeyBackupItem, synced: Bool, replacing: Bool) throws -> Bool {
+    try lock.withLock {
+      let label = item.label ?? Self.label(of: item.name)
+      var wrote: Bool
+      if replacing, let existing = try items.read(item.name, synced: synced) {
+        wrote = existing != item.data
+        if wrote { try items.replace(item.data, named: item.name, synced: synced, label: label) }
+      } else {
+        wrote = try items.add(item.data, named: item.name, synced: synced, label: label)
+      }
+      if synced { try load() }
+      return wrote
+    }
+  }
+
+  /// The label an item of this name gets when it's made.
+  static func label(of name: String) -> String {
+    if name.hasPrefix(keyPrefix) { return "v57 Vault key" }
+    if name.hasPrefix(epochPrefix) { return "v57 Vault key epoch" }
+    if name.hasPrefix(idKeyName) { return "v57 Vault id key" }
+    if name.hasPrefix(markPrefix) { return "v57 Vault mark" }
+    return "v57 Vault"
+  }
+
   private func data(of key: SymmetricKey) -> Data { key.withUnsafeBytes { Data($0) } }
 
   private static func randomHex(_ bytes: Int) -> String {
@@ -438,6 +519,11 @@ public final class KeychainKeyProvider: VaultKeyProvider, @unchecked Sendable {
   }
   public func setMark(_ name: String, data: Data, synced: Bool) throws { try ring.setMark(name, data: data, synced: synced) }
   public func removeMark(_ name: String, synced: Bool) throws { try ring.removeMark(name, synced: synced) }
+  public func backupItems(synced: Bool) throws -> [VaultKeyBackupItem] { try ring.backupItems(synced: synced) }
+  @discardableResult
+  public func restoreBackupItem(_ item: VaultKeyBackupItem, synced: Bool, replacing: Bool) throws -> Bool {
+    try ring.restoreBackupItem(item, synced: synced, replacing: replacing)
+  }
 }
 
 /// Keys held in memory, for tests and previews.
@@ -479,6 +565,11 @@ public final class MemoryKeyProvider: VaultKeyProvider, @unchecked Sendable {
   }
   public func setMark(_ name: String, data: Data, synced: Bool) throws { try ring.setMark(name, data: data, synced: synced) }
   public func removeMark(_ name: String, synced: Bool) throws { try ring.removeMark(name, synced: synced) }
+  public func backupItems(synced: Bool) throws -> [VaultKeyBackupItem] { try ring.backupItems(synced: synced) }
+  @discardableResult
+  public func restoreBackupItem(_ item: VaultKeyBackupItem, synced: Bool, replacing: Bool) throws -> Bool {
+    try ring.restoreBackupItem(item, synced: synced, replacing: replacing)
+  }
 }
 
 /// AES-GCM sealing with the vault keys.
