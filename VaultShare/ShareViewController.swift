@@ -10,8 +10,9 @@ import VaultKit
   import UIKit
 #endif
 
-/// Vault's share extension. The system starts it from a share sheet; it reads the PDFs and pictures shared, saves
-/// them to the Inbox of this device's vault (encrypted, like every record) and ends. It reads no text on the pages
+/// Vault's share extension. The system starts it from a share sheet; it reads the PDFs and pictures shared, seals them
+/// to Vault's drop key and leaves them for Vault, which files them in the Inbox (`VaultIncoming`), and ends. It lists
+/// no keychain group: a crafted file can't reach a key from here. It reads no text on the pages
 /// (the app does, with more memory) and sends nothing.
 final class ShareViewController: PlatformViewController {
   private let model = ShareModel()
@@ -43,7 +44,8 @@ final class ShareViewController: PlatformViewController {
   }
 
   private func load(_ providers: [NSItemProvider]) async {
-    if VaultStore.shared == nil {
+    // No keys here (security audit M4): the files are sealed to Vault's drop key, which Vault publishes when it runs.
+    if VaultIncoming().publicKey == nil {
       model.problem = "Open Vault on this device once first, so there's a vault to add to."
     }
     for provider in providers {
@@ -77,10 +79,9 @@ final class ShareViewController: PlatformViewController {
   }
 
   private func add() {
-    guard let store = VaultStore.shared else { return }
     model.isSaving = true
     do {
-      try store.addSharedFiles(model.files)
+      try VaultIncoming().drop(model.files)
       extensionContext?.completeRequest(returningItems: nil)
     } catch {
       model.isSaving = false

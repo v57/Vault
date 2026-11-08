@@ -200,6 +200,12 @@ final class AppModel {
         print("Vault: secrets not moved yet: \(report?.failed.count ?? 0) failed, \(report?.waiting ?? 0) waiting for their records")
       }
       _ = try? VaultRecovery(store: personal).wrapMissing()
+      // What the share extension left, sealed to this device's drop key.
+      if let key = try? VaultIncoming.vaultKey() {
+        let incoming = VaultIncoming()
+        try? incoming.publish(key)
+        _ = incoming.collect(with: key) { files in _ = try personal.addSharedFiles(files) }
+      }
     }
   }
 

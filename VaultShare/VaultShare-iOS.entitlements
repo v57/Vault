@@ -2,15 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- The shared store in the app group container and the vault keys in the shared keychain group: shared files are
-	     saved to the Inbox encrypted. Not the secrets group: the extension never reads passwords. -->
+	<!-- The app group container, where it leaves shared files sealed to Vault's drop key (VaultIncoming). No keychain
+	     group (security audit M4). -->
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.dev.v57</string>
-	</array>
-	<key>keychain-access-groups</key>
-	<array>
-		<string>$(AppIdentifierPrefix)dev.v57.shared</string>
 	</array>
 </dict>
 </plist>
