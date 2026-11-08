@@ -74,10 +74,14 @@ struct FallbackAddressesField: View {
     let issues = FallbackAddresses.issues(rows, host: host.hostname)
     LabeledField("Fallback Addresses") {
       VStack(alignment: .leading, spacing: 6) {
-        ForEach($rows) { $row in
+        ForEach(rows) { row in
           HStack(spacing: 6) {
-            TextField("studio.local", text: $row.address).kitField(mono: true).focused($focused, equals: row.id)
-            Button("Remove", systemImage: "minus.circle") { withKitAnimation { rows.removeAll { $0.id == row.id } } }
+            TextField("studio.local", text: address(of: row.id)).kitField(mono: true).focused($focused, equals: row.id)
+            Button("Remove", systemImage: "minus.circle") {
+              // The field gives up the keyboard first: ending its editing writes the text back to the row.
+              if focused == row.id { focused = nil }
+              withKitAnimation { rows.removeAll { $0.id == row.id } }
+            }
               .buttonStyle(.kitIcon)
               .help("Remove this address")
           }
@@ -105,5 +109,16 @@ struct FallbackAddressesField: View {
         }
       }
     }
+  }
+
+  /// A row's address by its id, not its index: a field that ends editing after its row was removed (the focused one,
+  /// removed with its own button) writes to nothing instead of past the end of the rows.
+  private func address(of id: UUID) -> Binding<String> {
+    Binding(
+      get: { rows.first { $0.id == id }?.address ?? "" },
+      set: { value in
+        guard let index = rows.firstIndex(where: { $0.id == id }) else { return }
+        rows[index].address = value
+      })
   }
 }
