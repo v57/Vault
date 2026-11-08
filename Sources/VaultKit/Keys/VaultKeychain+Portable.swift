@@ -62,6 +62,8 @@
 
     /// Every app of the user shares the items.
     public static let isShared = true
+    /// No groups here, so no app reads only the records' keys.
+    public static let readsRecordsOnly = false
 
     /// Nothing tells one program of the user from another here.
     public static func isEntitled(to group: String) -> Bool { true }

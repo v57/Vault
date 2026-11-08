@@ -22,6 +22,8 @@ public final class Vault {
   public private(set) var databases: [VaultDatabase] = []
   /// The user's devices, without those taken out through Lost Device (`VaultStore.revokeDevice`).
   public private(set) var deviceKeys: [VaultDeviceKey] = []
+  /// Apps' own keys (`VaultDeviceKey.isAppKey`: Get and Player), of trusted devices; not devices themselves.
+  public private(set) var appKeys: [VaultDeviceKey] = []
   /// A device's key that was published although the device was revoked: an old build, or someone still holding it.
   public private(set) var untrustedDeviceKeys: [VaultDeviceKey] = []
   /// The devices taken out through Lost Device.
@@ -104,6 +106,10 @@ public final class Vault {
   /// Personal starts the engine; it carries every account.
   public func startSync() {
     guard sync == nil, isPersonal, let store else { return }
+    #if canImport(Security)
+      // Get, Player and Hub read the vault keys from the records group: keep their copy current.
+      Task.detached(priority: .utility) { VaultKeychain.mirrorRecordKeys() }
+    #endif
     sync = CloudSync(store: store) { [weak self] in
       Task { @MainActor in self?.reload() }
     }
@@ -143,7 +149,7 @@ public final class Vault {
     let revision = store.revision
     guard force || revision != loadedRevision else { return }
     loadedRevision = revision
-    let oldDeviceKeys = deviceKeys
+    let oldDeviceKeys = deviceKeys + appKeys
     do {
       projects = try store.records(VaultProject.self).sorted {
         $0.name.localizedStandardCompare($1.name) == .orderedAscending
@@ -161,8 +167,9 @@ public final class Vault {
       databases = try store.records(VaultDatabase.self).sorted { ($0.order, $0.name) < ($1.order, $1.name) }
       revokedDevices = revoked.sorted { $0.name < $1.name }
       let devices = try store.deviceKeysByTrust()
-      deviceKeys = devices.trusted.sorted { $0.deviceName < $1.deviceName }
-      untrustedDeviceKeys = devices.revoked.sorted { $0.deviceName < $1.deviceName }
+      deviceKeys = devices.trusted.filter { !$0.isAppKey }.sorted { $0.deviceName < $1.deviceName }
+      appKeys = devices.trusted.filter(\.isAppKey).sorted { $0.deviceName < $1.deviceName }
+      untrustedDeviceKeys = devices.revoked.filter { !$0.isAppKey }.sorted { $0.deviceName < $1.deviceName }
       knownHosts = try store.records(VaultKnownHost.self).sorted { ($0.host, $0.port) < ($1.host, $1.port) }
       logins = try store.records(VaultLogin.self).sorted {
         $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
@@ -212,7 +219,7 @@ public final class Vault {
     }
     #if os(macOS)
       // At launch, and when a device's key arrives, changes or goes: keep this Mac's authorized_keys and host current.
-      if deviceKeys != oldDeviceKeys, isPersonal, thisDeviceHost != nil {
+      if deviceKeys + appKeys != oldDeviceKeys, isPersonal, thisDeviceHost != nil {
         Task { @MainActor [weak self] in self?.refreshThisMac() }
       }
     #endif

@@ -341,10 +341,15 @@ public struct VaultDeviceKey: VaultRecord, Hashable {
   public var publicKey: String
   public var platform: String
   public var updated: Date?
+  /// For an app's own key (`isAppKey`): its bundle id, and the device it runs on. Get and Player hold no device key
+  /// (security audit M4, V3), so they sign in to the user's machines with a key of their own, which the user allows on
+  /// each Mac (Settings ▸ Remote) and which sshd takes with `restrict` (no forwarding, no terminal).
+  public var app: String?
+  public var device: String?
 
   public init(
     id: String, deviceName: String, customName: String? = nil, publicKey: String, platform: String,
-    updated: Date? = .now
+    updated: Date? = .now, app: String? = nil, device: String? = nil
   ) {
     self.id = id
     self.deviceName = deviceName
@@ -352,7 +357,11 @@ public struct VaultDeviceKey: VaultRecord, Hashable {
     self.publicKey = publicKey
     self.platform = platform
     self.updated = updated
+    self.app = app
+    self.device = device
   }
+
+  public var isAppKey: Bool { app != nil }
 
   public init(id: String, values: [String: JSONValue]) {
     let read = FieldReader(values)
@@ -362,13 +371,18 @@ public struct VaultDeviceKey: VaultRecord, Hashable {
     publicKey = read.string("publicKey", default: "")
     platform = read.string("platform", default: "")
     updated = read.date("updated")
+    app = read.string("app").flatMap { $0.isEmpty ? nil : $0 }
+    device = read.string("device").flatMap { $0.isEmpty ? nil : $0 }
   }
 
   public var values: [String: JSONValue] {
-    [
+    var values: [String: JSONValue] = [
       "deviceName": .string(deviceName), "customName": .init(customName), "publicKey": .string(publicKey),
       "platform": .string(platform), "updated": .init(updated),
     ]
+    if let app { values["app"] = .string(app) }
+    if let device { values["device"] = .string(device) }
+    return values
   }
 
   public var fingerprint: String? { VaultIdentity.fingerprint(keyLine: publicKey) }
@@ -380,6 +394,7 @@ extension VaultStore {
   @MainActor
   public func publishDeviceKey() throws {
     guard try !isRevoked(device: deviceID) else { return }
+    if VaultKeychain.readsRecordsOnly { return try publishAppKey() }
     let key = try VaultIdentity.key()
     let name = VaultDevice.name
     let line = VaultIdentity.publicKeyLine(key, comment: name)
@@ -393,6 +408,29 @@ extension VaultStore {
     try save(
       VaultDeviceKey(
         id: deviceID, deviceName: name, customName: existing?.customName, publicKey: line, platform: platform))
+  }
+
+  /// An app without the device key (`VaultKeychain.readsRecordsOnly`) publishes its own (`VaultDeviceKey.isAppKey`), as
+  /// `<device id>.<bundle id>`.
+  @MainActor
+  func publishAppKey(bundle: String = Bundle.main.bundleIdentifier ?? "app", appName: String = VaultStore.appName) throws {
+    let key = try VaultIdentity.key()
+    let name = "\(appName) on \(VaultDevice.name)"
+    let line = VaultIdentity.publicKeyLine(key, comment: name)
+    let id = "\(deviceID).\(bundle)"
+    let existing = try record(VaultDeviceKey.self, id: id)
+    if let existing, existing.publicKey == line, existing.deviceName == name { return }
+    #if os(macOS)
+      let platform = "macOS"
+    #else
+      let platform = "iOS"
+    #endif
+    try save(VaultDeviceKey(id: id, deviceName: name, publicKey: line, platform: platform, app: bundle, device: deviceID))
+  }
+
+  static var appName: String {
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+      ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "An app"
   }
 
   /// Names a device, this one or another (nil or blank: back to the system's name). Every app on that device then

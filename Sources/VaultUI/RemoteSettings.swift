@@ -40,7 +40,7 @@
 
     /// The keys in the file that aren't one of the user's devices'.
     private var otherKeys: [VaultAuthorizedKeys.Entry] {
-      let deviceKeys = Set(vault.deviceKeys.compactMap { VaultAuthorizedKeys.keyMaterial(of: $0.publicKey) })
+      let deviceKeys = Set((vault.deviceKeys + vault.appKeys).compactMap { VaultAuthorizedKeys.keyMaterial(of: $0.publicKey) })
       return entries.filter { $0.device == nil && !deviceKeys.contains($0.material) }
     }
 
@@ -122,6 +122,28 @@
               })
           )
           .toggleStyle(.kitSwitch).labelsHidden()
+        }
+      }
+      if letsDevicesIn, !vault.appKeys.isEmpty {
+        // Get and Player hold no device key: each signs in with its own, allowed here (security audit M4).
+        FormCard(
+          "Apps on Your Devices",
+          footer: "Apps that don’t hold your device’s key sign in with their own, only to run a command or read files: no terminal, no tunnels."
+        ) {
+          ForEach(vault.appKeys) { key in
+            FormRow("\(key.deviceName)", help: Self.fingerprint(key.publicKey).map { "\($0)" }, systemImage: "app.badge", hue: .gray) {
+              Toggle(
+                "Can Sign In",
+                isOn: Binding(
+                  get: { allowed.contains(key.id) },
+                  set: { isOn in
+                    vault.setAllowed(isOn, device: key, keys: keys)
+                    reload()
+                  })
+              )
+              .toggleStyle(.kitSwitch).labelsHidden()
+            }
+          }
         }
       }
       if loginIsOn {

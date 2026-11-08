@@ -137,7 +137,7 @@ extension VaultStore {
 
     /// Whether a device's key is in this Mac's `authorized_keys`.
     public func allowedDevices(keys: VaultAuthorizedKeys = .user) -> Set<String> {
-      (try? keys.allowedDevices(among: deviceKeys)) ?? []
+      (try? keys.allowedDevices(among: deviceKeys + appKeys)) ?? []
     }
 
     /// Brings this Mac's host up to date (its address, user and host key, the devices it allows) and takes out
@@ -146,7 +146,7 @@ extension VaultStore {
     public func refreshThisMac() {
       guard isPersonal, sharesThisMac, VaultThisMac.canManageSSH else { return }
       perform { _ in
-        try VaultAuthorizedKeys.user.removeStale(keeping: deviceKeys)
+        try VaultAuthorizedKeys.user.removeStale(keeping: deviceKeys + appKeys)
         try publishThisMac()
       }
     }

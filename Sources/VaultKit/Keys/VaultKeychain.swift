@@ -56,6 +56,12 @@ public struct VaultKeychain: Sendable {
   /// Whether the shared group is usable (the app is entitled), checked once per process.
   public static let isShared: Bool = isEntitled(to: VaultConfiguration.keychainGroup)
 
+  /// An app that lists the records group and not the shared one (Get, Player, Hub; security audit M4, V3). Its vault
+  /// items (service `dev.v57.vault`: the keys, the device id) are read from the copy in the records group, which it can't
+  /// add keys to (`KeychainKeyProvider`), and it has no secrets (`VaultSecrets`). Anything else addressed to the shared
+  /// group fails with `errSecMissingEntitlement` rather than landing in another group.
+  public static let readsRecordsOnly: Bool = !isShared && isEntitled(to: VaultConfiguration.recordsGroup)
+
   /// Whether this app lists an access group. Asks with a read of an item that doesn't exist, which answers
   /// `errSecMissingEntitlement` for a group the app doesn't list, so it reads nothing either way.
   public static func isEntitled(to group: String) -> Bool {
@@ -81,7 +87,15 @@ public struct VaultKeychain: Sendable {
     guard Self.isAvailable else { throw KeychainError.status(errSecMissingEntitlement) }
   }
 
-  private var effectiveGroup: String? { Self.isShared ? accessGroup : nil }
+  private var effectiveGroup: String? {
+    if Self.isShared { return accessGroup }
+    guard Self.readsRecordsOnly else { return nil }
+    if accessGroup == VaultConfiguration.keychainGroup, service == Self.vaultService { return VaultConfiguration.recordsGroup }
+    return accessGroup
+  }
+
+  /// The service of the vault keys, their marks, the device id and the device's own keys.
+  static let vaultService = "dev.v57.vault"
 
   private func query(account: String?, options: Options, group: String?) -> [String: Any] {
     var query: [String: Any] = [

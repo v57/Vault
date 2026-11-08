@@ -22,7 +22,10 @@ import Foundation
 /// **A key made before that keeps working as it did, with nothing asked:** a new key would lock the user out of every
 /// server that trusts this one, so it's never replaced here.
 public enum VaultIdentity {
-  static let keychain = VaultKeychain()
+  /// The shared group, or in an app that reads only the records (Get, Player, Hub) a key of its own in its own group, which
+  /// no other app reads (security audit M4, V3): the device's key isn't in that app's reach.
+  static let keychain =
+    VaultKeychain.readsRecordsOnly ? VaultKeychain(accessGroup: VaultConfiguration.ownGroup) : VaultKeychain()
   static let account = "ssh-identity"
 
   public enum IdentityError: LocalizedError {

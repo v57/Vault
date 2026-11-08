@@ -27,6 +27,18 @@ public enum VaultConfiguration {
   /// passkeys and the personal identity (`$(AppIdentifierPrefix)dev.v57.secrets`). See `VaultSecretTiers`.
   public static let secretsGroup = "\(teamID).dev.v57.secrets"
 
+  /// The keychain access group of apps that read the vault's records but hold no secrets (Get, Player, Hub; security
+  /// audit M4, V3): a copy of the vault keys and this device's id, which apps in the shared group keep current
+  /// (`VaultKeychain.mirrorRecordKeys`). No passwords, no device key, no Hub keys.
+  public static let recordsGroup = "\(teamID).dev.v57.records"
+
+  /// The keychain access group of this device's Hub keys, which only Vault and the Hub app list (`HubKeyStore`).
+  public static let deviceGroup = "\(teamID).dev.v57.device"
+
+  /// This app's own keychain group (its application identifier): what no other app reads. A records-only app keeps its
+  /// SSH key there (`VaultIdentity`).
+  public static var ownGroup: String { "\(teamID).\(Bundle.main.bundleIdentifier ?? "dev.v57")" }
+
   /// The CloudKit container the store syncs through.
   public static let cloudContainer = "iCloud.dev.v57"
 

@@ -133,7 +133,9 @@ public struct VaultAuthorizedKeys: Sendable {
 
   /// Vault's line for a device: its key, the marker and its name.
   static func line(material: String, for key: VaultDeviceKey) -> String {
-    "\(material) \(marker)\(key.id) \(oneLine(key.deviceName))"
+    // An app's own key signs in for what the app does (run a command, read files), never to forward ports or open a
+    // terminal.
+    "\(key.isAppKey ? "restrict " : "")\(material) \(marker)\(key.id) \(oneLine(key.deviceName))"
   }
 
   /// A name for a line's comment: names come from synced records, and a line break would start another line in the

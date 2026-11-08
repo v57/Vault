@@ -497,7 +497,10 @@ public final class KeychainKeyProvider: VaultKeyProvider, @unchecked Sendable {
   private let ring: VaultKeyRing
 
   public init(keychain: VaultKeychain = VaultKeychain()) {
-    ring = VaultKeyRing(items: KeychainKeyItems(keychain: keychain), staleAfter: 15, rotationStaysHere: { VaultICloud.isOff })
+    let items = KeychainKeyItems(keychain: keychain)
+    ring = VaultKeyRing(
+      items: VaultKeychain.readsRecordsOnly ? ReadOnlySyncedKeyItems(items: items) : items, staleAfter: 15,
+      rotationStaysHere: { VaultICloud.isOff })
   }
 
   /// Keychain items are named `key.<id>`.

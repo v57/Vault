@@ -138,6 +138,20 @@ extension VaultSecretBacking {
   public var seesEverySecret: Bool { true }
 }
 
+/// An app that holds no secrets (`VaultKeychain.readsRecordsOnly`): every secret reads as missing, and none can be kept.
+struct NoSecrets: VaultSecretBacking {
+  struct NotHere: LocalizedError {
+    var errorDescription: String? { "This app doesn’t keep passwords. Open the Vault app or the app that uses them." }
+  }
+
+  func read(_ name: String) throws -> Data? { nil }
+  func write(_ data: Data, named name: String, label: String) throws { throw NotHere() }
+  func addNew(_ data: Data, named name: String, label: String) throws -> Bool { throw NotHere() }
+  func delete(_ name: String) throws {}
+  func all() throws -> [(name: String, data: Data)] { [] }
+  var seesEverySecret: Bool { false }
+}
+
 /// Secrets in two places: `shared`, in the keychain group every app lists, and `vaultOnly`, in the group only Vault and
 /// its AutoFill extension list (`VaultConfiguration.secretsGroup`). An app outside that group has no `vaultOnly`.
 ///
@@ -174,6 +188,8 @@ public struct VaultSecretTiers: VaultSecretBacking {
 
   /// A build outside the team's keychain shares nothing with anyone, so it keeps everything itself.
   static func forThisApp(shared: VaultKeychain, vaultOnly: VaultKeychain) -> VaultSecretTiers {
+    // Get, Player and Hub hold no secrets at all (security audit M4, V3).
+    if VaultKeychain.readsRecordsOnly { return VaultSecretTiers(shared: NoSecrets(), vaultOnly: nil) }
     let holds = VaultKeychain.isEntitled(to: VaultConfiguration.secretsGroup) || !VaultKeychain.isShared
     return VaultSecretTiers(
       shared: KeychainSecretBacking(keychain: shared), vaultOnly: holds ? KeychainSecretBacking(keychain: vaultOnly) : nil)

@@ -120,14 +120,17 @@ extension VaultStore {
     let materials = Set(revoked.compactMap { VaultAuthorizedKeys.keyMaterial(of: $0.publicKey) })
     var result: (trusted: [VaultDeviceKey], revoked: [VaultDeviceKey]) = ([], [])
     for key in try records(VaultDeviceKey.self) {
-      let isOut = ids.contains(key.id) || VaultAuthorizedKeys.keyMaterial(of: key.publicKey).map(materials.contains) == true
+      // An app's key goes with its device.
+      let isOut =
+        ids.contains(key.id) || key.device.map(ids.contains) == true
+        || VaultAuthorizedKeys.keyMaterial(of: key.publicKey).map(materials.contains) == true
       if isOut { result.revoked.append(key) } else { result.trusted.append(key) }
     }
     return result
   }
 
-  /// Device keys that may be trusted, for code outside `Vault`.
-  public func trustedDeviceKeys() throws -> [VaultDeviceKey] { try deviceKeysByTrust().trusted }
+  /// Device keys that may be trusted, for code outside `Vault`: the devices', without apps' own keys.
+  public func trustedDeviceKeys() throws -> [VaultDeviceKey] { try deviceKeysByTrust().trusted.filter { !$0.isAppKey } }
 }
 
 extension VaultAuthorizedKeys {
