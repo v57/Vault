@@ -36,7 +36,9 @@ struct ContentView: View {
       DetailView()
         .kitSidebarToggle(columnVisibility: $columnVisibility)
     }
-    .modifier(SheetHost())
+    // While the iPhone's welcome covers the window, it presents the sheets its actions open: from the window they
+    // went behind it, and the welcome stopped answering.
+    .modifier(SheetHost(isActive: !(showsPhoneWelcome && idiom == .phone)))
     #if os(iOS)
       // iPhone: the welcome is the first screen, full height, until "Open Vault" (the Mac and iPad show it inline).
       .fullScreenCover(isPresented: Binding(get: { showsPhoneWelcome && idiom == .phone }, set: { showsPhoneWelcome = $0 })) {
@@ -44,15 +46,10 @@ struct ContentView: View {
           if !app.isDemo { welcomeOpened = true }
           showsPhoneWelcome = false
         })
+        .modifier(SheetHost(isActive: true))
         .environment(app)
         .componentKit(accent: .vaultAccent)
         .preferredColorScheme(LaunchOptions.colorScheme)
-      }
-      // iPhone: the scanner fills the screen.
-      .fullScreenCover(isPresented: Binding(get: { app.sheet == .scanInvite && idiom == .phone }, set: { if !$0 { app.sheet = nil } })) {
-        ScanInviteSheet()
-          .environment(app)
-          .componentKit(accent: .vaultAccent)
       }
     #endif
     .modifier(SelectionFollower(compactColumn: $compactColumn))
@@ -89,17 +86,27 @@ struct ContentView: View {
 }
 
 /// The window's sheets. A modifier of its own: read in the window's body, the sheet (and the binding the kit's sheet
-/// takes reads it when made) updated the whole split view each time it changed.
+/// takes reads it when made) updated the whole split view each time it changed. `isActive` false leaves them to
+/// another host (the iPhone's welcome while it covers the window).
 private struct SheetHost: ViewModifier {
+  var isActive: Bool
   @Environment(AppModel.self) private var app
   @Environment(\.kitIdiom) private var idiom
 
   func body(content: Content) -> some View {
     // The kit's overlay on the Mac and iPad; the system sheet on iPhone, half height for the bottom sheets.
-    content.kitSheet(item: Binding(get: { app.sheet == .scanInvite && idiom == .phone ? nil : app.sheet }, set: { app.sheet = $0 })) { sheet in
+    content.kitSheet(item: Binding(get: { !isActive || app.sheet == .scanInvite && idiom == .phone ? nil : app.sheet }, set: { app.sheet = $0 })) { sheet in
       SheetContent(sheet: sheet)
         .presentationDetents(idiom == .phone && sheet.isBottomSheet ? [.medium, .large] : [.large])
     }
+    #if os(iOS)
+      // iPhone: the scanner fills the screen.
+      .fullScreenCover(isPresented: Binding(get: { isActive && app.sheet == .scanInvite && idiom == .phone }, set: { if !$0 { app.sheet = nil } })) {
+        ScanInviteSheet()
+          .environment(app)
+          .componentKit(accent: .vaultAccent)
+      }
+    #endif
   }
 }
 
