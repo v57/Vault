@@ -18,6 +18,10 @@ struct AddDocumentSheet: View {
   @State private var holder = ""
   @State private var fields: [String: String] = [:]
   @State private var secrets: [String: String] = [:]
+  /// The saved secrets not shown yet (Edit): each asks the app lock before its field shows it, and one left hidden
+  /// is saved unchanged.
+  @State private var hiddenSecrets: Set<String> = []
+  @Environment(\.kitSecretAccess) private var secretAccess
   @State private var tags = ""
   @State private var notes = ""
   @State private var remindMonths: Int?
@@ -217,6 +221,15 @@ struct AddDocumentSheet: View {
       ForEach(documentKind.fields, id: \.key) { field in
         LabeledField("\(field.label)") {
           switch field.format {
+          case .secret where hiddenSecrets.contains(field.key):
+            HStack {
+              Text(verbatim: "••••••••").kitFont(.mono).foregroundStyle(.kitSecondary)
+              Spacer()
+              Button("Show") { show(field) }.buttonStyle(.kitPlain).controlSize(.small)
+            }
+            .padding(.horizontal, idiom == .mac ? 10 : 12)
+            .padding(.vertical, 6)
+            .kitSurface(.field)
           case .secret:
             TextField("Hidden until shown", text: Binding(get: { secrets[field.key] ?? "" }, set: { secrets[field.key] = $0 }))
               .kitField(mono: true)
@@ -231,6 +244,15 @@ struct AddDocumentSheet: View {
           }
         }
       }
+    }
+  }
+
+  /// A saved secret into its field, once the app lock allows it (Touch ID, Face ID, unless an unlock still holds).
+  private func show(_ field: DocumentField) {
+    Task {
+      if let secretAccess, !(await secretAccess(field.label)) { return }
+      secrets[field.key] = existing?.secret(field.key) ?? ""
+      hiddenSecrets.remove(field.key)
     }
   }
 
@@ -297,7 +319,8 @@ struct AddDocumentSheet: View {
       collection = document.collection
       holder = document.holder
       fields = document.fields
-      for key in document.secrets { secrets[key] = document.secret(key) ?? "" }
+      // Not read until shown: the number would sit in a plain field without the app lock asking (F3).
+      hiddenSecrets = document.secrets
       tags = document.tags.sorted().joined(separator: ", ")
       notes = document.notes
       remindMonths = document.remindMonths
@@ -373,7 +396,7 @@ struct AddDocumentSheet: View {
     document.remindMonths = remindMonths
     var secretChanges = secrets
     // A secret cleared in the form is removed.
-    for key in existing?.secrets ?? [] where secretChanges[key] == nil { secretChanges[key] = "" }
+    for key in existing?.secrets ?? [] where secretChanges[key] == nil && !hiddenSecrets.contains(key) { secretChanges[key] = "" }
     do {
       try app.saveDocument(document, secrets: secretChanges, look: look)
       dismiss()
