@@ -458,7 +458,9 @@ extension VaultStore {
   }
 
   private func setImported(_ versions: [String: Int64]) throws {
-    try setMeta("format.imported", String(decoding: try JSONEncoder().encode(versions), as: UTF8.self))
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = .sortedKeys
+    try setMeta("format.imported", String(decoding: try encoder.encode(versions), as: UTF8.self))
   }
 
   /// See this file's header. Runs on every open, on `catchUp`, and before a local write when the old file has changed, so
