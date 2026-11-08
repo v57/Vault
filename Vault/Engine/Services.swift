@@ -214,18 +214,30 @@ final class RemoteLibrary: RemoteService {
 
 // MARK: - Recovery key
 
-/// The optional recovery key: off by default, made only on request, never nagged about. Wrapping every key to it
-/// and storing the blobs (CloudKit and each remote) is a follow-up; the live service says so.
+/// The optional recovery key: off by default, made only on request, never nagged about. The live one (`LiveRecovery`)
+/// keeps it in Personal's store, so its sealed copies sync to CloudKit like any record.
 @MainActor
 protocol RecoveryService: AnyObject {
   var isOn: Bool { get }
   var isAvailable: Bool { get }
   /// Makes a new key and returns its 24 words (shown once).
   func create() throws -> [String]
+  /// Whether typed or scanned words are the current kit; throws for words that aren't a kit.
+  func check(_ text: String) throws -> Bool
+  /// A new kit for a lost or leaked one: a new vault key, everything sealed to the new kit, the old copies deleted.
+  func replace() async throws -> [String]
+  /// Deletes the kit's public key and every sealed copy.
+  func turnOff() async throws
+  /// Opens the sealed copies with the words and writes back the keys, the identity and the secrets; says what came back.
+  func recover(_ text: String) async throws -> String
 }
 
 final class UnavailableRecovery: RecoveryService {
   var isOn: Bool { false }
   var isAvailable: Bool { false }
   func create() throws -> [String] { throw NotYetAvailable(what: "The recovery key") }
+  func check(_ text: String) throws -> Bool { throw NotYetAvailable(what: "The recovery key") }
+  func replace() async throws -> [String] { throw NotYetAvailable(what: "The recovery key") }
+  func turnOff() async throws {}
+  func recover(_ text: String) async throws -> String { throw NotYetAvailable(what: "The recovery key") }
 }

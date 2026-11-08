@@ -262,4 +262,9 @@ final class DemoRecovery: RecoveryService {
       "anchor", "willow", "copper", "meadow", "falcon", "riddle", "summit", "pebble", "canyon", "violet", "thimble", "glacier",
     ]
   }
+
+  func check(_ text: String) throws -> Bool { isOn }
+  func replace() async throws -> [String] { try create().reversed() }
+  func turnOff() async throws { isOn = false }
+  func recover(_ text: String) async throws -> String { "Brought back 2 vault keys, 48 passwords and secrets and your identity." }
 }

@@ -165,7 +165,7 @@ final class AppModel {
       #endif
       model = AppModel(
         vault: vault, isDemo: false, folders: FolderLibrary(vault: vault, sync: NoFolderSync()),
-        remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault), recovery: UnavailableRecovery(),
+        remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault), recovery: LiveRecovery(vault: vault),
         hubs: LiveHubs(directory: hubs))
       model.lastSync = vault.sync?.isRunning == true ? .now : nil
       moveSecrets()
@@ -214,8 +214,8 @@ final class AppModel {
     let model = AppModel(
       vault: vault, deviceVault: personal?.vault ?? Vaults.shared.personal, isDemo: false,
       folders: FolderLibrary(vault: vault, sync: NoFolderSync()),
-      remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault), recovery: UnavailableRecovery(),
-      hubs: LiveHubs(directory: hubs))
+      remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault),
+      recovery: personal?.recovery ?? LiveRecovery(vault: Vaults.shared.personal), hubs: LiveHubs(directory: hubs))
     model.lastSync = personal?.lastSync
     model.applyLaunchOptions()
     models[vault.accountID] = model

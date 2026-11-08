@@ -38,6 +38,7 @@ struct SettingsView: View {
       SettingsPane("Documents", systemImage: "doc.text.image", hue: .blue, value: "\(app.vault.documentCollections.count) collections") { DocumentsSettingsPane() }
       SettingsPane("Sync", systemImage: "arrow.triangle.2.circlepath", hue: .blue, value: iCloud.isOff ? "Off" : "iCloud") { SyncPane() }
       SettingsPane("Recovery Key", systemImage: "key", hue: .orange, value: app.recovery.isOn ? "On" : "Off") { RecoveryKeyPane() }
+      SettingsPane("Backup", systemImage: "externaldrive", hue: .green) { BackupPane() }
       SettingsPane("AutoFill", systemImage: "rectangle.and.pencil.and.ellipsis", hue: .gray, value: "Off") { AutoFillPane() }
       SettingsPane("Hub", systemImage: "point.3.connected.trianglepath.dotted", hue: .purple, value: hubValue) { HubPane() }
       SettingsPane("Privacy", systemImage: "hand.raised", hue: .blue) { VaultICloudCard() }
@@ -203,6 +204,10 @@ struct RecoveryKeyPane: View {
   @Environment(AppModel.self) private var app
   @State private var words: [String]?
   @State private var error: String?
+  @State private var wordsSheet: RecoveryWordsSheet.Mode?
+  @State private var replacing = false
+  @State private var turningOff = false
+  @State private var working = false
 
   var body: some View {
     let isOn = app.recovery.isOn
@@ -211,13 +216,17 @@ struct RecoveryKeyPane: View {
         FormRow("Recovery key", help: isOn ? "On. Keep the kit somewhere safe." : "Off. iCloud Keychain holds the only copy of your keys.", systemImage: "key", hue: .orange, error: error.map { "\($0)" }) {
           if !isOn {
             Button("Create Recovery Key…") { create() }.buttonStyle(.kit)
-              .disabled(!app.recovery.isAvailable)
-              .help(app.recovery.isAvailable ? "Shows 24 words once" : "The recovery key comes in a later version")
+              .disabled(!app.recovery.isAvailable || working)
+              .help(app.recovery.isAvailable ? "Shows 24 words once" : "The vault on this device couldn’t be opened")
           }
+        }
+        FormRow("Recover with Key…", help: "On a device that lost its keys: type the 24 words or the kit’s code to bring back the vault keys, your identity and the passwords.", systemImage: "arrow.uturn.backward", hue: .blue) {
+          Button("Recover…") { wordsSheet = .recover }.buttonStyle(.kit)
+            .disabled(!app.recovery.isAvailable || working)
         }
       }
       if let words {
-        FormCard("Your recovery kit") {
+        FormCard("Your recovery kit", footer: "Write the words down or print them, and keep them away from this device. They aren’t shown again.") {
           HStack(alignment: .top, spacing: 14) {
             KitWordGrid(words)
             KitQRCode(words.joined(separator: " "), size: 120, correction: .high)
@@ -236,18 +245,29 @@ struct RecoveryKeyPane: View {
       }
       FormCard("When it’s on") {
         FormRow("Check Recovery Key…", help: "Type the words or scan the kit to make sure it still works.", systemImage: "checkmark", hue: .green) {
-          Button("Check…") {}.buttonStyle(.kit)
+          Button("Check…") { wordsSheet = .check }.buttonStyle(.kit)
         }
         FormRow("Replace Recovery Key…", help: "For a lost or leaked kit: makes a new vault key, seals everything to the new kit and deletes the old copies. A leaked kit still opens the copies someone already took, so change the passwords too.", systemImage: "arrow.clockwise", hue: .blue) {
-          Button("Replace…") { create() }.buttonStyle(.kit)
+          Button("Replace…") { replacing = true }.buttonStyle(.kit)
         }
         FormRow("Turn Off", help: "Deletes every wrapped copy, in iCloud and on your remotes.", systemImage: "trash", hue: .red) {
-          Button("Turn Off…") {}.buttonStyle(.kit)
+          Button("Turn Off…") { turningOff = true }.buttonStyle(.kit)
         }
       }
-      .disabled(!isOn)
+      .disabled(!isOn || working)
       .opacity(isOn ? 1 : 0.5)
     }
+    .kitSheet(item: $wordsSheet) { mode in RecoveryWordsSheet(mode: mode) }
+    .kitConfirmation(
+      "Replace the Recovery Key?", isPresented: $replacing,
+      message: "The old kit stops opening the current vault key. Every device gets the new vault key through iCloud Keychain.",
+      systemImage: "arrow.clockwise", confirm: "Replace", role: nil
+    ) { run { words = try await app.recovery.replace() } }
+    .kitConfirmation(
+      "Turn Off the Recovery Key?", isPresented: $turningOff,
+      message: "Every sealed copy is deleted, here and in iCloud. iCloud Keychain then holds the only copy of your keys.",
+      systemImage: "trash", confirm: "Turn Off"
+    ) { run { try await app.recovery.turnOff(); words = nil } }
   }
 
   private var check: some View {
@@ -255,7 +275,76 @@ struct RecoveryKeyPane: View {
   }
 
   private func create() {
-    do { words = try app.recovery.create() } catch { self.error = error.localizedDescription }
+    do { words = try app.recovery.create(); error = nil } catch { self.error = error.localizedDescription }
+  }
+
+  private func run(_ work: @escaping @MainActor () async throws -> Void) {
+    working = true
+    Task {
+      do { try await work(); error = nil } catch { self.error = error.localizedDescription }
+      working = false
+    }
+  }
+}
+
+/// Typing or scanning the kit: to check it, or to recover with it.
+private struct RecoveryWordsSheet: View {
+  enum Mode: String, Identifiable {
+    case check, recover
+    var id: String { rawValue }
+  }
+
+  let mode: Mode
+  @Environment(AppModel.self) private var app
+  @Environment(\.kitDismiss) private var dismiss
+  @State private var text = ""
+  @State private var result: String?
+  @State private var isError = false
+  @State private var working = false
+
+  var body: some View {
+    KitSheet(
+      title: mode == .check ? "Check Recovery Key" : "Recover with Key",
+      meta: "The 24 words, or the code under the QR code", systemImage: "key", hue: .orange, width: 520
+    ) {
+      TextEditor(text: $text)
+        .font(.body.monospaced())
+        .frame(minHeight: 110)
+        .scrollContentBackground(.hidden)
+        .padding(6)
+        .kitSurface(.field)
+        .autocorrectionDisabled()
+      if let result {
+        SheetStatus(result, systemImage: isError ? "xmark.octagon" : "checkmark.shield", hue: isError ? .red : .green)
+      }
+    } footer: {
+      Spacer()
+      Button(result == nil || isError ? "Cancel" : "Done") { dismiss() }.buttonStyle(.kit).keyboardShortcut(.cancelAction)
+      Button(mode == .check ? "Check" : "Recover") { go() }
+        .buttonStyle(.kitPrimary).keyboardShortcut(.defaultAction)
+        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || working)
+    }
+  }
+
+  private func go() {
+    working = true
+    Task {
+      defer { working = false }
+      do {
+        switch mode {
+        case .check:
+          let matches = try app.recovery.check(text)
+          result = matches ? "This is the current recovery key." : "These words are a recovery key, but not the current one."
+          isError = !matches
+        case .recover:
+          result = try await app.recovery.recover(text)
+          isError = false
+        }
+      } catch {
+        result = error.localizedDescription
+        isError = true
+      }
+    }
   }
 }
 

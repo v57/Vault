@@ -188,6 +188,12 @@ public enum VaultBackup {
       self.identity = identity ?? VaultPersonalIdentity.backing
       self.store = store
     }
+
+    /// This app's: Personal's store and its keys (so the store sees restored keys at once), this app's keychain groups,
+    /// and `account` for an account's store.
+    public init(personal: VaultStore, account: @escaping (String) throws -> VaultStore?) {
+      self.init(keys: personal.keys) { id in try id.map(account) ?? personal }
+    }
   }
 
   /// Puts the backup back: the keys first, then the identity and the secrets, then Personal's records and each account's.
