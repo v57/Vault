@@ -23,7 +23,8 @@ struct DecryptSheet: View {
   @Environment(AppModel.self) private var app
   @Environment(\.kitDismiss) private var dismiss
   @Environment(\.kitIdiom) private var idiom
-  @State private var lockAfter = LockAfter.thirty
+  /// Settings ▸ General's "Lock decrypted folders after" first (`@KitStorage("defaultLockMinutes")` there).
+  @State private var lockAfter = LockAfter(rawValue: UserDefaults.standard.integer(forKey: "defaultLockMinutes")) ?? .thirty
   @State private var showInFinder = true
   @State private var openTerminal = false
   @State private var error: String?
