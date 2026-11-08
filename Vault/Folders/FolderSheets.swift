@@ -341,6 +341,9 @@ struct ScanInviteSheet: View {
 
   private func finish() {
     if added != nil { app.selection = .devices }
+    // On iPhone the scanner is a full-screen cover, which no kit presenter gives a dismiss: closing it is clearing
+    // the sheet it shows for.
+    if app.sheet == .scanInvite { app.sheet = nil }
     dismiss()
   }
 
