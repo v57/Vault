@@ -350,7 +350,8 @@ private struct LinkPicker: View {
   }
 }
 
-/// The sheet's footer as the form's last line: status, Cancel, Save.
+/// The sheet's footer as the form's last line: status, Cancel, Save. On iPhone the status takes its own row when the
+/// buttons need the width (`KitSheetFooterRow`), so "Add Document" stays whole.
 struct SheetFooterButtons: View {
   var saveTitle: String
   var canSave: Bool
@@ -359,7 +360,7 @@ struct SheetFooterButtons: View {
   @Environment(\.kitDismiss) private var dismiss
 
   var body: some View {
-    HStack(spacing: 8) {
+    KitSheetFooterRow(spacing: 8) {
       SheetStatus(status, systemImage: "checkmark.shield", hue: .green)
       Spacer()
       Button("Cancel") { dismiss() }.buttonStyle(.kit).keyboardShortcut(.cancelAction)
