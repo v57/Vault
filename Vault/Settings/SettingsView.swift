@@ -375,8 +375,13 @@ private struct RecoveryWordsSheet: View {
 }
 
 private struct AutoFillPane: View {
+  @Environment(\.kitIdiom) private var idiom
+
   var body: some View {
-    FormCard(footer: "The credential provider is an extension the system starts when a password field asks; it isn’t a helper and isn’t registered with launchctl.") {
+    // launchctl is the Mac's; on iPhone and iPad the same promise in their words.
+    FormCard(footer: idiom == .mac
+      ? "The credential provider is an extension the system starts when a password field asks; it isn’t a helper and isn’t registered with launchctl."
+      : "The credential provider is an extension the system starts when a password field asks; nothing of Vault’s runs in the background.") {
       FormRow("AutoFill passwords and codes", help: "In Safari and apps, through a credential provider extension. Comes in a later version.", systemImage: "rectangle.and.pencil.and.ellipsis", hue: .gray) {
         Toggle("AutoFill", isOn: .constant(false)).toggleStyle(.kitSwitch).kitLabelsHidden().disabled(true)
       }
