@@ -119,12 +119,14 @@ struct LocationView: View {
   @State private var entries: [RemoteFileInfo] = []
   @State private var status: WorkStatus = .idle
   @State private var selection: Set<String> = []
+  @State private var pushed = false
+  @Environment(\.kitIdiom) private var idiom
 
   var body: some View {
     let location = app.remotes.locations.first { $0.id == locationID }
     let remote = app.vault.remote(id: locationID)
     let title: LocalizedStringKey = if let location { "\(location.name)" } else { "Location" }
-    ListAndInspector(name: "location") {
+    ListAndInspector(name: "location", pushed: $pushed) {
       VStack(spacing: 0) {
         HStack(spacing: 4) {
           Button("Up", systemImage: "chevron.up") { path = RemotePath.parent(path) }.buttonStyle(.kitIcon).disabled(path.isEmpty)
@@ -176,7 +178,11 @@ struct LocationView: View {
       }
     }
     .kitToolbar(title, meta: [location?.kind.title ?? "", location?.detail ?? ""], systemImage: location?.kind.systemImage ?? "globe", hue: .indigo) {
-      ToolGroup { Button("Refresh", systemImage: "arrow.clockwise") { Task { await load() } } }
+      ToolGroup {
+        Button("Refresh", systemImage: "arrow.clockwise") { Task { await load() } }
+        // iPhone: the remote's settings and secret, pushed.
+        if idiom == .phone { Button("Details", systemImage: "info.circle") { pushed = true } }
+      }
     }
     .task(id: path) { await load() }
   }

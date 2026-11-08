@@ -3,17 +3,26 @@ import SwiftUI
 import VaultKit
 
 /// A screen's two panes: the list on the window ground and the inspector beside it on the panel ground, split by a
-/// divider that keeps its width per screen. Without an inspector the list takes the whole width.
+/// divider that keeps its width per screen. Without an inspector the list takes the whole width. On iPhone, with no
+/// room beside the list, `pushed` pushes the inspector's cards as a page of their own (a row tapped, a Details tool).
 struct ListAndInspector<Main: View, Inspector: View>: View {
   var name: String
+  var pushed: Binding<Bool>
   @ViewBuilder var main: Main
   @ViewBuilder var inspector: Inspector
   @Environment(\.kitIdiom) private var idiom
 
+  init(name: String, pushed: Binding<Bool> = .constant(false), @ViewBuilder main: () -> Main, @ViewBuilder inspector: () -> Inspector) {
+    self.name = name
+    self.pushed = pushed
+    self.main = main()
+    self.inspector = inspector()
+  }
+
   var body: some View {
     if idiom == .phone {
-      // No room beside the list: the screen pushes the inspector's cards instead (`PushedDetail`).
       main.kitPane(.content)
+        .navigationDestination(isPresented: pushed) { PushedInspector { inspector } }
     } else {
       ResizableSplit(
         "vault.\(name).inspector", pane: .trailing, width: idiom.isTouch ? 380 : 400, range: 300...520,
@@ -24,6 +33,34 @@ struct ListAndInspector<Main: View, Inspector: View>: View {
         KitInspector(width: nil) { inspector }
       }
     }
+  }
+}
+
+/// An inspector's cards pushed on iPhone: its own header names it, so the bar holds only Back.
+struct PushedInspector<Content: View>: View {
+  @ViewBuilder var content: Content
+
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: KitMetrics.gutter) { content }
+        .padding(.horizontal, KitMetrics.gutter + 4)
+        .padding(.top, 4)
+        .padding(.bottom, 24)
+    }
+    .background(.kitWindow)
+    .kitPane(.content)
+    .kitToolbar("") { EmptyView() } tools: {}
+    .navigationBarBackButtonHidden(true)
+  }
+}
+
+extension Binding where Value == String? {
+  /// A list's selection that also pushes the inspector on iPhone whenever a row is tapped (the same row again too).
+  @MainActor func pushing(_ pushed: Binding<Bool>, on idiom: KitIdiom) -> Binding<String?> {
+    Binding(get: { wrappedValue }, set: { value in
+      wrappedValue = value
+      if idiom == .phone, value != nil { pushed.wrappedValue = true }
+    })
   }
 }
 

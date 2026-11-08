@@ -48,6 +48,8 @@ struct DocumentPageScreen: View {
   @State private var rotation = 0
   @State private var lines: [String: [PageTextLine]] = [:]
   @State private var search = ""
+  /// iPhone: the inspector (fields, Reminder, Duplicate, Delete) pushed over the pages.
+  @State private var showsDetails = false
 
   var body: some View {
     let vault = app.vault
@@ -55,7 +57,7 @@ struct DocumentPageScreen: View {
       let kind = vault.documentKinds[document.kind]
       let collection = vault.collection(id: document.collection)
       let current = pages.first { $0.id == page } ?? pages.first
-      ListAndInspector(name: "document") {
+      ListAndInspector(name: "document", pushed: $showsDetails) {
         VStack(spacing: 12) {
           KitPageViewer(
             imageData: current?.image ?? document.thumbnail, aspectRatio: current?.aspectRatio ?? kind.aspectRatio,
@@ -100,6 +102,7 @@ struct DocumentPageScreen: View {
         ToolGroup {
           Button("Share a Copy…", systemImage: "square.and.arrow.up") { app.sheet = .shareCopy(document.id) }
           Button("Edit", systemImage: "pencil") { app.sheet = .editDocument(document.id) }
+          if idiom == .phone { Button("Details", systemImage: "info.circle") { showsDetails = true } }
         }
         if idiom != .phone { ToolbarSearch(text: $search, prompt: "Find on pages") }
       }
@@ -387,24 +390,19 @@ private struct ReminderSection: View {
     let months = document.remindMonths ?? kind.remindMonths ?? 0
     let date = document.day(field.key)
     KitSection("Reminder", meta: [String(localized: "on your \(app.devices.count) devices"), String(localized: "nothing leaves them")], systemImage: "bell", hue: .orange) {
-      HStack(spacing: 10) {
-        KitStepper(
-          value: Binding(get: { max(1, months) }, set: { set($0) }), in: 1...24,
-          format: { months in
-            if field.key == "expires" {
-              return months == 1 ? String(localized: "1 month before it expires") : String(localized: "\(months) months before it expires")
-            }
-            let label = field.label.lowercased()
-            return months == 1 ? String(localized: "1 month before it \(label)") : String(localized: "\(months) months before it \(label)")
-          }
-        )
-        .disabled(months == 0)
-        Spacer(minLength: 6)
-        if let date, months > 0 {
-          Text(DocumentDates.long(DocumentDay.date(date, monthsBefore: months))).kitFont(.callout).monospacedDigit()
+      // On a phone the stepper, the date and the switch don't fit on one line: the date and the switch go under.
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 10) {
+          stepper(months: months)
+          Spacer(minLength: 6)
+          dateAndSwitch(months: months, date: date)
         }
-        Toggle("Remind", isOn: Binding(get: { months > 0 }, set: { set($0 ? (kind.remindMonths ?? 3) : 0) }))
-          .toggleStyle(.kitSwitch).labelsHidden()
+        VStack(alignment: .leading, spacing: 8) {
+          stepper(months: months)
+          HStack(spacing: 10) {
+            dateAndSwitch(months: months, date: date)
+          }
+        }
       }
       .padding(.horizontal, 8).frame(minHeight: 40)
       if kind.id == DocumentKind.passport.id {
@@ -414,6 +412,29 @@ private struct ReminderSection: View {
           .padding(.horizontal, 8).padding(.bottom, 6)
       }
     }
+  }
+
+  private func stepper(months: Int) -> some View {
+    KitStepper(
+      value: Binding(get: { max(1, months) }, set: { set($0) }), in: 1...24,
+      format: { months in
+        if field.key == "expires" {
+          return months == 1 ? String(localized: "1 month before it expires") : String(localized: "\(months) months before it expires")
+        }
+        let label = field.label.lowercased()
+        return months == 1 ? String(localized: "1 month before it \(label)") : String(localized: "\(months) months before it \(label)")
+      }
+    )
+    .disabled(months == 0)
+  }
+
+  @ViewBuilder private func dateAndSwitch(months: Int, date: Date?) -> some View {
+    if let date, months > 0 {
+      Text(DocumentDates.long(DocumentDay.date(date, monthsBefore: months))).kitFont(.callout).monospacedDigit()
+    }
+    Spacer(minLength: 0)
+    Toggle("Remind", isOn: Binding(get: { months > 0 }, set: { set($0 ? (kind.remindMonths ?? 3) : 0) }))
+      .toggleStyle(.kitSwitch).labelsHidden()
   }
 
   private func set(_ months: Int) {

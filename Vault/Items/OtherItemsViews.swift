@@ -6,14 +6,29 @@ import VaultKit
 /// the password.
 struct DatabasesView: View {
   @Environment(AppModel.self) private var app
+  @Environment(\.kitIdiom) private var idiom
   @State private var search = ""
   @State private var selection: Set<String> = []
+  @State private var pushed = false
 
   var body: some View {
     let vault = app.vault
     let query = search.lowercased()
     let databases = vault.databases.filter { query.isEmpty || $0.name.lowercased().contains(query) || $0.host.lowercased().contains(query) }
-    ListAndInspector(name: "databases") {
+    ListAndInspector(name: "databases", pushed: $pushed) {
+      if idiom == .phone {
+        // A table is too wide here: rows, each pushing its connection.
+        KitList(selection: Binding(get: { app.selectedDatabase }, set: { app.selectedDatabase = $0 }).pushing($pushed, on: idiom)) {
+          KitSection("Connections", meta: [String(localized: "\(databases.count) connections"), String(localized: "shared with Database and Shell")], systemImage: "cylinder", hue: .indigo) {
+            ForEach(databases) { database in
+              SidebarRow(value: database.id, "\(database.name)", subtitle: "\(DatabaseEngine.name(database.engine)) · \(database.filePath.isEmpty ? "\(database.host):\(database.port)" : database.filePath)", systemImage: "cylinder") {
+                if database.isProduction { Chip.production.controlSize(.small) }
+              }
+            }
+          }
+        }
+        .padding(.top, KitMetrics.gutter)
+      } else {
       KitGrid(databases, columns: [
         KitGridColumn("Name", width: 180) { database in
           HStack(spacing: 8) {
@@ -31,6 +46,7 @@ struct DatabasesView: View {
       .paneStatusBar(systemImage: "icloud", status: .done) {
         Text("\(vault.databases.count) connections")
         Text("shared with Database and Shell").foregroundStyle(.kitSecondary)
+      }
       }
     } inspector: {
       if let database = vault.databases.first(where: { $0.id == app.selectedDatabase }) {
@@ -72,15 +88,17 @@ struct DatabasesView: View {
 /// The projects Git, Code and Dev share, with their folder on each device.
 struct ProjectsView: View {
   @Environment(AppModel.self) private var app
+  @Environment(\.kitIdiom) private var idiom
   @State private var search = ""
+  @State private var pushed = false
 
   var body: some View {
     @Bindable var app = app
     let vault = app.vault
     let query = search.lowercased()
     let projects = vault.projects.filter { query.isEmpty || $0.name.lowercased().contains(query) }
-    ListAndInspector(name: "projects") {
-      KitList(selection: $app.selectedProject) {
+    ListAndInspector(name: "projects", pushed: $pushed) {
+      KitList(selection: $app.selectedProject.pushing($pushed, on: idiom)) {
         KitSection("Projects", meta: [String(localized: "\(projects.count) projects"), String(localized: "\(vault.localProjects.count) on this device")], systemImage: "folder", hue: .brown) {
           ForEach(projects) { project in
             let place: LocalizedStringKey =
@@ -131,12 +149,14 @@ struct ProjectsView: View {
 /// Payment cards: the number and code are secrets, shown on request.
 struct CardsView: View {
   @Environment(AppModel.self) private var app
+  @Environment(\.kitIdiom) private var idiom
   @State private var selected: String?
+  @State private var pushed = false
 
   var body: some View {
     let cards = app.vault.cards
-    ListAndInspector(name: "cards") {
-      KitList(selection: $selected) {
+    ListAndInspector(name: "cards", pushed: $pushed) {
+      KitList(selection: $selected.pushing($pushed, on: idiom)) {
         KitSection("Cards", meta: String(localized: "\(cards.count) cards"), systemImage: "creditcard", hue: .orange) {
           ForEach(cards) { card in
             SidebarRow(value: card.id, card.title, subtitle: "\(card.brand) •••• \(card.last4)", systemImage: "creditcard") {
@@ -171,12 +191,14 @@ struct CardsView: View {
 /// The notes Markdown and Shell keep in the vault, encrypted ones marked.
 struct NotesView: View {
   @Environment(AppModel.self) private var app
+  @Environment(\.kitIdiom) private var idiom
   @State private var selected: String?
+  @State private var pushed = false
 
   var body: some View {
     let notes = app.notes.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    ListAndInspector(name: "notes") {
-      KitList(selection: $selected) {
+    ListAndInspector(name: "notes", pushed: $pushed) {
+      KitList(selection: $selected.pushing($pushed, on: idiom)) {
         KitSection("Notes", meta: [String(localized: "\(notes.count) notes"), String(localized: "\(notes.filter(\.encrypted).count) encrypted")], systemImage: "doc.text", hue: .yellow) {
           ForEach(notes) { note in
             SidebarRow(value: note.id, "\(note.name)", subtitle: note.folder.isEmpty ? "Notes" : "\(note.folder)", systemImage: "doc.text") {
