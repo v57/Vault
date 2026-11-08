@@ -136,10 +136,10 @@ private struct LoginForm: View {
     VStack(spacing: 12) {
       FieldRow {
         LabeledField("Title") { TextField("Build server console", text: $title).kitField() }
-        LabeledField("Website") { TextField("example.com", text: $website).kitField() }
+        LabeledField("Website") { TextField("example.com", text: $website).kitField(content: .url) }
       }
       FieldRow {
-        LabeledField("Username") { TextField("you@example.com", text: $username).kitField() }
+        LabeledField("Username") { TextField("you@example.com", text: $username).kitField(content: .verbatim) }
         LabeledField("Password") {
           TextField("Password", text: $password)
             .kitField(mono: true) {
@@ -400,12 +400,12 @@ struct HostForm: View {
     let host = edited
     VStack(spacing: 12) {
       FieldRow {
-        LabeledField("Name") { TextField("atlas-web-1", text: $name).kitField() }
+        LabeledField("Name") { TextField("atlas-web-1", text: $name).kitField(content: .verbatim) }
         LabeledField("Address") { TextField("host.example.com", text: $hostname).kitField(mono: true) }
       }
       FieldRow {
-        LabeledField("User") { TextField("deploy", text: $user).kitField() }
-        LabeledField("Port") { TextField("22", text: $port).kitField(mono: true) }
+        LabeledField("User") { TextField("deploy", text: $user).kitField(content: .verbatim) }
+        LabeledField("Port") { TextField("22", text: $port).kitField(mono: true, content: .number) }
       }
       FallbackAddressesField(rows: $fallbacks, host: host)
     }
@@ -467,11 +467,11 @@ private struct DatabaseForm: View {
     VStack(spacing: 12) {
       FieldRow {
         LabeledField("Name") { TextField("Atlas production", text: $name).kitField() }
-        LabeledField("User") { TextField("atlas", text: $user).kitField() }
+        LabeledField("User") { TextField("atlas", text: $user).kitField(content: .verbatim) }
       }
       FieldRow {
         LabeledField("Host") { TextField("127.0.0.1", text: $host).kitField(mono: true) }
-        LabeledField("Port") { TextField("5432", text: $port).kitField(mono: true) }
+        LabeledField("Port") { TextField("5432", text: $port).kitField(mono: true, content: .number) }
       }
     }
     SheetFooterButtons(saveTitle: String(localized: "Save"), canSave: !name.isEmpty, status: String(localized: "Database and Shell see it at once")) {

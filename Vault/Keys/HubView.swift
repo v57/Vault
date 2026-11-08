@@ -358,7 +358,7 @@ struct AddHubSheet: View {
     ) {
       VStack(spacing: 12) {
         FieldRow {
-          LabeledField("Address") { TextField("wss://hub.example.com", text: $url).kitField(mono: true) }
+          LabeledField("Address") { TextField("wss://hub.example.com", text: $url).kitField(mono: true, content: .url) }
         }
         FieldRow {
           LabeledField("Name") { TextField("Home Hub", text: $name).kitField() }

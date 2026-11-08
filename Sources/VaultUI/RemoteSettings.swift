@@ -295,7 +295,7 @@
             field: TextField("Public key", text: $line, prompt: Text("ssh-ed25519 AAAA… name@laptop"), axis: .vertical)
               .kitFont(.mono)
               .lineLimit(3...6)
-              .autocorrectionDisabled())
+              .kitTextContent(.verbatim))
         }
       } footer: {
         Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)

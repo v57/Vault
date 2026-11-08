@@ -144,7 +144,7 @@ struct VaultAppleTeamSheet: View {
     ) {
       FormCard {
         FormRow("Team ID", help: "Ten letters and digits, in the developer account's Membership", systemImage: "number",
-                error: !teamID.isEmpty && !isValid ? "Not a team id" : nil, field: TextField("ABCDE12345", text: $teamID))
+                error: !teamID.isEmpty && !isValid ? "Not a team id" : nil, field: TextField("ABCDE12345", text: $teamID).kitTextContent(.verbatim))
         FormRow("Name", help: "As Apple shows it", systemImage: "character.cursor.ibeam",
                 field: TextField("Acme Studio Ltd", text: $name))
       }

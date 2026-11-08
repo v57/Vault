@@ -333,7 +333,7 @@ private struct RecoveryWordsSheet: View {
         .scrollContentBackground(.hidden)
         .padding(6)
         .kitSurface(.field)
-        .autocorrectionDisabled()
+        .kitTextContent(.verbatim)
       if let result {
         SheetStatus(result, systemImage: isError ? "xmark.octagon" : "checkmark.shield", hue: isError ? .red : .green)
       }

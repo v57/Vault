@@ -43,7 +43,7 @@ struct AddRemoteSheet: View {
         if draft.kind == .s3 || draft.kind == .smb {
           FieldRow {
             LabeledField(draft.kind == .s3 ? "Endpoint" : "Address") {
-              TextField(draft.kind == .s3 ? "https://…r2.cloudflarestorage.com" : "smb://nas.local/vault", text: $draft.endpoint).kitField(mono: true)
+              TextField(draft.kind == .s3 ? "https://…r2.cloudflarestorage.com" : "smb://nas.local/vault", text: $draft.endpoint).kitField(mono: true, content: .url)
             }
 
           }
