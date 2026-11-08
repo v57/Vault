@@ -50,7 +50,7 @@ struct AddRemoteSheet: View {
           FieldRow {
             LabeledField(draft.kind == .s3 ? "Access key ID" : "User") { TextField("", text: $draft.accessKeyID).kitField(mono: true) }
             LabeledField(draft.kind == .s3 ? "Secret access key" : "Password") {
-              SecureField("", text: $draft.secret).kitField(mono: true) {
+              SecureField("", text: $draft.secret).kitField(mono: true, content: .secret) {
                 Label("Keychain", systemImage: "lock").kitFont(.caption).labelStyle(.titleAndIcon)
               }
             }
