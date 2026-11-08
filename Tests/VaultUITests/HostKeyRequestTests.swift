@@ -49,6 +49,26 @@ struct HostKeyRequestTests {
     #expect(try store.knownFingerprint(host: "100.96.0.4", port: 22) == nil)
   }
 
+  /// Security audit M6: another key than the pinned one is refused without a first-connection question, and nothing
+  /// is re-pinned; once the pin is forgotten, the next connection asks again.
+  @Test func aChangedKeyIsRefusedWithoutAsking() async throws {
+    let request = VaultHostKeyRequest()
+    request.windowAppeared()
+    try store.trust(fingerprint: "SHA256:a", for: host)
+    try store.trust(fingerprint: "SHA256:git", host: "git.example.com", port: 22)
+    #expect(await !request.approve("SHA256:b", for: host, in: vault))
+    #expect(await !request.approve("SHA256:b", host: "git.example.com", port: 22, in: vault))
+    #expect(request.questions.isEmpty)
+    #expect(try store.knownFingerprint(for: host) == "SHA256:a")
+    #expect(await request.approve("SHA256:a", for: host, in: vault))
+
+    try store.untrust(fingerprint: "SHA256:a", for: host)
+    let asking = Task { await request.approve("SHA256:b", for: host, in: vault) }
+    request.finish(try await waitForQuestion(request).id, accepted: true)
+    #expect(await asking.value)
+    #expect(try store.knownFingerprint(for: host) == "SHA256:b")
+  }
+
   @Test func aNoPinsNothing() async throws {
     let request = VaultHostKeyRequest()
     request.windowAppeared()

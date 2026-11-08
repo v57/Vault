@@ -36,9 +36,11 @@ public final class VaultHostKeyRequest {
 
   var pending: Pending? { questions.first }
 
-  /// Asks about a saved host's key, unless it's already trusted, and pins it on a yes.
+  /// Asks about a saved host's key, unless it's already trusted, and pins it on a yes. A host with another key pinned is
+  /// refused without asking (security audit M6): the question is for a first connection, and a changed key is the
+  /// user's to clear in Vault (the host's Known host ▸ Forget Key) once they know why it changed.
   public func approve(_ fingerprint: String, keyType: String? = nil, for host: VaultHost, in vault: Vault) async -> Bool {
-    if vault.knownHost(for: host)?.fingerprint == fingerprint { return true }
+    if let known = vault.knownHost(for: host)?.fingerprint { return known == fingerprint }
     guard
       await ask(name: host.displayName, address: host.hostname, port: host.port, fingerprint: fingerprint, keyType: keyType)
     else { return false }
@@ -48,9 +50,10 @@ public final class VaultHostKeyRequest {
     return true
   }
 
-  /// Asks about the key of an address that's no saved host (a Git remote), and pins it on a yes.
+  /// Asks about the key of an address that's no saved host (a Git remote), and pins it on a yes. Another pinned key is
+  /// refused without asking, as above.
   public func approve(_ fingerprint: String, keyType: String? = nil, host: String, port: Int, in vault: Vault) async -> Bool {
-    if (try? vault.store?.knownFingerprint(host: host, port: port)) == fingerprint { return true }
+    if let known = try? vault.store?.knownFingerprint(host: host, port: port) { return known == fingerprint }
     guard await ask(name: host, address: host, port: port, fingerprint: fingerprint, keyType: keyType) else { return false }
     vault.perform { try $0.trust(fingerprint: fingerprint, host: host, port: port, keyType: keyType) }
     return true

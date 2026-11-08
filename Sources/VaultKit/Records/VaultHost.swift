@@ -316,8 +316,8 @@ extension VaultStore {
   }
 
   /// Drops the pin of `fingerprint` on a host's route, and one from before routes at its address, unless the user has
-  /// since accepted another key there.
-  func untrust(fingerprint: String, for host: VaultHost) throws {
+  /// since accepted another key there. The next connection asks again, as a first one.
+  public func untrust(fingerprint: String, for host: VaultHost) throws {
     let pin = try knownHostID(for: host)
     if try record(VaultKnownHost.self, id: pin)?.fingerprint == fingerprint { try delete(id: pin) }
     let id = try knownHostID(host: host.hostname, port: host.port)

@@ -196,6 +196,14 @@ struct HostInspector: View {
       ) {
         InspectorRow("Key", value: known.keyType.map(Self.keyName) ?? "—", copyable: false)
         InspectorRow("Fingerprint", copyText: known.fingerprint) { Text(ShortKey.fingerprint(known.fingerprint)).kitFont(.mono) }
+        // A server whose key changed is refused until this pin goes; the next connection asks as a first one.
+        if !app.isDemo, let store = vault.trustStore(for: host) {
+          Button("Forget Key", role: .destructive) {
+            vault.perform { _ in try store.untrust(fingerprint: known.fingerprint, for: host) }
+          }
+          .buttonStyle(.kit)
+          .help("Every app refuses this server while another key is pinned. Forget it only once you know why the key changed.")
+        }
       }
     }
     let databases = vault.databases.filter { $0.sshHostID == host.id }
