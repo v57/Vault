@@ -53,12 +53,13 @@ old file keychain: a Debug build uses it, so it runs while being worked on, and 
 somewhere weaker. It opens with no vault keys, device key or passwords. To run from source, use Debug or sign with your
 own team.
 
-**Off Apple platforms** nothing syncs through iCloud, and no group separates one app from another. Items of the secrets
-group are kept under a service of their own, so they don't collide with anything, but any program of the user reads them:
+**Off Apple platforms** nothing syncs through iCloud, and no group separates one app from another. **On Linux and
+Windows, secrets are readable by your other programs, like other password stores there.** Items of the secrets group are
+kept under a service of their own, so they don't collide with anything, but any program of the user reads them:
 
 | Platform | Where items go | Who can read them | When it isn't there |
 |---|---|---|---|
-| Windows | Credential Manager, per machine (`CRED_PERSIST_LOCAL_MACHINE`), encrypted for the user | Any program of the user | Calls throw (over SSH with a key it has no logon session) |
+| Windows | Credential Manager, per machine (`CRED_PERSIST_LOCAL_MACHINE`), encrypted for the user; an item past its 2,560 bytes is kept as a header and `v57-piece|…` items (`ChunkedCredentials`) | Any program of the user | Calls throw (over SSH with a key it has no logon session) |
 | Linux | Secret Service, the login collection (GNOME Keyring, KWallet, KeePassXC) | Any program of the user while it's unlocked; a locked one asks | Calls throw (no D-Bus session or keyring daemon) |
 | Anything else (Android today) | No backend yet. Debug: a 0600 JSON file of base64 items. Release: nothing | The user, in Debug | Release calls throw `errSecNotAvailable` |
 
