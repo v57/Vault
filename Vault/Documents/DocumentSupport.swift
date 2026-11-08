@@ -312,8 +312,11 @@ extension AppModel {
       var secrets: [String: String] = [:]
       if current.kind == DocumentKind.other.id, suggestion.kind != DocumentKind.other.id {
         current.kind = suggestion.kind
-        // The file's name until the pages give a better one ("Aiko's Passport"); a camera roll name goes.
-        if !suggestion.title.isEmpty || current.title.hasPrefix("IMG_") { current.title = suggestion.title }
+        // The file's name until the pages give a better one ("Aiko's Passport"); a camera roll name and the share
+        // extension's stand-in for a photo or PDF without one go (the kind names it then).
+        let isStandIn = current.title.hasPrefix("IMG_")
+          || current.title == String(localized: "Picture") || current.title == String(localized: "Document")
+        if !suggestion.title.isEmpty || isStandIn { current.title = suggestion.title }
       }
       let kind = vault.documentKinds[current.kind]
       for (key, value) in suggestion.fields {
