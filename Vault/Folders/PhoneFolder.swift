@@ -99,8 +99,7 @@ struct PhoneFolderView: View {
           .buttonStyle(.kitRound)
           .kitMenu(isPresented: $showsMore) {
             Button("Share…", systemImage: "person.badge.plus") { app.sheet = .share(folder.id) }
-            Button("Export Decrypted…", systemImage: "square.and.arrow.down") {}
-              .disabled(true)
+            Button("Export Decrypted…", systemImage: "square.and.arrow.down") { app.exportDecrypted(folder, isTouch: true) }
           }
       }
     }

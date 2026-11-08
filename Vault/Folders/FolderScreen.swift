@@ -154,12 +154,7 @@ private struct FolderBrowser: View {
     }
   }
 
-  private func exportDecrypted() {
-    Task {
-      guard let url = await KitDesktop.chooseSaveLocation(title: String(localized: "Export Decrypted"), prompt: String(localized: "Export"), name: folder.name) else { return }
-      do { try app.folders.exportDecrypted(folder.id, to: url) } catch { app.folders.lastError = error.localizedDescription }
-    }
-  }
+  private func exportDecrypted() { app.exportDecrypted(folder, isTouch: idiom.isTouch) }
 
   private var statusBarStatus: WorkStatus {
     if let session, session.activity.phase == .sealing { return .working(progress: session.activity.fraction) }
@@ -374,5 +369,29 @@ extension RelativeTime {
   static func dayTime(_ date: Date) -> String {
     Calendar.current.isDateInToday(date)
       ? String(localized: "Today, \(date.formatted(date: .omitted, time: .shortened))") : day(date)
+  }
+}
+
+extension AppModel {
+  /// Export Decrypted…: a plain copy of `folder` where the user picks, outside the vault. On iPhone and iPad (no save
+  /// panel) the copy is made in the temporary folder for the system's exporter (Files), then removed.
+  func exportDecrypted(_ folder: FolderItem, isTouch: Bool) {
+    Task {
+      do {
+        if isTouch {
+          let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+          defer { try? FileManager.default.removeItem(at: temporary) }
+          try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+          let plain = temporary.appendingPathComponent(folder.name, isDirectory: true)
+          try folders.exportDecrypted(folder.id, to: plain)
+          _ = try await KitDesktop.saveCopy(of: plain, title: String(localized: "Export Decrypted"), prompt: String(localized: "Export"))
+        } else {
+          guard let url = await KitDesktop.chooseSaveLocation(title: String(localized: "Export Decrypted"), prompt: String(localized: "Export"), name: folder.name) else { return }
+          try folders.exportDecrypted(folder.id, to: url)
+        }
+      } catch {
+        folders.lastError = error.localizedDescription
+      }
+    }
   }
 }
