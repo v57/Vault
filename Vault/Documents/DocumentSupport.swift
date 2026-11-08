@@ -52,9 +52,12 @@ extension DocumentKind {
   }
 }
 
-/// "1 document", "3 documents".
-func counted(_ count: Int, _ word: String, plural: String? = nil) -> String {
-  count == 1 ? "1 \(word)" : "\(count) \(plural ?? word + "s")"
+// "1 document", "3 documents": a count with its noun, each form its own phrase so it translates.
+extension Int {
+  var documentsLabel: String { self == 1 ? String(localized: "1 document") : String(localized: "\(self) documents") }
+  var pagesLabel: String { self == 1 ? String(localized: "1 page") : String(localized: "\(self) pages") }
+  var filesLabel: String { self == 1 ? String(localized: "1 file") : String(localized: "\(self) files") }
+  var peopleLabel: String { self == 1 ? String(localized: "1 person") : String(localized: "\(self) people") }
 }
 
 /// Days as the screens write them.
@@ -95,7 +98,7 @@ extension VaultDocument {
     case .date: return DocumentDay.date(from: value).map(DocumentDates.long) ?? value
     case .months:
       let months = Self.monthCount(value) ?? 0
-      return months == 1 ? "1 month" : "\(months) months"
+      return months == 1 ? String(localized: "1 month") : String(localized: "\(months) months")
     default: return value
     }
   }
@@ -261,7 +264,7 @@ extension AppModel {
     read(target: target) {
       var pages: [IncomingPage] = []
       for (index, data) in images.enumerated() {
-        pages.append(try await PageReader.page(data: data, name: names?[index] ?? "Page \(index + 1)", isScan: isScan))
+        pages.append(try await PageReader.page(data: data, name: names?[index] ?? String(localized: "Page \(index + 1)"), isScan: isScan))
       }
       return pages
     }

@@ -236,8 +236,8 @@ private struct GroupEditSheet: View {
         KitHuePicker(selection: $hue, hues: Self.hues)
       }
       SheetFooterButtons(
-        saveTitle: isNew ? "Add" : "Save", canSave: !name.trimmingCharacters(in: .whitespaces).isEmpty,
-        status: "Encrypted, synced to your \(app.devices.count) devices", onSave: save)
+        saveTitle: isNew ? String(localized: "Add") : String(localized: "Save"), canSave: !name.trimmingCharacters(in: .whitespaces).isEmpty,
+        status: String(localized: "Encrypted, synced to your \(app.devices.count) devices"), onSave: save)
     }
     .onAppear {
       guard !loaded else { return }

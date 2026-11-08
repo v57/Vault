@@ -86,7 +86,7 @@ public struct VaultDevicesSettings<Control: View>: View {
       .kitSheet(item: $renaming) { VaultDeviceNameSheet(vault: vault, device: $0) }
       .kitSheet(item: $lost) { VaultLostDeviceSheet(device: $0, vaults: vaults) }
       .kitConfirmation(
-        "Trust \(trusting?.name ?? "this device") again?",
+        "Trust \(trusting?.name ?? String(localized: "this device")) again?",
         isPresented: Binding { trusting != nil } set: { if !$0 { trusting = nil } },
         message: "It comes back the next time a v57 app runs on it. Do this only if you have it back.",
         systemImage: "checkmark.shield", confirm: "Trust Again"
@@ -94,7 +94,7 @@ public struct VaultDevicesSettings<Control: View>: View {
         if let trusting { vaults.trustAgain(trusting) }
       }
       .kitConfirmation(
-        "Remove \(removing?.deviceName ?? "this device")?",
+        "Remove \(removing?.deviceName ?? String(localized: "this device"))?",
         isPresented: Binding { removing != nil } set: { if !$0 { removing = nil } },
         message: "\(removing.map(message) ?? "")", systemImage: "trash", confirm: "Remove"
       ) { [removing] in
@@ -130,16 +130,16 @@ public struct VaultDevicesSettings<Control: View>: View {
 
   private func notTrustedDetails(_ device: VaultRevokedDevice) -> String {
     let hasKey = vault.untrustedDeviceKeys.contains { $0.id == device.deviceID }
-    return hasKey ? "It has published itself since. It’s ignored." : "It hasn’t been heard from since."
+    return hasKey ? String(localized: "It has published itself since. It’s ignored.") : String(localized: "It hasn’t been heard from since.")
   }
 
   /// "This Mac · macOS · 77 projects".
   private func details(_ device: VaultDeviceKey) -> String {
     let projects = opened.reduce(0) { count, vault in count + vault.projects.filter { $0.paths[device.id] != nil }.count }
     return [
-      device.id == vault.deviceID ? "This \(KitDevice.name)" : nil,
+      device.id == vault.deviceID ? String(localized: "This \(KitDevice.name)") : nil,
       device.platform == "custom" ? nil : device.platform,
-      projects == 0 ? nil : "\(projects) project\(projects == 1 ? "" : "s")",
+      projects == 0 ? nil : projects == 1 ? String(localized: "1 project") : String(localized: "\(projects) projects"),
     ].compactMap { $0 }.joined(separator: " · ")
   }
 }

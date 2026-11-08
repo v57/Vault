@@ -26,7 +26,7 @@ struct ShareView: View {
         Tile(systemImage: "doc.viewfinder", size: 34)
         VStack(alignment: .leading, spacing: 1) {
           Text("Add to Vault").kitFont(.title3)
-          Text(model.isLoading ? "Reading what you shared…" : "\(model.files.count == 1 ? "1 file" : "\(model.files.count) files") · \(pages == 1 ? "1 page" : "\(pages) pages") · to the Inbox")
+          Text(model.isLoading ? "Reading what you shared…" : "\(model.files.count == 1 ? String(localized: "1 file") : String(localized: "\(model.files.count) files")) · \(pages == 1 ? String(localized: "1 page") : String(localized: "\(pages) pages")) · to the Inbox")
             .kitFont(.caption)
         }
         Spacer()

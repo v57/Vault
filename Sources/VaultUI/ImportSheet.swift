@@ -112,20 +112,21 @@ public struct VaultImportSheet: View {
     let projects = offer.repositories.count + offer.folders.count
     let databases = offer.databases.count
     if databases == 0 {
-      if offer.repositories.isEmpty { return projects == 1 ? "Add This Folder Too?" : "Add These Folders Too?" }
-      return projects == 1 ? "Add This Project?" : "Add These Projects?"
+      if offer.repositories.isEmpty { return projects == 1 ? String(localized: "Add This Folder Too?") : String(localized: "Add These Folders Too?") }
+      return projects == 1 ? String(localized: "Add This Project?") : String(localized: "Add These Projects?")
     }
-    if projects == 0 { return databases == 1 ? "Add This Database?" : "Add These Databases?" }
-    return "Add What Was Found?"
+    if projects == 0 { return databases == 1 ? String(localized: "Add This Database?") : String(localized: "Add These Databases?") }
+    return String(localized: "Add What Was Found?")
   }
 
   private var meta: String {
-    let added = "Added, they join your projects and connections for the apps that open them."
+    let added = String(localized: "Added, they join your projects and connections for the apps that open them.")
     if offer.databases.isEmpty, offer.repositories.isEmpty {
-      return "They hold no Git repository, so \(app ?? "the drop") skipped them. " + added
+      let skipper = app ?? String(localized: "the drop")
+      return String(localized: "They hold no Git repository, so \(skipper) skipped them. \(added)")
     }
     let names = offer.roots.map(\.lastPathComponent).formatted()
-    return "Found in \(names). " + added
+    return String(localized: "Found in \(names). \(added)")
   }
 
   /// What it is, and where when it isn't right inside a dropped folder: "Notes", "in Agentus · Notes".
@@ -135,7 +136,7 @@ public struct VaultImportSheet: View {
       .max { $0.count < $1.count }
     // A dropped folder or file itself says where it is.
     let place: String? =
-      if let root { parent == root ? nil : "in " + parent.dropFirst(root.count + 1) } else {
+      if let root { parent == root ? nil : String(localized: "in \(String(parent.dropFirst(root.count + 1)))") } else {
         (parent as NSString).abbreviatingWithTildeInPath
       }
     return [place, kinds].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
@@ -178,11 +179,11 @@ public struct VaultImportSheet: View {
   /// "Notes, Swift package".
   static func describe(_ contents: VaultProjectDiscovery.Contents) -> String {
     var words: [String] = []
-    if contents.contains(.notes) { words.append("Notes") }
-    if contents.contains(.xcode) { words.append("Xcode project") }
-    if contents.contains(.swiftPackage) { words.append("Swift package") }
-    if contents.contains(.code), contents.isDisjoint(with: [.xcode, .swiftPackage]) { words.append("Code") }
-    if contents.contains(.database) { words.append("Databases") }
+    if contents.contains(.notes) { words.append(String(localized: "Notes")) }
+    if contents.contains(.xcode) { words.append(String(localized: "Xcode project")) }
+    if contents.contains(.swiftPackage) { words.append(String(localized: "Swift package")) }
+    if contents.contains(.code), contents.isDisjoint(with: [.xcode, .swiftPackage]) { words.append(String(localized: "Code")) }
+    if contents.contains(.database) { words.append(String(localized: "Databases")) }
     return words.joined(separator: ", ")
   }
 }

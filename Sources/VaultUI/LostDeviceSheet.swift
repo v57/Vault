@@ -93,14 +93,14 @@ public final class VaultLostDeviceFlow {
 
   /// The user removed it from the Apple account, which only they can do.
   public func confirmLeftAppleAccount() {
-    progress[Self.appleAccount] = .done("You removed it from your Apple Account.")
+    progress[Self.appleAccount] = .done(String(localized: "You removed it from your Apple Account."))
   }
 
   public func stopTrusting() {
     run(Self.trust) { [device, vaults] in
       vaults.revokeDevice(device)
       if let error = vaults.personal.error { throw Failure(error) }
-      return "It’s out of your vault and can’t publish itself again. If it tries, it shows as not trusted."
+      return String(localized: "It’s out of your vault and can’t publish itself again. If it tries, it shows as not trusted.")
     }
   }
 
@@ -109,15 +109,17 @@ public final class VaultLostDeviceFlow {
     run(Self.thisMacSweep) { [device] in
       let before = try thisMac.allowedDevices(among: [device]).isEmpty
       try thisMac.disallow(device)
-      return before ? "It wasn’t in this \(KitDevice.name)’s authorized_keys." : "Taken out of this \(KitDevice.name)’s authorized_keys."
+      return before ? String(localized: "It wasn’t in this \(KitDevice.name)’s authorized_keys.") : String(localized: "Taken out of this \(KitDevice.name)’s authorized_keys.")
     }
   }
 
   public func rotateKeys() {
     run(Self.rotate) { [vaults] in
       let rotation = try vaults.rotateKeys()
-      return "A new vault key is in use, and \(rotation.rewritten) records were sealed again. What’s written under the old "
-        + "key is refused from now on."
+      return String(localized: """
+        A new vault key is in use, and \(rotation.rewritten) records were sealed again. What’s written under the old \
+        key is refused from now on.
+        """)
     }
   }
 
@@ -194,8 +196,10 @@ public struct VaultLostDeviceSheet: View {
 
   /// What Lost Device… does, for its menu row's preview: it opens this sheet, whose steps each wait for a click.
   public static func menuPreview(_ deviceName: String) -> String {
-    "Shows the steps to cut \(deviceName) off: your Apple Account, your vault, your servers, your keys. "
-      + "Each runs only when you click it."
+    String(localized: """
+      Shows the steps to cut \(deviceName) off: your Apple Account, your vault, your servers, your keys. Each runs \
+      only when you click it.
+      """)
   }
 
   /// Where the user removes a device: it can't be done from here.
@@ -322,7 +326,7 @@ public struct VaultLostDeviceSheet: View {
     }
   }
 
-  private func actionRow(_ action: VaultLostDeviceActions.Action, title: String) -> some View {
+  private func actionRow(_ action: VaultLostDeviceActions.Action, title: LocalizedStringKey) -> some View {
     let text: LocalizedStringKey? =
       if let unavailable = action.unavailable { "\(unavailable)" } else { help(action.id, nil) }
     return FormRow("\(action.name)", help: text, systemImage: action.systemImage, hue: .blue) {
@@ -344,7 +348,7 @@ public struct VaultLostDeviceSheet: View {
 
   /// The step's buttons, for how it stands.
   @ViewBuilder
-  private func trailing(_ id: String, title: String, run: @escaping () -> Void) -> some View {
+  private func trailing(_ id: String, title: LocalizedStringKey, run: @escaping () -> Void) -> some View {
     switch flow.state(id) {
     case .waiting:
       HStack {

@@ -343,7 +343,7 @@ extension Vault {
       guard device != deviceID else { return nil }
       let host =
         hubHosts.first { personal.vaultDevice(of: $0) == device } ?? deviceHosts.first { $0.device?.deviceID == device }
-      let name = personal.deviceKeys.first { $0.id == device }?.deviceName ?? host?.hub?.deviceName ?? "Another device"
+      let name = personal.deviceKeys.first { $0.id == device }?.deviceName ?? host?.hub?.deviceName ?? String(localized: "Another device")
       return VaultProjectPlace(
         device: device, deviceName: name, path: path, host: host,
         fallbackAddresses: host.map(personal.fallbackAddresses(of:)) ?? [])

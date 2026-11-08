@@ -102,7 +102,7 @@ enum LocationKind: String, Hashable, CaseIterable {
 
   var title: String {
     switch self {
-    case .thisDevice: "This device"
+    case .thisDevice: String(localized: "This device")
     case .sftp: "SFTP"
     case .s3: "S3"
     case .smb: "SMB"
@@ -182,7 +182,7 @@ final class RemoteLibrary: RemoteService {
   }
 
   var locations: [LocationItem] {
-    [LocationItem(id: "this-device", name: "This \(ThisDevice.word)", kind: .thisDevice, detail: "local folders")]
+    [LocationItem(id: "this-device", name: String(localized: "This \(ThisDevice.word)"), kind: .thisDevice, detail: String(localized: "local folders"))]
       + vault.remotes.map { remote in
         LocationItem(
           id: remote.id, name: remote.name, kind: LocationKind(remote.kind), detail: remote.displayName,

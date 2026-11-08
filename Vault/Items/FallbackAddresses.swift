@@ -28,9 +28,9 @@ enum FallbackAddresses {
       let value = row.address.trimmingCharacters(in: .whitespaces)
       guard !value.isEmpty else { continue }
       if value.contains(where: \.isWhitespace) {
-        issues[row.id] = "An address has no spaces"
+        issues[row.id] = String(localized: "An address has no spaces")
       } else if !seen.insert(value.lowercased()).inserted {
-        issues[row.id] = "Tried already"
+        issues[row.id] = String(localized: "Tried already")
       }
     }
     return issues
@@ -53,8 +53,8 @@ struct AutomaticAddress: Hashable {
       let viaHub = personal.hubHosts.contains { $0.hostname.caseInsensitiveCompare(address) == .orderedSame }
       let source =
         viaHub
-        ? "Its Hub Network address, wherever the Hub reaches"
-        : address.lowercased().hasSuffix(".local") ? "Its Bonjour name, on the same network" : "Another address it published"
+        ? String(localized: "Its Hub Network address, wherever the Hub reaches")
+        : address.lowercased().hasSuffix(".local") ? String(localized: "Its Bonjour name, on the same network") : String(localized: "Another address it published")
       return AutomaticAddress(address: address, source: source)
     }
   }

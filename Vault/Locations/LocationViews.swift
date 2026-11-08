@@ -88,7 +88,7 @@ struct AddRemoteSheet: View {
 
   private func runTest() {
     test = .working
-    testLine = "Reaching \(draft.name)…"
+    testLine = String(localized: "Reaching \(draft.name)…")
     Task {
       switch await app.remotes.test(draft) {
       case .success(let line):
@@ -128,7 +128,7 @@ struct LocationView: View {
       VStack(spacing: 0) {
         HStack(spacing: 4) {
           Button("Up", systemImage: "chevron.up") { path = RemotePath.parent(path) }.buttonStyle(.kitIcon).disabled(path.isEmpty)
-          KitPathBar([location?.name ?? "Location"] + path.split(separator: "/").map(String.init))
+          KitPathBar([location?.name ?? String(localized: "Location")] + path.split(separator: "/").map(String.init))
           Spacer()
         }
         .padding(.horizontal, KitMetrics.gutter + 2)
@@ -136,7 +136,7 @@ struct LocationView: View {
         if app.remotes.fileSystem(for: locationID) == nil {
           EmptyState(
             systemImage: location?.kind.systemImage ?? "globe",
-            title: location?.isOffline == true ? "\(location?.name ?? "") Is Offline" : "Can’t Browse \(location?.kind.title ?? "This Remote") Yet",
+            title: location?.isOffline == true ? "\(location?.name ?? "") Is Offline" : "Can’t Browse \(location?.kind.title ?? String(localized: "This Remote")) Yet",
             message: location?.isOffline == true
               ? "Vault couldn’t reach it the last time it checked. It tries again when a folder that syncs through it opens."
               : "\(NotYetAvailable(what: "Browsing \(location?.kind.title ?? "") remotes").errorDescription ?? "")")
@@ -159,7 +159,7 @@ struct LocationView: View {
       if let location {
         InspectorHeader(location.name, meta: [location.kind.title, location.detail], systemImage: location.kind.systemImage, hue: .indigo) {}
         if let remote {
-          KitSection("Remote", meta: [remote.enabled ? "On" : "Off", "checked only while a v57 app is open"], systemImage: location.kind.systemImage, hue: .indigo) {
+          KitSection("Remote", meta: [remote.enabled ? String(localized: "On") : String(localized: "Off"), String(localized: "checked only while a v57 app is open")], systemImage: location.kind.systemImage, hue: .indigo) {
             if !remote.endpoint.isEmpty { InspectorRow("Endpoint") { Text(remote.endpoint).kitFont(.mono).lineLimit(1).truncationMode(.middle) } }
             if !remote.bucket.isEmpty { InspectorRow("Bucket", value: remote.bucket) }
             if let host = app.vault.host(id: remote.hostID) { InspectorRow("Host", value: host.displayName) }
@@ -167,7 +167,7 @@ struct LocationView: View {
             InspectorRow("Secret") { KitSecretValue(label: "Secret") { remote.secret } }
           }
           let folders = app.folders.folders.filter { $0.record.remoteID == remote.id }
-          KitSection("Folders", meta: "\(folders.count) sync through it", systemImage: "folder", hue: .teal) {
+          KitSection("Folders", meta: String(localized: "\(folders.count) sync through it"), systemImage: "folder", hue: .teal) {
             ForEach(folders) { folder in
               LinkRow(title: folder.name, subtitle: folder.record.remotePath ?? "", systemImage: "lock.rectangle.stack") { app.selection = .folder(folder.id) }
             }

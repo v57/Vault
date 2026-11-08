@@ -67,7 +67,7 @@ public struct DocumentKind: Hashable, Sendable, Identifiable {
 
   /// A kind nobody knows any more (its custom record was deleted): the document keeps its fields as text.
   public static func unknown(_ id: String) -> DocumentKind {
-    DocumentKind(id: id, name: "Document", symbol: "doc", collection: DocumentCollectionID.other, fields: [])
+    DocumentKind(id: id, name: String(localized: "Document"), symbol: "doc", collection: DocumentCollectionID.other, fields: [])
   }
 }
 
@@ -87,102 +87,102 @@ extension DocumentKind {
   private typealias F = DocumentField
 
   public static let passport = DocumentKind(
-    id: "passport", name: "Passport", symbol: "passport", collection: DocumentCollectionID.identity,
+    id: "passport", name: String(localized: "Passport"), symbol: "passport", collection: DocumentCollectionID.identity,
     fields: [
-      F("name", "Holder"), F("country", "Nationality"), F("number", "Number", .secret),
-      F("birthDate", "Date of birth", .date), F("issued", "Issued", .date), F("expires", "Expires", .date, reminds: true),
-    ], remindMonths: 9, sides: ["Data page", "Cover"])
+      F("name", String(localized: "Holder")), F("country", String(localized: "Nationality")), F("number", String(localized: "Number"), .secret),
+      F("birthDate", String(localized: "Date of birth"), .date), F("issued", String(localized: "Issued"), .date), F("expires", String(localized: "Expires"), .date, reminds: true),
+    ], remindMonths: 9, sides: [String(localized: "Data page"), String(localized: "Cover")])
 
   public static let idCard = DocumentKind(
-    id: "idCard", name: "ID Card", symbol: "id", collection: DocumentCollectionID.identity,
+    id: "idCard", name: String(localized: "ID Card"), symbol: "id", collection: DocumentCollectionID.identity,
     fields: [
-      F("name", "Holder"), F("country", "Country"), F("number", "Number", .secret), F("birthDate", "Date of birth", .date),
-      F("issued", "Issued", .date), F("expires", "Expires", .date, reminds: true),
-    ], remindMonths: 3, sides: ["Front", "Back"])
+      F("name", String(localized: "Holder")), F("country", String(localized: "Country")), F("number", String(localized: "Number"), .secret), F("birthDate", String(localized: "Date of birth"), .date),
+      F("issued", String(localized: "Issued"), .date), F("expires", String(localized: "Expires"), .date, reminds: true),
+    ], remindMonths: 3, sides: [String(localized: "Front"), String(localized: "Back")])
 
   public static let residencePermit = DocumentKind(
-    id: "residencePermit", name: "Residence Permit", symbol: "id", collection: DocumentCollectionID.identity,
+    id: "residencePermit", name: String(localized: "Residence Permit"), symbol: "id", collection: DocumentCollectionID.identity,
     fields: [
-      F("name", "Holder"), F("country", "Country"), F("permit", "Type"), F("number", "Number", .secret),
-      F("issued", "Issued", .date), F("expires", "Expires", .date, reminds: true),
-    ], remindMonths: 4, sides: ["Front", "Back"])
+      F("name", String(localized: "Holder")), F("country", String(localized: "Country")), F("permit", String(localized: "Type")), F("number", String(localized: "Number"), .secret),
+      F("issued", String(localized: "Issued"), .date), F("expires", String(localized: "Expires"), .date, reminds: true),
+    ], remindMonths: 4, sides: [String(localized: "Front"), String(localized: "Back")])
 
   public static let driversLicence = DocumentKind(
-    id: "driversLicence", name: "Driver’s Licence", symbol: "id", collection: DocumentCollectionID.identity,
+    id: "driversLicence", name: String(localized: "Driver’s Licence"), symbol: "id", collection: DocumentCollectionID.identity,
     fields: [
-      F("name", "Holder"), F("country", "Country"), F("number", "Number", .secret), F("classes", "Classes"),
-      F("issued", "Issued", .date), F("expires", "Expires", .date, reminds: true),
-    ], remindMonths: 3, sides: ["Front", "Back"])
+      F("name", String(localized: "Holder")), F("country", String(localized: "Country")), F("number", String(localized: "Number"), .secret), F("classes", String(localized: "Classes")),
+      F("issued", String(localized: "Issued"), .date), F("expires", String(localized: "Expires"), .date, reminds: true),
+    ], remindMonths: 3, sides: [String(localized: "Front"), String(localized: "Back")])
 
   public static let birthCertificate = DocumentKind(
-    id: "birthCertificate", name: "Birth Certificate", symbol: "doc", collection: DocumentCollectionID.identity,
-    fields: [F("name", "Name"), F("birthDate", "Born", .date), F("place", "Place")])
+    id: "birthCertificate", name: String(localized: "Birth Certificate"), symbol: "doc", collection: DocumentCollectionID.identity,
+    fields: [F("name", String(localized: "Name")), F("birthDate", String(localized: "Born"), .date), F("place", String(localized: "Place"))])
 
   public static let resume = DocumentKind(
-    id: "resume", name: "Resume", symbol: "work", collection: DocumentCollectionID.work,
-    fields: [F("name", "Holder"), F("role", "For"), F("updated", "Updated", .date)])
+    id: "resume", name: String(localized: "Resume"), symbol: "work", collection: DocumentCollectionID.work,
+    fields: [F("name", String(localized: "Holder")), F("role", String(localized: "For")), F("updated", String(localized: "Updated"), .date)])
 
   public static let employmentContract = DocumentKind(
-    id: "employmentContract", name: "Employment Contract", symbol: "work", collection: DocumentCollectionID.work,
+    id: "employmentContract", name: String(localized: "Employment Contract"), symbol: "work", collection: DocumentCollectionID.work,
     fields: [
-      F("employer", "Employer"), F("role", "Role"), F("starts", "Starts", .date), F("ends", "Ends", .date, reminds: true),
-      F("notice", "Notice period", .months),
+      F("employer", String(localized: "Employer")), F("role", String(localized: "Role")), F("starts", String(localized: "Starts"), .date), F("ends", String(localized: "Ends"), .date, reminds: true),
+      F("notice", String(localized: "Notice period"), .months),
     ], remindMonths: 3)
 
   public static let payslip = DocumentKind(
-    id: "payslip", name: "Payslip", symbol: "work", collection: DocumentCollectionID.work,
-    fields: [F("employer", "Employer"), F("period", "Period"), F("amount", "Net pay", .money)])
+    id: "payslip", name: String(localized: "Payslip"), symbol: "work", collection: DocumentCollectionID.work,
+    fields: [F("employer", String(localized: "Employer")), F("period", String(localized: "Period")), F("amount", String(localized: "Net pay"), .money)])
 
   public static let certificate = DocumentKind(
-    id: "certificate", name: "Certificate", symbol: "work", collection: DocumentCollectionID.work,
-    fields: [F("issuer", "Issuer"), F("issued", "Issued", .date), F("expires", "Expires", .date, reminds: true)],
+    id: "certificate", name: String(localized: "Certificate"), symbol: "work", collection: DocumentCollectionID.work,
+    fields: [F("issuer", String(localized: "Issuer")), F("issued", String(localized: "Issued"), .date), F("expires", String(localized: "Expires"), .date, reminds: true)],
     remindMonths: 2)
 
   public static let insurancePolicy = DocumentKind(
-    id: "insurancePolicy", name: "Insurance Policy", symbol: "umbrella", collection: DocumentCollectionID.insurance,
+    id: "insurancePolicy", name: String(localized: "Insurance Policy"), symbol: "umbrella", collection: DocumentCollectionID.insurance,
     fields: [
-      F("insurer", "Insurer"), F("policyNumber", "Policy number"), F("insured", "Insured"), F("cover", "Cover", .money),
-      F("premium", "Premium", .money), F("renews", "Renews", .date, reminds: true), F("notice", "Notice period", .months),
+      F("insurer", String(localized: "Insurer")), F("policyNumber", String(localized: "Policy number")), F("insured", String(localized: "Insured")), F("cover", String(localized: "Cover"), .money),
+      F("premium", String(localized: "Premium"), .money), F("renews", String(localized: "Renews"), .date, reminds: true), F("notice", String(localized: "Notice period"), .months),
     ], remindMonths: 1)
 
   public static let paymentCard = DocumentKind(
-    id: "paymentCard", name: "Payment Card", symbol: "card", collection: DocumentCollectionID.banking,
-    fields: [F("issuer", "Bank"), F("last4", "Last 4 digits"), F("expires", "Expires", .date, reminds: true)],
-    remindMonths: 1, sides: ["Front", "Back"])
+    id: "paymentCard", name: String(localized: "Payment Card"), symbol: "card", collection: DocumentCollectionID.banking,
+    fields: [F("issuer", String(localized: "Bank")), F("last4", String(localized: "Last 4 digits")), F("expires", String(localized: "Expires"), .date, reminds: true)],
+    remindMonths: 1, sides: [String(localized: "Front"), String(localized: "Back")])
 
   public static let bankDocument = DocumentKind(
-    id: "bankDocument", name: "Bank Document", symbol: "card", collection: DocumentCollectionID.banking,
-    fields: [F("bank", "Bank"), F("iban", "IBAN", .secret), F("dated", "Dated", .date)])
+    id: "bankDocument", name: String(localized: "Bank Document"), symbol: "card", collection: DocumentCollectionID.banking,
+    fields: [F("bank", String(localized: "Bank")), F("iban", String(localized: "IBAN"), .secret), F("dated", String(localized: "Dated"), .date)])
 
   public static let lease = DocumentKind(
-    id: "lease", name: "Lease", symbol: "house", collection: DocumentCollectionID.house,
+    id: "lease", name: String(localized: "Lease"), symbol: "house", collection: DocumentCollectionID.house,
     fields: [
-      F("landlord", "Landlord"), F("address", "Address"), F("rent", "Rent", .money), F("deposit", "Deposit", .money),
-      F("starts", "Starts", .date), F("ends", "Ends", .date, reminds: true), F("notice", "Notice period", .months),
+      F("landlord", String(localized: "Landlord")), F("address", String(localized: "Address")), F("rent", String(localized: "Rent"), .money), F("deposit", String(localized: "Deposit"), .money),
+      F("starts", String(localized: "Starts"), .date), F("ends", String(localized: "Ends"), .date, reminds: true), F("notice", String(localized: "Notice period"), .months),
     ], remindMonths: 3)
 
   public static let contract = DocumentKind(
-    id: "contract", name: "Contract", symbol: "doc", collection: DocumentCollectionID.house,
+    id: "contract", name: String(localized: "Contract"), symbol: "doc", collection: DocumentCollectionID.house,
     fields: [
-      F("provider", "Provider"), F("customerNumber", "Customer number"), F("price", "Price", .money),
-      F("starts", "Starts", .date), F("renews", "Renews", .date, reminds: true), F("notice", "Notice period", .months),
+      F("provider", String(localized: "Provider")), F("customerNumber", String(localized: "Customer number")), F("price", String(localized: "Price"), .money),
+      F("starts", String(localized: "Starts"), .date), F("renews", String(localized: "Renews"), .date, reminds: true), F("notice", String(localized: "Notice period"), .months),
     ], remindMonths: 1)
 
   public static let warranty = DocumentKind(
-    id: "warranty", name: "Receipt or Warranty", symbol: "receipt", collection: DocumentCollectionID.house,
+    id: "warranty", name: String(localized: "Receipt or Warranty"), symbol: "receipt", collection: DocumentCollectionID.house,
     fields: [
-      F("shop", "Shop"), F("amount", "Amount", .money), F("bought", "Bought", .date),
-      F("warrantyUntil", "Warranty until", .date, reminds: true),
+      F("shop", String(localized: "Shop")), F("amount", String(localized: "Amount"), .money), F("bought", String(localized: "Bought"), .date),
+      F("warrantyUntil", String(localized: "Warranty until"), .date, reminds: true),
     ], remindMonths: 1)
 
   public static let vehicleRegistration = DocumentKind(
-    id: "vehicleRegistration", name: "Vehicle Registration", symbol: "car", collection: DocumentCollectionID.car,
-    fields: [F("plate", "Plate"), F("vin", "Vehicle number"), F("inspection", "Next inspection", .date, reminds: true)],
-    remindMonths: 1, sides: ["Front", "Back"])
+    id: "vehicleRegistration", name: String(localized: "Vehicle Registration"), symbol: "car", collection: DocumentCollectionID.car,
+    fields: [F("plate", String(localized: "Plate")), F("vin", String(localized: "Vehicle number")), F("inspection", String(localized: "Next inspection"), .date, reminds: true)],
+    remindMonths: 1, sides: [String(localized: "Front"), String(localized: "Back")])
 
   public static let other = DocumentKind(
-    id: "other", name: "Document", symbol: "doc", collection: DocumentCollectionID.other,
-    fields: [F("dated", "Dated", .date)])
+    id: "other", name: String(localized: "Document"), symbol: "doc", collection: DocumentCollectionID.other,
+    fields: [F("dated", String(localized: "Dated"), .date)])
 
   /// Every built-in kind, in the order a picker lists them.
   public static let builtIn: [DocumentKind] = [

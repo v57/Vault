@@ -53,7 +53,7 @@ private struct FolderBrowser: View {
         pathBar
         if let session {
           Banner(
-            "\(idiom.isTouch ? "In Files: On My \(ThisDevice.word) › Vault › \(folder.name)" : "Decrypted for other apps until \(session.lockDate.formatted(date: .omitted, time: .shortened))")",
+            "\(idiom.isTouch ? String(localized: "In Files: On My \(ThisDevice.word) › Vault › \(folder.name)") : String(localized: "Decrypted for other apps until \(session.lockDate.formatted(date: .omitted, time: .shortened))"))",
             message: idiom.isTouch
               ? "Other apps open it in place until \(session.lockDate.formatted(date: .omitted, time: .shortened)). Locking seals your edits and moves it out of Files."
               : "\(KitDesktop.fileManagerName), Terminal and other apps see a plain copy. Saved edits are sealed back into the encrypted folder.",
@@ -73,7 +73,7 @@ private struct FolderBrowser: View {
     }
     .kitToolbar(folder.name, title: {
       KitTitle(
-        folder.name, meta: session.map { _ in ["Decrypted", "locks in \(session?.minutesLeft ?? 0) min"] } ?? [folder.isEncrypted ? "Encrypted" : "Plain here", folder.isEncrypted ? "only v57 apps can read it" : "synced"],
+        folder.name, meta: session.map { _ in [String(localized: "Decrypted"), String(localized: "locks in \(session?.minutesLeft ?? 0) min")] } ?? [folder.isEncrypted ? String(localized: "Encrypted") : String(localized: "Plain here"), folder.isEncrypted ? String(localized: "only v57 apps can read it") : String(localized: "synced")],
         systemImage: session == nil ? "lock.rectangle.stack" : "lock.open", hue: session == nil ? .teal : .orange,
         status: session.map { .working(progress: $0.fractionLeft) } ?? .idle)
     }) {
@@ -156,7 +156,7 @@ private struct FolderBrowser: View {
 
   private func exportDecrypted() {
     Task {
-      guard let url = await KitDesktop.chooseSaveLocation(title: "Export Decrypted", prompt: "Export", name: folder.name) else { return }
+      guard let url = await KitDesktop.chooseSaveLocation(title: String(localized: "Export Decrypted"), prompt: String(localized: "Export"), name: folder.name) else { return }
       do { try app.folders.exportDecrypted(folder.id, to: url) } catch { app.folders.lastError = error.localizedDescription }
     }
   }
@@ -170,14 +170,14 @@ private struct FolderBrowser: View {
   private var statusLine: String {
     if let session {
       if session.activity.phase == .sealing, let file = session.activity.file {
-        return "Sealing \(file) · \(Bytes.text(session.activity.fileBytes)) of \(Bytes.text(session.activity.fileSize))"
+        return String(localized: "Sealing \(file) · \(Bytes.text(session.activity.fileBytes)) of \(Bytes.text(session.activity.fileSize))")
       }
-      return session.sealedEdits == 0 ? "Watching for edits to seal back" : "\(session.sealedEdits) edits sealed back"
+      return session.sealedEdits == 0 ? String(localized: "Watching for edits to seal back") : String(localized: "\(session.sealedEdits) edits sealed back")
     }
     if let remote = folder.record.remoteID.flatMap(app.vault.remote(id:)) {
-      return "Synced through \(remote.name) \(app.folders.sync.activity(for: folder.id)?.checked ?? "")"
+      return String(localized: "Synced through \(remote.name) \(app.folders.sync.activity(for: folder.id)?.checked ?? "")")
     }
-    return "On this device only"
+    return String(localized: "On this device only")
   }
 
   private func columns(session: FolderSession?) -> [KitGridColumn<FileEntry>] {
@@ -187,7 +187,7 @@ private struct FolderBrowser: View {
     return [
       KitGridColumn("Name", width: idiom.isTouch ? 260 : 300) { KitFileCell($0.name, isFolder: $0.isDirectory) },
       KitGridColumn("Size", width: 90, alignment: .trailing) { entry in
-        entry.isDirectory ? "\(folders.itemCount(id, path: entry.path)) items" : Bytes.text(entry.size)
+        entry.isDirectory ? String(localized: "\(folders.itemCount(id, path: entry.path)) items") : Bytes.text(entry.size)
       },
       KitGridColumn("Modified", width: 150) { entry in entry.modified.map(RelativeTime.dayTime) ?? "—" },
       KitGridColumn(session == nil ? "Sync" : "Sealed", width: 110) { entry in
@@ -207,7 +207,7 @@ private struct FolderBrowser: View {
 /// A short progress bar with its word in the accent ("Sending", "Sealing").
 struct RowProgress: View {
   var value: Double
-  var title: String
+  var title: LocalizedStringKey
 
   var body: some View {
     HStack(spacing: 6) {
@@ -228,18 +228,18 @@ private struct FolderInspector: View {
     let session = app.folders.session(for: folder.id)
     InspectorHeader(
       folder.name,
-      meta: [folder.isEncrypted ? "Encrypted folder" : "Synced folder", folder.sharedWith == nil ? "" : "shared", "\(totals.items) items", Bytes.text(totals.bytes)],
+      meta: [folder.isEncrypted ? String(localized: "Encrypted folder") : String(localized: "Synced folder"), folder.sharedWith == nil ? "" : String(localized: "shared"), String(localized: "\(totals.items) items"), Bytes.text(totals.bytes)],
       systemImage: "lock.rectangle.stack", hue: .teal) {}
     if let session {
       KitSection(Text("Decrypted until \(session.lockDate.formatted(date: .omitted, time: .shortened))")) {
         InspectorRow("Plain copy", copyText: session.copyURL.path) {
           Text("…/Decrypted/\(session.copyURL.lastPathComponent)").kitFont(.mono).lineLimit(1).truncationMode(.head)
         }
-        InspectorRow("Spotlight", value: "Excluded", copyable: false)
+        InspectorRow("Spotlight", value: String(localized: "Excluded"), copyable: false)
         #if os(macOS)
-          InspectorRow("Time Machine", value: "Excluded", copyable: false)
+          InspectorRow("Time Machine", value: String(localized: "Excluded"), copyable: false)
         #endif
-        InspectorRow("Sealed back", value: "\(session.sealedEdits) edits" + (session.activity.phase == .sealing ? " · 1 sealing" : ""), copyable: false)
+        InspectorRow("Sealed back", value: session.activity.phase == .sealing ? String(localized: "\(session.sealedEdits) edits · 1 sealing") : String(localized: "\(session.sealedEdits) edits"), copyable: false)
         HStack(spacing: 6) {
           Button("+30 min", systemImage: "timer") { app.folders.extend(folder.id) }.buttonStyle(.kit)
           Button("Show in \(KitDesktop.fileManagerName)") { KitDesktop.reveal([session.copyURL]) }.buttonStyle(.kit)
@@ -250,12 +250,12 @@ private struct FolderInspector: View {
       } icon: {
         LiveIcon(systemImage: "lock.open", hue: .orange, status: .working(progress: session.fractionLeft), size: 24)
       } meta: {
-        MetaLine("\(session.minutesLeft) min left", "opened by you at \(session.session.started.formatted(date: .omitted, time: .shortened))")
+        MetaLine(String(localized: "\(session.minutesLeft) min left"), String(localized: "opened by you at \(session.session.started.formatted(date: .omitted, time: .shortened))"))
       } accessory: {
         EmptyView()
       }
     } else if folder.isEncrypted {
-      KitSection("Encrypted", meta: ["names too", "64 KB sealed chunks"], systemImage: "lock", hue: .teal) {
+      KitSection("Encrypted", meta: [String(localized: "names too"), String(localized: "64 KB sealed chunks")], systemImage: "lock", hue: .teal) {
         ForEach(app.devices) { device in
           InspectorRow(device.id == vault.deviceID ? "This \(ThisDevice.word)" : "\(device.deviceName)") {
             switch folder.record.storage(for: device.id) {
@@ -303,8 +303,8 @@ struct RemoteCard: View {
   }
 
   private func mode(_ record: VaultFolder, _ device: String) -> String {
-    let mode = record.mode(for: device) == .readOnly ? "Read-only" : "Read-write"
-    return "\(mode) · \(record.storage(for: device) == .encrypted ? "Encrypted" : "Plain")"
+    let mode = record.mode(for: device) == .readOnly ? String(localized: "Read-only") : String(localized: "Read-write")
+    return "\(mode) · \(record.storage(for: device) == .encrypted ? String(localized: "Encrypted") : String(localized: "Plain"))"
   }
 }
 
@@ -316,14 +316,14 @@ struct MembersCard: View {
   var body: some View {
     let members = app.sharing.people.filter { $0.record.roles[folder.id] != nil }
     KitSection(
-      "Members", meta: members.isEmpty ? ["only you"] : ["\(members.count + 1) people", "signed by you"],
+      "Members", meta: members.isEmpty ? [String(localized: "only you")] : [String(localized: "\(members.count + 1) people"), String(localized: "signed by you")],
       systemImage: "person.2", hue: .purple
     ) {
-      PersonRow(name: app.ownerName, detail: members.isEmpty ? "Owner · \(app.devices.count) devices" : "Owner")
+      PersonRow(name: app.ownerName, detail: members.isEmpty ? String(localized: "Owner · \(app.devices.count) devices") : String(localized: "Owner"))
       ForEach(members) { person in
         PersonRow(
           name: person.name,
-          detail: [person.record.roles[folder.id] == .readOnly ? "Read-only" : "Read-write", person.record.verified.map { "verified \(RelativeTime.day($0))" } ?? "not verified"].joined(separator: " · "),
+          detail: [person.record.roles[folder.id] == .readOnly ? String(localized: "Read-only") : String(localized: "Read-write"), person.record.verified.map { String(localized: "verified \(RelativeTime.day($0))") } ?? String(localized: "not verified")].joined(separator: " · "),
           verified: person.status == .verified)
       }
     } accessory: {
@@ -372,7 +372,7 @@ enum Bytes {
 extension RelativeTime {
   /// "Today, 9:14 AM", "Yesterday", "Oct 18".
   static func dayTime(_ date: Date) -> String {
-    let day = day(date)
-    return day == "Today" ? "Today, \(date.formatted(date: .omitted, time: .shortened))" : day
+    Calendar.current.isDateInToday(date)
+      ? String(localized: "Today, \(date.formatted(date: .omitted, time: .shortened))") : day(date)
   }
 }

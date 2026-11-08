@@ -47,7 +47,7 @@ struct HubView: View {
     .navigationDestination(item: $pushed) { id in
       if let (hub, device) = find(id) {
         PushedDetail(
-          title: device.name, meta: [HubPlatform.name(device.platform), device.isOnline ? "Online" : "Offline"],
+          title: device.name, meta: [HubPlatform.name(device.platform), device.isOnline ? String(localized: "Online") : String(localized: "Offline")],
           systemImage: HubPlatform.systemImage(device.platform), hue: .purple
         ) {
           HubDeviceInspector(hub: hub, device: device)
@@ -70,13 +70,16 @@ struct HubView: View {
   }
 
   private func toolbarMeta(_ hubs: [HubItem]) -> [String] {
-    guard !hubs.isEmpty else { return ["off", "bring your own"] }
+    guard !hubs.isEmpty else { return [String(localized: "off"), String(localized: "bring your own")] }
     let devices = hubs.flatMap(\.members)
-    return ["\(hubs.count) \(hubs.count == 1 ? "Hub" : "Hubs")", "\(devices.count) devices", "\(devices.filter(\.isOnline).count) online"]
+    return [
+      hubs.count == 1 ? String(localized: "1 Hub") : String(localized: "\(hubs.count) Hubs"), String(localized: "\(devices.count) devices"),
+      String(localized: "\(devices.filter(\.isOnline).count) online"),
+    ]
   }
 
   private var introSection: some View {
-    KitSection("Hub", meta: ["off", "your own server"], systemImage: "point.3.connected.trianglepath.dotted", hue: .purple) {
+    KitSection("Hub", meta: [String(localized: "off"), String(localized: "your own server")], systemImage: "point.3.connected.trianglepath.dotted", hue: .purple) {
       VStack(alignment: .leading, spacing: 8) {
         Text("Connect to a Hub you run (on a Mac, a home server or a VPS) to see all your devices, Linux, Windows and Android included, and reach them over SSH from Shell, Database and Code by name.")
           .kitFont(.callout)
@@ -99,7 +102,7 @@ private struct HubSection: View {
   var body: some View {
     let live = hub.members
     KitSection(
-      hub.name, meta: [HubStatusText.title(hub.status), "\(live.count) devices", hub.record.isPlayground ? "playground" : ""].filter { !$0.isEmpty },
+      hub.name, meta: [HubStatusText.title(hub.status), String(localized: "\(live.count) devices"), hub.record.isPlayground ? String(localized: "playground") : ""].filter { !$0.isEmpty },
       systemImage: "point.3.connected.trianglepath.dotted", hue: hub.status == .connected ? .purple : .gray
     ) {
       InspectorRow("Connect from this \(ThisDevice.word)", copyText: nil) {
@@ -138,7 +141,7 @@ private struct HubSection: View {
             .toggleStyle(.kitSwitch).kitLabelsHidden()
         }
         if hub.syncsRecords {
-          InspectorRow("Records", value: hub.recordSyncLine.isEmpty ? "Waiting for the connection" : hub.recordSyncLine, copyable: false)
+          InspectorRow("Records", value: hub.recordSyncLine.isEmpty ? String(localized: "Waiting for the connection") : hub.recordSyncLine, copyable: false)
         } else {
           Text("For devices without iCloud: your records go to the Hub's vault service sealed with your vault keys, and a device with both carries changes between iCloud and the Hub.")
             .kitFont(.caption).padding(.horizontal, 8)
@@ -211,12 +214,11 @@ private struct HubSection: View {
 
   private func subtitle(_ device: VaultHubDevice) -> String {
     var parts = [HubPlatform.name(device.platform)]
-    if let parent = device.parent { parts.append("on \(parent)") }
+    if let parent = device.parent { parts.append(String(localized: "on \(parent)")) }
     if idiom != .phone, let address = device.address { parts.append(address) }
     if device.ssh != nil { parts.append("SSH") }
     if !device.isOnline, let seen = device.lastSeen {
-      let day = RelativeTime.day(seen)
-      parts.append("seen \(day == "Today" || day == "Yesterday" ? day.lowercased() : day)")
+      parts.append(RelativeTime.seen(seen))
     }
     return parts.joined(separator: " · ")
   }
@@ -234,7 +236,7 @@ private struct PendingRow: View {
       HStack(spacing: 10) {
         RowTile(systemImage: HubPlatform.systemImage(waiting.platform))
         VStack(alignment: .leading, spacing: 1) {
-          Text(waiting.name.isEmpty ? "A new device" : waiting.name).kitFont(.body).lineLimit(1)
+          Text(waiting.name.isEmpty ? String(localized: "A new device") : waiting.name).kitFont(.body).lineLimit(1)
           Text("\(HubPlatform.name(waiting.platform)) · wants to join\(waiting.firstSeen.map { " · \(RelativeTime.short($0))" } ?? "")")
             .kitFont(.caption).lineLimit(1)
         }
@@ -259,7 +261,7 @@ private struct PendingRow: View {
     }
     .padding(8)
     .kitDialog(
-      "Approve \(waiting.name.isEmpty ? "this device" : waiting.name)?", isPresented: $confirmsApprove,
+      "Approve \(waiting.name.isEmpty ? String(localized: "this device") : waiting.name)?", isPresented: $confirmsApprove,
       message: "\(HubPlatform.name(waiting.platform)) · joins your devices on \(hub.name). Only if its screen shows this code:",
       systemImage: "checkmark.shield", hue: .green, confirm: "Approve"
     ) {
@@ -281,18 +283,18 @@ struct HubDeviceInspector: View {
   var body: some View {
     let isThisDevice = device.id == app.hubs.identity?.id
     if !pushed {
-      InspectorHeader(device.name, meta: [HubPlatform.name(device.platform), device.isOnline ? "Online" : "Offline", "on \(hub.name)"], systemImage: HubPlatform.systemImage(device.platform)) {}
+      InspectorHeader(device.name, meta: [HubPlatform.name(device.platform), device.isOnline ? String(localized: "Online") : String(localized: "Offline"), String(localized: "on \(hub.name)")], systemImage: HubPlatform.systemImage(device.platform)) {}
     }
-    KitSection("Device", meta: [device.isApproved ? "approved" : "not approved", isThisDevice ? "this \(ThisDevice.word)" : ""].filter { !$0.isEmpty }, systemImage: HubPlatform.systemImage(device.platform), hue: .purple) {
+    KitSection("Device", meta: [device.isApproved ? String(localized: "approved") : String(localized: "not approved"), isThisDevice ? String(localized: "this \(ThisDevice.word)") : ""].filter { !$0.isEmpty }, systemImage: HubPlatform.systemImage(device.platform), hue: .purple) {
       InspectorRow("System", value: [device.os, device.arch].compactMap { $0 }.joined(separator: " · ").ifEmpty(HubPlatform.name(device.platform)), copyable: false)
       if let parent = device.parent { InspectorRow("Runs on", value: parent, copyable: false) }
-      InspectorRow("Hub", value: device.isOnline ? "Online" : device.lastSeen.map { "Seen \(RelativeTime.day($0))" } ?? "Offline", copyable: false)
-      if let network = device.isNetworkOnline { InspectorRow("Hub Network", value: network ? "Online" : "Offline", copyable: false) }
+      InspectorRow("Hub", value: device.isOnline ? String(localized: "Online") : device.lastSeen.map { String(localized: "Seen \(RelativeTime.day($0))") } ?? String(localized: "Offline"), copyable: false)
+      if let network = device.isNetworkOnline { InspectorRow("Hub Network", value: network ? String(localized: "Online") : String(localized: "Offline"), copyable: false) }
       InspectorRow("Device id", copyText: device.id) { Text(ShortKey.fingerprint(device.id)).kitFont(.mono) }
     }
     if let ssh = device.ssh {
       let host = app.vault.hubHosts.first { $0.hub?.deviceID == device.id && $0.hub?.hubID == hub.id }
-      KitSection("SSH via Hub", meta: [device.address ?? "no address yet", "port \(ssh.port)"], systemImage: "server.rack", hue: .teal) {
+      KitSection("SSH via Hub", meta: [device.address ?? String(localized: "no address yet"), String(localized: "port \(ssh.port)")], systemImage: "server.rack", hue: .teal) {
         if let address = device.address { InspectorRow("Address", copyText: address) { Text(address).kitFont(.mono) } }
         if let user = ssh.user { InspectorRow("User", value: user) }
         if let key = ssh.hostKey {
@@ -302,7 +304,7 @@ struct HubDeviceInspector: View {
           InspectorRow("Host key", value: "not signed: each app asks the first time", copyable: false)
         }
         if let host {
-          LinkRow(title: host.displayName, subtitle: "SSH host in Shell, Database and Code", systemImage: "server.rack") {
+          LinkRow(title: host.displayName, subtitle: String(localized: "SSH host in Shell, Database and Code"), systemImage: "server.rack") {
             app.selectedHost = host.id
             app.selection = .hosts
           }
@@ -310,7 +312,10 @@ struct HubDeviceInspector: View {
       }
     }
     if !device.tools.isEmpty || !device.services.isEmpty {
-      KitSection("Offers", meta: [Self.count(device.tools.count, "tool"), Self.count(device.services.count, "service")], systemImage: "hammer", hue: .gray) {
+      KitSection("Offers", meta: [
+        device.tools.count == 1 ? String(localized: "1 tool") : String(localized: "\(device.tools.count) tools"),
+        device.services.count == 1 ? String(localized: "1 service") : String(localized: "\(device.services.count) services"),
+      ], systemImage: "hammer", hue: .gray) {
         ForEach(device.tools.sorted(by: { $0.key < $1.key }), id: \.key) { name, value in
           InspectorRow(name.capitalized, value: value, copyable: false)
         }
@@ -335,7 +340,6 @@ struct HubDeviceInspector: View {
   }
 
   /// "1 tool", "2 tools".
-  private static func count(_ n: Int, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }
 }
 
 /// Adding a Hub: its address and a name. Nothing connects before Connect.
@@ -392,27 +396,27 @@ struct AddHubSheet: View {
 enum HubStatusText {
   static func title(_ status: HubItem.Status) -> String {
     switch status {
-    case .off: "off here"
-    case .connecting: "connecting"
-    case .connected: "connected"
-    case .needsApproval: "waiting for approval"
-    case .wrongHub: "different server"
-    case .revoked: "revoked"
-    case .notEncrypted: "not encrypted"
-    case .offline: "offline"
+    case .off: String(localized: "off here")
+    case .connecting: String(localized: "connecting")
+    case .connected: String(localized: "connected")
+    case .needsApproval: String(localized: "waiting for approval")
+    case .wrongHub: String(localized: "different server")
+    case .revoked: String(localized: "revoked")
+    case .notEncrypted: String(localized: "not encrypted")
+    case .offline: String(localized: "offline")
     }
   }
 
   static func line(_ hub: HubItem) -> String {
     switch hub.status {
-    case .off: "This device doesn’t connect"
-    case .connecting: "Connecting…"
-    case .connected: hub.isOwner ? "Connected as an owner" : "Connected"
-    case .needsApproval: "Connected, waiting for an owner to approve this device"
-    case .wrongHub: "A different server answers at this address than the Hub you added. Not connected."
-    case .revoked: "This \(ThisDevice.word) was revoked on the Hub. Not connected."
-    case .notEncrypted: "This address isn’t encrypted and isn’t on your network, so nothing is sent to it. Use a wss:// address."
-    case .offline: "Can’t reach the Hub; trying again"
+    case .off: String(localized: "This device doesn’t connect")
+    case .connecting: String(localized: "Connecting…")
+    case .connected: hub.isOwner ? String(localized: "Connected as an owner") : String(localized: "Connected")
+    case .needsApproval: String(localized: "Connected, waiting for an owner to approve this device")
+    case .wrongHub: String(localized: "A different server answers at this address than the Hub you added. Not connected.")
+    case .revoked: String(localized: "This \(ThisDevice.word) was revoked on the Hub. Not connected.")
+    case .notEncrypted: String(localized: "This address isn’t encrypted and isn’t on your network, so nothing is sent to it. Use a wss:// address.")
+    case .offline: String(localized: "Can’t reach the Hub; trying again")
     }
   }
 
@@ -437,7 +441,7 @@ enum HubPlatform {
     case "linux": "Linux"
     case "windows": "Windows"
     case "android": "Android"
-    default: "Device"
+    default: String(localized: "Device")
     }
   }
 

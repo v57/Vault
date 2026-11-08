@@ -90,9 +90,9 @@ final class LiveHubs: HubEngine {
   private static func line(_ sync: HubConnection.RecordSync) -> String {
     switch sync {
     case .off: ""
-    case .syncing: "Syncing…"
+    case .syncing: String(localized: "Syncing…")
     case .synced(let date, let sent, let received):
-      ["Synced \(RelativeTime.short(date))", sent > 0 ? "\(sent) out" : "", received > 0 ? "\(received) in" : ""]
+      [String(localized: "Synced \(RelativeTime.short(date))"), sent > 0 ? String(localized: "\(sent) out") : "", received > 0 ? String(localized: "\(received) in") : ""]
         .filter { !$0.isEmpty }.joined(separator: " · ")
     case .unavailable(let reason): reason
     }
@@ -231,7 +231,7 @@ final class DemoHubs: HubEngine {
         hubs[0].syncsRecords = status == .offline
         hubs[0].recordSyncLine = ""
       } else if state == "no-answer" {
-        hubs[0].recordSyncLine = "The Hub didn’t answer (vault push). Its vault service may be starting or stuck; Vault tries again."
+        hubs[0].recordSyncLine = String(localized: "The Hub didn’t answer (vault push). Its vault service may be starting or stuck; Vault tries again.")
       }
     }
   #endif
@@ -252,7 +252,7 @@ final class DemoHubs: HubEngine {
   func setSyncs(_ hubID: String, _ on: Bool) {
     guard let index = hubs.firstIndex(where: { $0.id == hubID }) else { return }
     hubs[index].syncsRecords = on
-    hubs[index].recordSyncLine = on ? "Syncing…" : ""
+    hubs[index].recordSyncLine = on ? String(localized: "Syncing…") : ""
   }
 
   func setConnects(_ hubID: String, _ on: Bool) {

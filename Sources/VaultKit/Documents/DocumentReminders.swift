@@ -46,7 +46,7 @@ extension VaultDocument {
     {
       let deadline = DocumentDay.date(date, monthsBefore: noticeMonths)
       let remindOn = Calendar(identifier: .gregorian).date(byAdding: .day, value: -14, to: deadline) ?? deadline
-      events.append(DocumentEvent(document: id, kind: .notice, label: "Notice by", date: deadline, remindOn: remindOn))
+      events.append(DocumentEvent(document: id, kind: .notice, label: String(localized: "Notice by"), date: deadline, remindOn: remindOn))
     }
     return events
   }

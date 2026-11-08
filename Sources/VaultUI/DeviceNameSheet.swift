@@ -23,7 +23,7 @@ public struct VaultDeviceNameSheet: View {
 
   public var body: some View {
     KitSheet(
-      title: isThisDevice ? "Rename This \(KitDevice.name)" : "Rename \(device?.deviceName ?? "Device")",
+      title: isThisDevice ? "Rename This \(KitDevice.name)" : "Rename \(device?.deviceName ?? String(localized: "Device"))",
       meta: "Your Hub, its SSH key and the servers that let it in show it.",
       systemImage: KitDevice.systemImage, hue: .gray
     ) {

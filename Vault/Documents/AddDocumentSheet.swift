@@ -43,10 +43,10 @@ struct AddDocumentSheet: View {
     let kinds = vault.documentKinds
     let documentKind = kinds[kind]
     KitSheet(
-      title: existing.map { "Edit “\($0.displayName(kinds: kinds))”" } ?? "Add Document",
-      meta: info.isReading ? "Reading the pages on this \(ThisDevice.word)…"
-        : idiom == .phone ? "Read on this \(ThisDevice.word); nothing leaves it"
-        : "Pages are read on this \(ThisDevice.word) and encrypted before they’re saved. Nothing leaves it.",
+      title: existing.map { String(localized: "Edit “\($0.displayName(kinds: kinds))”") } ?? String(localized: "Add Document"),
+      meta: info.isReading ? String(localized: "Reading the pages on this \(ThisDevice.word)…")
+        : idiom == .phone ? String(localized: "Read on this \(ThisDevice.word); nothing leaves it")
+        : String(localized: "Pages are read on this \(ThisDevice.word) and encrypted before they’re saved. Nothing leaves it."),
       systemImage: "doc.viewfinder", width: 780
     ) {
       pagesArea
@@ -89,7 +89,9 @@ struct AddDocumentSheet: View {
             HStack(spacing: 8) {
               let months = remindMonths ?? documentKind.remindMonths ?? 0
               KitStepper(value: Binding(get: { max(1, months) }, set: { remindMonths = $0 }), in: 1...24) {
-                "\($0) month\($0 == 1 ? "" : "s") before \(field.label.lowercased())"
+                $0 == 1
+                  ? String(localized: "1 month before \(field.label.lowercased())")
+                  : String(localized: "\($0) months before \(field.label.lowercased())")
               }
               .disabled(months == 0)
               Spacer(minLength: 0)
@@ -105,9 +107,9 @@ struct AddDocumentSheet: View {
       LabeledField("Notes") { TextField("Where the original is, who to call", text: $notes, axis: .vertical).lineLimit(1...4).kitField() }
       if let error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text) }
       SheetFooterButtons(
-        saveTitle: existing == nil ? "Add Document" : "Save",
+        saveTitle: existing == nil ? String(localized: "Add Document") : String(localized: "Save"),
         canSave: !info.isReading && (existing != nil || !info.pages.isEmpty || !title.isEmpty),
-        status: "Encrypted, synced to your \(app.devices.count) devices", onSave: save)
+        status: String(localized: "Encrypted, synced to your \(app.devices.count) devices"), onSave: save)
     }
     .onAppear(perform: load)
     .onChange(of: info.suggestion) { _, suggestion in apply(suggestion) }
@@ -184,7 +186,7 @@ struct AddDocumentSheet: View {
         .frame(height: idiom == .phone ? 260 : 300)
         HStack(alignment: .bottom, spacing: 12) {
           KitPageStrip(
-            pages: pages.map { KitPage(id: $0.id, label: $0.pageCount > 1 ? "\($0.pageCount) pages" : $0.name, imageData: $0.preview, aspectRatio: $0.aspectRatio) },
+            pages: pages.map { KitPage(id: $0.id, label: $0.pageCount > 1 ? String(localized: "\($0.pageCount) pages") : $0.name, imageData: $0.preview, aspectRatio: $0.aspectRatio) },
             selection: Binding(get: { page ?? pages.first?.id }, set: { page = $0 }), height: 52, add: chooseFiles)
           Spacer(minLength: 0)
           if pages.contains(where: { !$0.isPDF }) {
@@ -213,7 +215,7 @@ struct AddDocumentSheet: View {
     let columns = idiom == .phone ? 1 : 2
     return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: columns), alignment: .leading, spacing: 12) {
       ForEach(documentKind.fields, id: \.key) { field in
-        LabeledField(field.label) {
+        LabeledField("\(field.label)") {
           switch field.format {
           case .secret:
             TextField("Hidden until shown", text: Binding(get: { secrets[field.key] ?? "" }, set: { secrets[field.key] = $0 }))
@@ -352,7 +354,7 @@ struct AddDocumentSheet: View {
     #else
       Task {
         let urls = await KitDesktop.chooseFiles(
-          title: "Add Pages", prompt: "Add", contentTypes: [.pdf, .image], allowsMultipleSelection: true)
+          title: String(localized: "Add Pages"), prompt: String(localized: "Add"), contentTypes: [.pdf, .image], allowsMultipleSelection: true)
         app.importDocuments(urls, into: editing)
       }
     #endif

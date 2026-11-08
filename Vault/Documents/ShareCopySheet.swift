@@ -50,7 +50,7 @@ struct ShareCopySheet: View {
             }
             .frame(height: 320)
             KitPageStrip(
-              pages: pages.map { KitPage(id: $0.id, label: chosen.contains($0.id) ? $0.label : "Left out", imageData: $0.image, aspectRatio: $0.aspectRatio) },
+              pages: pages.map { KitPage(id: $0.id, label: chosen.contains($0.id) ? $0.label : String(localized: "Left out"), imageData: $0.image, aspectRatio: $0.aspectRatio) },
               selection: Binding(get: { preview ?? pages.first?.id }, set: { preview = $0 }), height: 48)
           }
           VStack(alignment: .leading, spacing: 12) {
@@ -84,7 +84,7 @@ struct ShareCopySheet: View {
         }
         if let error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text) }
         HStack(spacing: 8) {
-          SheetStatus("\(chosen.count) of \(counted(pages.count, "page")) · PDF", systemImage: "doc.richtext", hue: .blue)
+          SheetStatus("\(chosen.count) of \(pages.count.pagesLabel) · PDF", systemImage: "doc.richtext", hue: .blue)
           Spacer()
           Button("Cancel") { dismiss() }.buttonStyle(.kit).keyboardShortcut(.cancelAction)
           if let made {
@@ -120,7 +120,7 @@ struct ShareCopySheet: View {
     var items = kind.fields.filter { $0.format == .secret && document.secrets.contains($0.key) }
       .map { Hideable(key: $0.key, label: $0.label, help: "Blacked out wherever it’s printed") }
     if kind.collection == DocumentCollectionID.identity {
-      items.append(Hideable(key: "mrz", label: "Machine-readable zone", help: "The two or three lines of <<< at the bottom"))
+      items.append(Hideable(key: "mrz", label: String(localized: "Machine-readable zone"), help: "The two or three lines of <<< at the bottom"))
     }
     return items
   }
@@ -164,7 +164,7 @@ struct ShareCopySheet: View {
       return !read.joined().contains { Self.squeezed($0.text).contains(value) }
     }
     guard !missing.isEmpty else { return nil }
-    return "\(missing.map(\.label).joined(separator: " and ")) wasn’t found on the pages, so nothing is blacked out for it. Check the preview."
+    return String(localized: "\(missing.map(\.label).joined(separator: " and ")) wasn’t found on the pages, so nothing is blacked out for it. Check the preview.")
   }
 
   private func make(_ document: VaultDocument) {
@@ -178,7 +178,7 @@ struct ShareCopySheet: View {
       do {
         let pdf = try await Task.detached(priority: .userInitiated) { try PageCopy.pdf(copyPages, watermark: mark, title: name) }.value
         #if os(macOS)
-          guard let url = await KitDesktop.chooseSaveLocation(title: "Save a Copy", name: "\(name) – copy.pdf") else {
+          guard let url = await KitDesktop.chooseSaveLocation(title: String(localized: "Save a Copy"), name: String(localized: "\(name) – copy") + ".pdf") else {
             making = false
             return
           }
@@ -186,7 +186,7 @@ struct ShareCopySheet: View {
           note(document, pages: chosenPages.count)
           dismiss()
         #else
-          let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name) – copy.pdf")
+          let url = FileManager.default.temporaryDirectory.appendingPathComponent(String(localized: "\(name) – copy") + ".pdf")
           try pdf.write(to: url, options: [.atomic, .completeFileProtection])
           made = url
           note(document, pages: chosenPages.count)

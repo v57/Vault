@@ -62,10 +62,10 @@ final class LiveRecovery: RecoveryService {
     revision += 1
     Vaults.reloadAll()
     AppModel.moveSecrets()
-    var parts = ["\(result.restoredKeys.count) vault keys", "\(result.restoredSecrets.count) passwords and secrets"]
-    if result.identityRestored { parts.append("your identity") }
-    if !result.refusedKeys.isEmpty { parts.append("\(result.refusedKeys.count) keys refused") }
-    return "Brought back " + ListFormatter.localizedString(byJoining: parts) + "."
+    var parts = [String(localized: "\(result.restoredKeys.count) vault keys"), String(localized: "\(result.restoredSecrets.count) passwords and secrets")]
+    if result.identityRestored { parts.append(String(localized: "your identity")) }
+    if !result.refusedKeys.isEmpty { parts.append(String(localized: "\(result.refusedKeys.count) keys refused")) }
+    return String(localized: "Brought back \(ListFormatter.localizedString(byJoining: parts)).")
   }
 
   /// The accounts' stores beside Personal.
@@ -84,7 +84,7 @@ enum BackupActions {
   /// The file's name as offered in the save panel.
   static var defaultFilename: String {
     let date = Date.now.formatted(.iso8601.year().month().day())
-    return "Vault Backup \(date).\(VaultBackup.fileExtension)"
+    return String(localized: "Vault Backup \(date)") + ".\(VaultBackup.fileExtension)"
   }
 
   /// Where the save and open panels start: Downloads on the Mac, the app's own Documents on iPhone and iPad (On My

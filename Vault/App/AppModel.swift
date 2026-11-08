@@ -351,17 +351,18 @@ final class AppModel {
 
   /// The name of the device that wrote a change.
   func deviceName(_ id: String) -> String {
-    deviceVault.deviceKeys.first { $0.id == id }?.deviceName ?? (id == vault.deviceID ? KitDevice.name : "Another device")
+    deviceVault.deviceKeys.first { $0.id == id }?.deviceName ?? (id == vault.deviceID ? KitDevice.name : String(localized: "Another device"))
   }
 
   /// "iCloud · 3 devices", the sidebar's status.
   var cloudSummary: String {
-    vault.sync?.isRunning == true || isDemo ? "iCloud · \(devices.count) devices" : "On this \(KitDevice.name)"
+    vault.sync?.isRunning == true || isDemo
+      ? String(localized: "iCloud · \(devices.count) devices") : String(localized: "On this \(KitDevice.name)")
   }
 
   var syncedLine: String {
-    guard let lastSync else { return isDemo ? "synced 1 min ago" : "not synced yet" }
-    return "synced \(RelativeTime.short(lastSync))"
+    guard let lastSync else { return isDemo ? String(localized: "synced 1 min ago") : String(localized: "not synced yet") }
+    return String(localized: "synced \(RelativeTime.short(lastSync))")
   }
 }
 
@@ -369,20 +370,30 @@ final class AppModel {
 enum RelativeTime {
   static func short(_ date: Date, now: Date = .now) -> String {
     let seconds = Int(now.timeIntervalSince(date))
-    if seconds < 45 { return "just now" }
-    if seconds < 3600 { return "\(max(1, seconds / 60)) min ago" }
-    if seconds < 86400 { return "\(seconds / 3600) hr ago" }
+    if seconds < 45 { return String(localized: "just now") }
+    if seconds < 3600 { return String(localized: "\(max(1, seconds / 60)) min ago") }
+    if seconds < 86400 { return String(localized: "\(seconds / 3600) hr ago") }
     return date.formatted(.dateTime.month(.abbreviated).day())
   }
 
   /// "Oct 12", "Today", "Yesterday".
   static func day(_ date: Date, now: Date = .now) -> String {
     let calendar = Calendar.current
-    if calendar.isDate(date, inSameDayAs: now) { return "Today" }
+    if calendar.isDate(date, inSameDayAs: now) { return String(localized: "Today") }
     if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
-      return "Yesterday"
+      return String(localized: "Yesterday")
     }
     return date.formatted(.dateTime.month(.abbreviated).day())
+  }
+
+  /// "seen today", "seen yesterday", "seen Oct 12": each its own phrase, so a translation doesn't lowercase a day.
+  static func seen(_ date: Date, now: Date = .now) -> String {
+    let calendar = Calendar.current
+    if calendar.isDate(date, inSameDayAs: now) { return String(localized: "seen today") }
+    if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+      return String(localized: "seen yesterday")
+    }
+    return String(localized: "seen \(date.formatted(.dateTime.month(.abbreviated).day()))")
   }
 }
 

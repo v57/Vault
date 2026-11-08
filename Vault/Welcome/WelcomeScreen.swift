@@ -72,10 +72,10 @@ struct WelcomeScreen: View {
       }
     } recents: {
       if !waiting {
-        recent("SSH Hosts", "From Shell and Database", count: app.vault.hosts.count, date: "Today", item: .hosts)
-        recent("Databases", "From Database", count: app.vault.databases.count, date: "Today", item: .databases)
-        recent("Projects", "From Git, Code and Dev", count: app.vault.projects.count, date: "Today", item: .projects)
-        recent("Notes", "From Markdown and Shell · \(app.notes.filter(\.encrypted).count) encrypted", count: app.notes.count, date: "Yesterday", item: .notes)
+        recent(String(localized: "SSH Hosts"), String(localized: "From Shell and Database"), count: app.vault.hosts.count, date: String(localized: "Today"), item: .hosts)
+        recent(String(localized: "Databases"), String(localized: "From Database"), count: app.vault.databases.count, date: String(localized: "Today"), item: .databases)
+        recent(String(localized: "Projects"), String(localized: "From Git, Code and Dev"), count: app.vault.projects.count, date: String(localized: "Today"), item: .projects)
+        recent(String(localized: "Notes"), String(localized: "From Markdown and Shell · \(app.notes.filter(\.encrypted).count) encrypted"), count: app.notes.count, date: String(localized: "Yesterday"), item: .notes)
       }
     }
     .listTitle(waiting ? ("This \(ThisDevice.word)") : "Already in your vault")
@@ -109,5 +109,5 @@ extension AppModel {
   }
 
   /// The user's name on member lists: "You" outside the demo (Vault keeps no account).
-  var ownerName: String { isDemo ? "Aiko Tanaka" : "You" }
+  var ownerName: String { isDemo ? "Aiko Tanaka" : String(localized: "You") }
 }

@@ -8,10 +8,10 @@ enum LockAfter: Int, KitOption, CaseIterable {
 
   var title: String {
     switch self {
-    case .fifteen: "15 min"
-    case .thirty: "30 min"
-    case .hour: "1 hour"
-    case .fourHours: "4 hours"
+    case .fifteen: String(localized: "15 min")
+    case .thirty: String(localized: "30 min")
+    case .hour: String(localized: "1 hour")
+    case .fourHours: String(localized: "4 hours")
     }
   }
 }
@@ -30,7 +30,7 @@ struct DecryptSheet: View {
 
   var body: some View {
     let folder = app.folders.folder(folderID)
-    let name = folder?.name ?? "Folder"
+    let name = folder?.name ?? String(localized: "Folder")
     let totals = app.folders.totals(folderID)
     let lockTime = Date.now.addingTimeInterval(TimeInterval(lockAfter.rawValue * 60))
     KitSheet(
@@ -132,12 +132,12 @@ struct ShareSheet: View {
 
   var body: some View {
     let folder = app.folders.folder(folderID)
-    let name = folder?.name ?? "folder"
+    let name = folder?.name ?? String(localized: "folder")
     // Whoever's key arrived last (and isn't verified yet) first.
     let candidates = app.sharing.people.filter { $0.record.roles[folderID] == nil && $0.identity != nil }
       .sorted { ($0.status == .verified ? 1 : 0, $1.record.created ?? .distantPast) < ($1.status == .verified ? 1 : 0, $0.record.created ?? .distantPast) }
     let person = candidates.first { $0.id == personID } ?? candidates.first
-    let first = person?.name.split(separator: " ").first.map(String.init) ?? "They"
+    let first = person?.name.split(separator: " ").first.map(String.init) ?? String(localized: "They")
     KitSheet(
       title: "Share “\(name)”",
       meta: person == nil ? "Send your invite; their key comes back the same way."
@@ -306,7 +306,7 @@ struct ScanInviteSheet: View {
           Tile(systemImage: "qrcode.viewfinder", size: 34)
           VStack(alignment: .leading, spacing: 1) {
             Text("Scan an Invite").kitFont(.title3)
-            Text(added.map { "\($0)’s key arrived" } ?? "Looking for a code").kitFont(.caption)
+            Text(added.map { String(localized: "\($0)’s key arrived") } ?? String(localized: "Looking for a code")).kitFont(.caption)
           }
           Spacer()
           Button("Close", systemImage: "xmark") { finish() }.buttonStyle(.kitRound)
@@ -322,7 +322,7 @@ struct ScanInviteSheet: View {
               Text("nothing is sent while scanning").kitFont(.caption)
             }
           }
-          Text(message ?? "Point at the QR code on their screen, their invite file, or a recovery kit. Then compare the safety code.")
+          Text(message ?? String(localized: "Point at the QR code on their screen, their invite file, or a recovery kit. Then compare the safety code."))
             .kitFont(.caption)
           HStack {
             Button("Paste Link") { if let text = KitPasteboard.string() { accept(text) } }.buttonStyle(.kit)
@@ -346,12 +346,12 @@ struct ScanInviteSheet: View {
 
   private func accept(_ text: String) {
     guard let invite = VaultInvite(url: text), invite.isSignatureValid else {
-      message = "That isn’t a Vault invite, or it was changed after it was made."
+      message = String(localized: "That isn’t a Vault invite, or it was changed after it was made.")
       return
     }
     app.sharing.accept(invite)
     added = invite.name
-    message = "Compare the safety code with \(invite.name) in Devices & People before sharing anything."
+    message = String(localized: "Compare the safety code with \(invite.name) in Devices & People before sharing anything.")
   }
 }
 

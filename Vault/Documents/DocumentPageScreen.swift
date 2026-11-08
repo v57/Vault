@@ -18,7 +18,7 @@ enum DocumentPages {
   static func load(_ files: [VaultDocumentFile], kind: DocumentKind) -> [LoadedPage] {
     var pages: [LoadedPage] = []
     for (index, file) in files.enumerated() {
-      let label = file.name.isEmpty ? (index < kind.sides.count ? kind.sides[index] : "Page \(pages.count + 1)") : file.name
+      let label = file.name.isEmpty ? (index < kind.sides.count ? kind.sides[index] : String(localized: "Page \(pages.count + 1)")) : file.name
       if file.isPDF {
         for page in 0..<min(file.pageCount, 40 - pages.count) {
           guard let image = PDFPages.render(file.data, page: page, maxPixel: 2000) else { continue }
@@ -94,7 +94,7 @@ struct DocumentPageScreen: View {
       } title: {
         KitTitle(
           document.displayName(kinds: vault.documentKinds),
-          meta: [collection?.name ?? "Inbox", vault.holder(id: document.holder)?.name ?? "", pagesLine(document)].filter { !$0.isEmpty },
+          meta: [collection?.name ?? String(localized: "Inbox"), vault.holder(id: document.holder)?.name ?? "", pagesLine(document)].filter { !$0.isEmpty },
           systemImage: DocumentSymbol.image(kind.symbol), hue: collection.map { Hue(colorName: $0.color) } ?? .gray)
       } tools: {
         ToolGroup {
@@ -114,7 +114,7 @@ struct DocumentPageScreen: View {
 
   private func pagesLine(_ document: VaultDocument) -> String {
     let count = pages.isEmpty ? document.fileIDs.count : pages.count
-    return count == 1 ? "1 page" : "\(count) pages"
+    return count.pagesLabel
   }
 
   private func load(_ document: VaultDocument, kind: DocumentKind) async {
@@ -141,7 +141,7 @@ struct DocumentPageScreen: View {
       let zone = MachineReadableZone(text: zoneLines.map(\.text))
       marks.append(KitPageHighlight(
         id: "mrz", rect: rect(box, pad: 0.008),
-        label: zone?.isValid == true ? "Machine-readable zone · check digits match" : "Machine-readable zone",
+        label: zone?.isValid == true ? String(localized: "Machine-readable zone · check digits match") : String(localized: "Machine-readable zone"),
         systemImage: zone?.isValid == true ? "checkmark.shield" : "exclamationmark.triangle",
         hue: zone?.isValid == true ? .accent : .orange))
     }
@@ -162,7 +162,7 @@ struct DocumentPageScreen: View {
     #if os(macOS)
       Task {
         let urls = await KitDesktop.chooseFiles(
-          title: "Add Pages", prompt: "Add", contentTypes: [.pdf, .image], allowsMultipleSelection: true)
+          title: String(localized: "Add Pages"), prompt: String(localized: "Add"), contentTypes: [.pdf, .image], allowsMultipleSelection: true)
         app.importDocuments(urls, into: document.id)
       }
     #else
@@ -205,7 +205,10 @@ struct DocumentInspector: View {
       ForEach(document.tags.sorted(), id: \.self) { Chip($0, style: .quiet).controlSize(.small) }
     }
     KitSection(
-      kind.name, meta: [document.text.isEmpty ? "typed in" : "read from the pages", document.created.map { "added \(RelativeTime.day($0))" } ?? ""].filter { !$0.isEmpty },
+      kind.name, meta: [
+        document.text.isEmpty ? String(localized: "typed in") : String(localized: "read from the pages"),
+        document.created.map { String(localized: "added \(RelativeTime.day($0))") } ?? "",
+      ].filter { !$0.isEmpty },
       systemImage: DocumentSymbol.image(kind.symbol), hue: collection.map { Hue(colorName: $0.color) } ?? .gray
     ) {
       ForEach(kind.fields, id: \.key) { field in
@@ -228,13 +231,13 @@ struct DocumentInspector: View {
     if let field = kind.remindingField { ReminderSection(document: document, kind: kind, field: field) }
     if !document.fileIDs.isEmpty {
       KitSection(
-        "Pages", meta: [counted(files.count, "file"), counted(files.reduce(0) { $0 + $1.pages }, "page"), "encrypted"],
+        "Pages", meta: [files.count.filesLabel, files.reduce(0) { $0 + $1.pages }.pagesLabel, String(localized: "encrypted")],
         systemImage: "doc.on.doc", hue: .gray
       ) {
         ForEach(files) { file in
           LinkRow(
-            title: file.name.isEmpty ? (file.isPDF ? "PDF" : "Page") : file.name,
-            subtitle: [file.pages == 1 ? "1 page" : "\(file.pages) pages", file.isPDF ? "PDF" : "scan", file.created.map { RelativeTime.day($0) } ?? ""]
+            title: file.name.isEmpty ? (file.isPDF ? "PDF" : String(localized: "Page")) : file.name,
+            subtitle: [file.pages.pagesLabel, file.isPDF ? "PDF" : String(localized: "scan"), file.created.map { RelativeTime.day($0) } ?? ""]
               .filter { !$0.isEmpty }.joined(separator: " · "),
             systemImage: file.isPDF ? "doc.richtext" : "photo"
           ) {
@@ -244,13 +247,16 @@ struct DocumentInspector: View {
       }
     }
     if !document.copies.isEmpty {
-      KitSection("Copies Shared", meta: [document.copies.count == 1 ? "1 copy" : "\(document.copies.count) copies", "each carries its watermark"], systemImage: "seal", hue: .purple) {
+      KitSection("Copies Shared", meta: [
+          document.copies.count == 1 ? String(localized: "1 copy") : String(localized: "\(document.copies.count) copies"),
+          String(localized: "each carries its watermark"),
+        ], systemImage: "seal", hue: .purple) {
         ForEach(document.copies.sorted { $0.value.date > $1.value.date }, id: \.key) { _, copy in
           HStack(spacing: 10) {
             RowTile(systemImage: "doc.badge.arrow.up")
             VStack(alignment: .leading, spacing: 1) {
-              Text(copy.purpose.isEmpty ? "A copy" : copy.purpose).lineLimit(1)
-              Text([DocumentDates.long(copy.date), copy.hidden.isEmpty ? "nothing hidden" : "\(copy.hidden.joined(separator: " and ")) hidden"]
+              Text(copy.purpose.isEmpty ? String(localized: "A copy") : copy.purpose).lineLimit(1)
+              Text([DocumentDates.long(copy.date), copy.hidden.isEmpty ? String(localized: "nothing hidden") : String(localized: "\(copy.hidden.joined(separator: " and ")) hidden")]
                 .joined(separator: " · ")).kitFont(.caption).lineLimit(1)
             }
             Spacer()
@@ -261,7 +267,10 @@ struct DocumentInspector: View {
     }
     let linked = links()
     if !linked.isEmpty {
-      KitSection("Linked", meta: [linked.count == 1 ? "1 item" : "\(linked.count) items", "every v57 app sees the link"], systemImage: "link", hue: .teal) {
+      KitSection("Linked", meta: [
+          linked.count == 1 ? String(localized: "1 item") : String(localized: "\(linked.count) items"),
+          String(localized: "every v57 app sees the link"),
+        ], systemImage: "link", hue: .teal) {
         ForEach(linked, id: \.id) { item in
           LinkRow(title: item.title, subtitle: item.subtitle, systemImage: item.systemImage, action: item.open)
         }
@@ -304,10 +313,13 @@ struct DocumentInspector: View {
   private func validity(_ kind: DocumentKind) -> (String, Hue)? {
     guard let field = kind.remindingField, let date = document.day(field.key) else { return nil }
     let days = DocumentDay.days(from: .now, to: date)
-    if days < 0 { return ("Expired", .red) }
-    if days < 90 { return ("\(field.label) in \(DocumentDates.left(date))", .orange) }
+    if days < 0 { return (String(localized: "Expired"), .red) }
+    if days < 90 { return (String(localized: "\(field.label) in \(DocumentDates.left(date))"), .orange) }
     let years = days / 365
-    return (years >= 1 ? "Valid for \(years) year\(years == 1 ? "" : "s")" : "Valid for \(days / 30) months", .green)
+    let text =
+      years == 1 ? String(localized: "Valid for 1 year")
+      : years > 1 ? String(localized: "Valid for \(years) years") : String(localized: "Valid for \(days / 30) months")
+    return (text, .green)
   }
 
   private func loadFiles() {
@@ -338,13 +350,13 @@ struct DocumentInspector: View {
     let vault = app.vault
     return document.links.sorted().compactMap { id in
       if let login = vault.logins.first(where: { $0.id == id }) {
-        return Linked(id: id, title: login.displayName, subtitle: "Login · \(login.domain ?? login.username)", systemImage: "key.horizontal") {
+        return Linked(id: id, title: login.displayName, subtitle: String(localized: "Login · \(login.domain ?? login.username)"), systemImage: "key.horizontal") {
           app.selectedLogin = id
           app.selection = .logins
         }
       }
       if let card = vault.cards.first(where: { $0.id == id }) {
-        return Linked(id: id, title: "\(card.title) •••• \(card.last4)", subtitle: "Card", systemImage: "creditcard") {
+        return Linked(id: id, title: "\(card.title) •••• \(card.last4)", subtitle: String(localized: "Card"), systemImage: "creditcard") {
           app.selection = .cards
         }
       }
@@ -352,7 +364,7 @@ struct DocumentInspector: View {
         let kind = vault.documentKinds[other.kind]
         return Linked(
           id: id, title: other.displayName(kinds: vault.documentKinds),
-          subtitle: [vault.collection(id: other.collection)?.name ?? "Inbox", kind.name].joined(separator: " · "),
+          subtitle: [vault.collection(id: other.collection)?.name ?? String(localized: "Inbox"), kind.name].joined(separator: " · "),
           systemImage: DocumentSymbol.image(kind.symbol)
         ) {
           app.selectedDocument = id
@@ -374,11 +386,17 @@ private struct ReminderSection: View {
   var body: some View {
     let months = document.remindMonths ?? kind.remindMonths ?? 0
     let date = document.day(field.key)
-    KitSection("Reminder", meta: ["on your \(app.devices.count) devices", "nothing leaves them"], systemImage: "bell", hue: .orange) {
+    KitSection("Reminder", meta: [String(localized: "on your \(app.devices.count) devices"), String(localized: "nothing leaves them")], systemImage: "bell", hue: .orange) {
       HStack(spacing: 10) {
         KitStepper(
           value: Binding(get: { max(1, months) }, set: { set($0) }), in: 1...24,
-          format: { "\($0) month\($0 == 1 ? "" : "s") before it \(field.key == "expires" ? "expires" : field.label.lowercased())" }
+          format: { months in
+            if field.key == "expires" {
+              return months == 1 ? String(localized: "1 month before it expires") : String(localized: "\(months) months before it expires")
+            }
+            let label = field.label.lowercased()
+            return months == 1 ? String(localized: "1 month before it \(label)") : String(localized: "\(months) months before it \(label)")
+          }
         )
         .disabled(months == 0)
         Spacer(minLength: 6)

@@ -76,9 +76,9 @@ private struct ExportBackupSheet: View {
 
   private var problem: String? {
     if passphrase.count < VaultBackup.minimumPassphraseLength {
-      return "At least \(VaultBackup.minimumPassphraseLength) characters"
+      return String(localized: "At least \(VaultBackup.minimumPassphraseLength) characters")
     }
-    if again != passphrase { return "The two passphrases differ" }
+    if again != passphrase { return String(localized: "The two passphrases differ") }
     return nil
   }
 
@@ -97,7 +97,7 @@ private struct ExportBackupSheet: View {
         .kitFont(.caption).foregroundStyle(.secondary)
     } footer: {
       SheetStatus(
-        status ?? problem ?? "Ready", systemImage: failed ? "xmark.octagon" : "lock",
+        status ?? problem ?? String(localized: "Ready"), systemImage: failed ? "xmark.octagon" : "lock",
         hue: failed ? .red : .green, status: working ? .working : .idle)
       Spacer()
       Button(file == nil ? "Cancel" : "Done") { dismiss() }.buttonStyle(.kit).keyboardShortcut(.cancelAction)
@@ -108,7 +108,7 @@ private struct ExportBackupSheet: View {
     .fileExporter(isPresented: $saving, document: file, contentType: .data, defaultFilename: BackupActions.defaultFilename) { result in
       switch result {
       case .success(let url):
-        status = "Saved to \(url.lastPathComponent)"
+        status = String(localized: "Saved to \(url.lastPathComponent)")
         failed = false
       case .failure(let error):
         status = error.localizedDescription
@@ -120,7 +120,7 @@ private struct ExportBackupSheet: View {
 
   private func export() {
     working = true
-    status = "Encrypting…"
+    status = String(localized: "Encrypting…")
     failed = false
     Task {
       defer { working = false }
@@ -169,7 +169,7 @@ private struct RestoreBackupSheet: View {
       }
     } footer: {
       SheetStatus(
-        status ?? (contents == nil ? "Locked" : "Merged into this vault; newer changes here stay"),
+        status ?? (contents == nil ? String(localized: "Locked") : String(localized: "Merged into this vault; newer changes here stay")),
         systemImage: failed ? "xmark.octagon" : "lock.open", hue: failed ? .red : .blue, status: working ? .working : .idle)
       Spacer()
       Button(result == nil ? "Cancel" : "Done") { dismiss() }.buttonStyle(.kit).keyboardShortcut(.cancelAction)
@@ -195,7 +195,7 @@ private struct RestoreBackupSheet: View {
   private func open() {
     working = true
     failed = false
-    status = "Opening…"
+    status = String(localized: "Opening…")
     Task {
       defer { working = false }
       do {
@@ -215,7 +215,7 @@ private struct RestoreBackupSheet: View {
     guard let contents else { return }
     do {
       result = try BackupActions.restore(contents, devicesOwnKeys: thisDevice)
-      status = "Restored"
+      status = String(localized: "Restored")
       failed = false
     } catch {
       status = error.localizedDescription

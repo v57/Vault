@@ -11,7 +11,7 @@ import VaultUI
 enum RemoteCheck: Int, KitOption, CaseIterable {
   case one = 1, five = 5, fifteen = 15, hour = 60
 
-  var title: String { self == .hour ? "Every hour" : "Every \(rawValue) min" }
+  var title: String { self == .hour ? String(localized: "Every hour") : String(localized: "Every \(rawValue) min") }
 }
 
 /// Boards 11 and 12: Vault's settings. iCloud is on (turning iCloud on was the consent); remotes are checked only
@@ -334,7 +334,10 @@ private struct RecoveryWordsSheet: View {
         switch mode {
         case .check:
           let matches = try app.recovery.check(text)
-          result = matches ? "This is the current recovery key." : "These words are a recovery key, but not the current one."
+          result =
+            matches
+            ? String(localized: "This is the current recovery key.")
+            : String(localized: "These words are a recovery key, but not the current one.")
           isError = !matches
         case .recover:
           result = try await app.recovery.recover(text)

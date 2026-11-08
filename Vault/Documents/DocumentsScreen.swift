@@ -10,9 +10,9 @@ enum DocumentFilter: String, KitOption, CaseIterable {
 
   var title: String {
     switch self {
-    case .all: "All"
-    case .comingUp: "Coming Up"
-    case .recent: "Recent"
+    case .all: String(localized: "All")
+    case .comingUp: String(localized: "Coming Up")
+    case .recent: String(localized: "Recent")
     }
   }
 }
@@ -70,9 +70,9 @@ private struct DocumentLibrary: View {
 
   private var title: String {
     switch scope {
-    case DocumentScope.all: "All Documents"
-    case DocumentScope.inbox: "Inbox"
-    default: vault.collection(id: scope)?.name ?? "Documents"
+    case DocumentScope.all: String(localized: "All Documents")
+    case DocumentScope.inbox: String(localized: "Inbox")
+    default: vault.collection(id: scope)?.name ?? String(localized: "Documents")
     }
   }
 
@@ -111,9 +111,10 @@ private struct DocumentLibrary: View {
       }
       .paneStatusBar(systemImage: "lock", hue: .green, status: .done) {
         Text("Pages encrypted on this \(ThisDevice.word)")
-        Text(app.isDemo || vault.sync?.isRunning == true ? "synced through iCloud \(app.syncedLine.replacingOccurrences(of: "synced ", with: ""))" : "on this device")
+        let synced = app.lastSync.map { RelativeTime.short($0) } ?? (app.isDemo ? String(localized: "1 min ago") : String(localized: "not synced yet"))
+        Text(app.isDemo || vault.sync?.isRunning == true ? "synced through iCloud \(synced)" : "on this device")
           .foregroundStyle(.kitSecondary)
-        Text(counted(vault.documents.count, "document")).foregroundStyle(.kitSecondary)
+        Text(vault.documents.count.documentsLabel).foregroundStyle(.kitSecondary)
       }
       .dropDestination(for: URL.self) { urls, _ in
         app.importDocuments(urls)
@@ -135,7 +136,7 @@ private struct DocumentLibrary: View {
         EmptyState(systemImage: "doc.on.doc", title: "No Document Selected", message: "Pick a document to see what was read on it.")
       }
     }
-    .kitToolbar(title, meta: [counted(all.count, "document"), counted(pages, "page"), people > 0 ? counted(people, "person", plural: "people") : ""].filter { !$0.isEmpty }, systemImage: tile.0, hue: tile.1) {
+    .kitToolbar(title, meta: [all.count.documentsLabel, pages.pagesLabel, people > 0 ? people.peopleLabel : ""].filter { !$0.isEmpty }, systemImage: tile.0, hue: tile.1) {
       if idiom == .phone {
         Button("Add", systemImage: "plus") { startScan() }.buttonStyle(.kitRound)
       } else {
@@ -185,7 +186,7 @@ private struct DocumentLibrary: View {
       KitSegmented(selection: $filter)
       if !vault.holders.isEmpty, idiom != .phone {
         HStack(spacing: 2) {
-          holderToggle(nil, "Everyone")
+          holderToggle(nil, String(localized: "Everyone"))
           ForEach(vault.holders) { person in holderToggle(person.id, person.name.split(separator: " ").first.map(String.init) ?? person.name) }
         }
         .padding(3)
@@ -232,7 +233,7 @@ private struct DocumentLibrary: View {
       let unfiled = documents.filter { $0.collection.isEmpty || vault.collection(id: $0.collection) == nil }
       if !unfiled.isEmpty {
         CollectionSection(
-          collection: VaultDocumentCollection(id: DocumentScope.inbox, name: "Inbox", symbol: "tray", color: "gray"),
+          collection: VaultDocumentCollection(id: DocumentScope.inbox, name: String(localized: "Inbox"), symbol: "tray", color: "gray"),
           documents: unfiled, limit: 4, pushed: $pushed)
       }
     } else if !documents.isEmpty {
@@ -265,7 +266,7 @@ private struct DocumentLibrary: View {
     #else
       Task {
         let urls = await KitDesktop.chooseFiles(
-          title: "Import Documents", prompt: "Import", contentTypes: [.pdf, .image], allowsMultipleSelection: true)
+          title: String(localized: "Import Documents"), prompt: String(localized: "Import"), contentTypes: [.pdf, .image], allowsMultipleSelection: true)
         app.importDocuments(urls)
       }
     #endif
@@ -309,7 +310,7 @@ private struct ComingUpSection: View {
     let inbox = vault.documents(in: DocumentScope.inbox)
     if !events.isEmpty || (!inbox.isEmpty && scope == DocumentScope.all) {
       KitSection(
-        "Coming Up", meta: ["next 90 days", "reminders on your \(app.devices.count) devices"], systemImage: "bell", hue: .orange
+        "Coming Up", meta: [String(localized: "next 90 days"), String(localized: "reminders on your \(app.devices.count) devices")], systemImage: "bell", hue: .orange
       ) {
         ForEach(events) { event in
           if let document = vault.documents.first(where: { $0.id == event.document }) {
@@ -346,7 +347,7 @@ private struct EventRow: View {
     let holder = vault.holder(id: document.holder)
     let collection = vault.collection(id: document.collection)
     let days = DocumentDay.days(from: .now, to: event.date)
-    let name = holder.map { "\($0.name.split(separator: " ").first ?? "")’s \(kind.name.lowercased())" } ?? document.displayName(kinds: vault.documentKinds)
+    let name = holder.map { String(localized: "\(String($0.name.split(separator: " ").first ?? ""))’s \(kind.name.lowercased())") } ?? document.displayName(kinds: vault.documentKinds)
     Button {
       app.selectedDocument = document.id
     } label: {
@@ -354,7 +355,10 @@ private struct EventRow: View {
         RowTile(systemImage: DocumentSymbol.image(kind.symbol), hue: collection.map { Hue(colorName: $0.color) } ?? .gray)
         VStack(alignment: .leading, spacing: 1) {
           Text(document.title.isEmpty ? name : document.title).lineLimit(1)
-          Text("\(event.label) \(DocumentDates.long(event.date))" + (event.kind == .notice ? " to switch or cancel" : ""))
+          Text(
+            event.kind == .notice
+              ? String(localized: "\(event.label) \(DocumentDates.long(event.date)) to switch or cancel")
+              : "\(event.label) \(DocumentDates.long(event.date))")
             .kitFont(.caption).lineLimit(1)
         }
         Spacer(minLength: 8)
@@ -385,7 +389,7 @@ private struct CollectionSection: View {
     let holders = Set(documents.map(\.holder)).compactMap(vault.holder(id:)).map { $0.name.split(separator: " ").first.map(String.init) ?? $0.name }
     let shown = limit.map { Array(documents.prefix($0)) } ?? documents
     KitSection(
-      collection.name, meta: [counted(documents.count, "document")] + (holders.isEmpty ? [] : [holders.sorted().joined(separator: ", ")]),
+      collection.name, meta: [documents.count.documentsLabel] + (holders.isEmpty ? [] : [holders.sorted().joined(separator: ", ")]),
       systemImage: DocumentSymbol.image(collection.symbol), hue: Hue(colorName: collection.color)
     ) {
       KitDocumentGrid(minimumWidth: idiom == .phone ? 140 : 160) {
@@ -421,7 +425,7 @@ struct DocumentCard: View {
     KitDocumentCard(
       document.displayName(kinds: vault.documentKinds), imageData: document.thumbnail, aspectRatio: kind.aspectRatio,
       pages: max(1, document.fileIDs.count), isSelected: app.selectedDocument == document.id,
-      badge: next.map { DocumentDay.days(from: .now, to: $0.date) < 0 ? ($0.kind == .notice ? "notice passed" : "expired") : DocumentDates.left($0.date) },
+      badge: next.map { DocumentDay.days(from: .now, to: $0.date) < 0 ? ($0.kind == .notice ? String(localized: "notice passed") : String(localized: "expired")) : DocumentDates.left($0.date) },
       badgeHue: next.map { DocumentDay.days(from: .now, to: $0.date) <= 30 ? .red : .orange } ?? .orange
     ) {
       if let holder { Avatar(name: holder.name, hue: Hue(colorName: holder.color), size: 14) }
@@ -442,7 +446,7 @@ struct DocumentCard: View {
     if let issuer, kind.collection != DocumentCollectionID.identity { parts.append(issuer) }
     if let holder { parts.append(holder.name.split(separator: " ").first.map(String.init) ?? holder.name) }
     if let field = kind.remindingField, let date = document.day(field.key) {
-      parts.append("until \(DocumentDates.short(date))")
+      parts.append(String(localized: "until \(DocumentDates.short(date))"))
     } else if let created = document.created, parts.count < 2 {
       parts.append(created.formatted(.dateTime.month(.abbreviated).year()))
     }
@@ -470,7 +474,7 @@ private struct DocumentTable: View {
       },
       KitGridColumn("Kind", width: 130) { kinds[$0.kind].name },
       KitGridColumn("Holder", width: 90) { vault.holder(id: $0.holder)?.name.split(separator: " ").first.map(String.init) ?? "—" },
-      KitGridColumn("Collection", width: 120) { vault.collection(id: $0.collection)?.name ?? "Inbox" },
+      KitGridColumn("Collection", width: 120) { vault.collection(id: $0.collection)?.name ?? String(localized: "Inbox") },
       KitGridColumn("Ends or renews", width: 120) { document in
         kinds[document.kind].remindingField.flatMap { document.day($0.key) }.map(DocumentDates.long) ?? "—"
       },
@@ -488,8 +492,8 @@ private struct FileTogetherInspector: View {
   var body: some View {
     let vault = app.vault
     let documents = vault.documents.filter { ids.contains($0.id) }
-    InspectorHeader("\(documents.count) Documents", meta: ["File them together"], systemImage: "doc.on.doc", hue: .purple)
-    KitSection("Collection", meta: "where they live", systemImage: "folder", hue: .purple) {
+    InspectorHeader("\(documents.count) Documents", meta: [String(localized: "File them together")], systemImage: "doc.on.doc", hue: .purple)
+    KitSection("Collection", meta: String(localized: "where they live"), systemImage: "folder", hue: .purple) {
       ForEach(vault.documentCollections) { collection in
         let isOn = documents.allSatisfy { $0.collection == collection.id }
         Button {
@@ -507,7 +511,7 @@ private struct FileTogetherInspector: View {
       }
     }
     if !vault.holders.isEmpty {
-      KitSection("Whose", meta: "holder", systemImage: "person", hue: .blue) {
+      KitSection("Whose", meta: String(localized: "holder"), systemImage: "person", hue: .blue) {
         ForEach(vault.holders) { person in
           Button {
             update(documents) { $0.holder = person.id }
@@ -524,7 +528,7 @@ private struct FileTogetherInspector: View {
         }
       }
     }
-    KitSection("Tags", meta: "added to each", systemImage: "tag", hue: .gray) {
+    KitSection("Tags", meta: String(localized: "added to each"), systemImage: "tag", hue: .gray) {
       HStack {
         TextField("warranty, moving-in", text: $tag).kitField().onSubmit(addTag)
         Button("Add", action: addTag).buttonStyle(.kit).disabled(tag.trimmingCharacters(in: .whitespaces).isEmpty)

@@ -46,13 +46,13 @@ final class ShareViewController: PlatformViewController {
   private func load(_ providers: [NSItemProvider]) async {
     // No keys here (security audit M4): the files are sealed to Vault's drop key, which Vault publishes when it runs.
     if VaultIncoming().publicKey == nil {
-      model.problem = "Open Vault on this device once first, so there's a vault to add to."
+      model.problem = String(localized: "Open Vault on this device once first, so there's a vault to add to.")
     }
     for provider in providers {
       if let file = await Self.file(from: provider) { model.files.append(file) }
     }
     if model.files.isEmpty, model.problem == nil {
-      model.problem = "Vault takes PDFs and pictures, up to \(VaultDocumentFile.maximumSize / 1_048_576) MB each."
+      model.problem = String(localized: "Vault takes PDFs and pictures, up to \(VaultDocumentFile.maximumSize / 1_048_576) MB each.")
     }
     model.isLoading = false
   }
@@ -63,7 +63,7 @@ final class ShareViewController: PlatformViewController {
     guard isPDF || provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else { return nil }
     let type = isPDF ? UTType.pdf : UTType.image
     guard let data = try? await provider.loadData(type.identifier), data.count <= VaultDocumentFile.maximumSize else { return nil }
-    let name = provider.suggestedName.map { ($0 as NSString).deletingPathExtension } ?? (isPDF ? "Document" : "Picture")
+    let name = provider.suggestedName.map { ($0 as NSString).deletingPathExtension } ?? (isPDF ? String(localized: "Document") : String(localized: "Picture"))
     if PDFPages.isPDF(data) {
       let size = PDFPages.pageSize(data) ?? (595, 842)
       let first = PDFPages.render(data, page: 0, maxPixel: 960)
@@ -85,7 +85,7 @@ final class ShareViewController: PlatformViewController {
       extensionContext?.completeRequest(returningItems: nil)
     } catch {
       model.isSaving = false
-      model.problem = "Couldn't add them: \(error.localizedDescription)"
+      model.problem = String(localized: "Couldn't add them: \(error.localizedDescription)")
     }
   }
 }

@@ -37,15 +37,15 @@ struct PhoneFolderView: View {
           } icon: {
             LiveIcon(systemImage: "lock.open", hue: .orange, status: .working(progress: session.fractionLeft), size: 30)
           } meta: {
-            MetaLine("\(session.minutesLeft) min left", "\(session.sealedEdits) edits sealed")
+            MetaLine(String(localized: "\(session.minutesLeft) min left"), String(localized: "\(session.sealedEdits) edits sealed"))
           } accessory: {
             EmptyView()
           }
         }
         KitSection(
           name,
-          meta: [path.isEmpty ? "\(totals.items) items" : "\(entries.count) items", path.isEmpty ? Bytes.text(totals.bytes) : "",
-                 folder.sharedWith.map { "shared with \($0)" } ?? (folder.isEncrypted ? "names encrypted" : "")],
+          meta: [path.isEmpty ? String(localized: "\(totals.items) items") : String(localized: "\(entries.count) items"), path.isEmpty ? Bytes.text(totals.bytes) : "",
+                 folder.sharedWith.map { String(localized: "shared with \($0)") } ?? (folder.isEncrypted ? String(localized: "names encrypted") : "")],
           systemImage: "lock.rectangle.stack", hue: .teal
         ) {
           ForEach(entries) { entry in
@@ -63,7 +63,7 @@ struct PhoneFolderView: View {
           if entries.isEmpty { Text(search.isEmpty ? "Empty." : "Nothing matches “\(search)”.").kitFont(.caption).padding(10) }
         }
         if session == nil, path.isEmpty, folder.isEncrypted {
-          KitSection("Encrypted", meta: "on every device", systemImage: "lock", hue: .teal) {
+          KitSection("Encrypted", meta: String(localized: "on every device"), systemImage: "lock", hue: .teal) {
             ForEach(app.devices.filter { folder.record.storages[$0.id] != nil || $0.id == app.vault.deviceID }) { device in
               InspectorRow(device.id == app.vault.deviceID ? "This \(ThisDevice.word)" : "\(device.deviceName)") {
                 if folder.record.storage(for: device.id) == .encrypted {
@@ -88,7 +88,7 @@ struct PhoneFolderView: View {
     .kitPane(.content)
     .kitToolbar(name, title: {
       KitTitle(
-        name, meta: session.map { ["Decrypted", "\($0.minutesLeft) min left"] } ?? [folder.isEncrypted ? "Encrypted" : "Plain here", folder.isEncrypted ? "v57 apps only" : "synced"],
+        name, meta: session.map { [String(localized: "Decrypted"), String(localized: "\($0.minutesLeft) min left")] } ?? [folder.isEncrypted ? String(localized: "Encrypted") : String(localized: "Plain here"), folder.isEncrypted ? String(localized: "v57 apps only") : String(localized: "synced")],
         systemImage: session == nil ? "lock.rectangle.stack" : "lock.open", hue: session == nil ? .teal : .orange,
         status: session.map { .working(progress: $0.fractionLeft) } ?? .idle)
     }) {
@@ -194,7 +194,7 @@ struct FilePreviewPage: View {
       RichHeader(Text(entry.name), size: .title) {
         SizedLiveIcon(hue: .gray, status: .idle, size: .title) { Image(systemName: KitFileCell.Kind.of(entry.name).systemImage) }
       } meta: {
-        MetaLine(Bytes.text(entry.size), "read from sealed chunks")
+        MetaLine(Bytes.text(entry.size), String(localized: "read from sealed chunks"))
       } accessory: {
         EmptyView()
       }

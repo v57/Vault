@@ -29,7 +29,7 @@ struct DevicesView: View {
         if let device = app.thisDevice {
           KitSection(
             idiom == .phone ? "This \(ThisDevice.word)" : "\(device.deviceName)",
-            meta: idiom == .phone ? [ThisDevice.system, "Secure Enclave"] : ["This \(ThisDevice.word)", ThisDevice.system, "Secure Enclave"],
+            meta: idiom == .phone ? [ThisDevice.system, "Secure Enclave"] : [String(localized: "This \(ThisDevice.word)"), ThisDevice.system, "Secure Enclave"],
             systemImage: DeviceGlyph.systemImage(device)
           ) {
             InspectorRow("Name", copyText: device.deviceName) {
@@ -43,7 +43,7 @@ struct DevicesView: View {
               Text(idiom == .phone ? ShortKey.fingerprint(device.fingerprint) : "ecdsa-sha2-nistp256 \(ShortKey.fingerprint(device.fingerprint))")
                 .kitFont(.mono).lineLimit(1)
             }
-            InspectorRow("Never leaves", value: idiom == .phone ? "this \(ThisDevice.word)" : "this \(ThisDevice.word)’s Secure Enclave", copyable: false)
+            InspectorRow("Never leaves", value: idiom == .phone ? String(localized: "this \(ThisDevice.word)") : String(localized: "this \(ThisDevice.word)’s Secure Enclave"), copyable: false)
             if idiom != .phone { InspectorRow("Used by", value: "Shell, Database, Vault", copyable: false) }
             if !app.isDemo {
               InspectorRow(
@@ -56,12 +56,11 @@ struct DevicesView: View {
           }
         }
         KitSection(
-          "Your other devices", meta: ["\(app.otherDevices.count) devices", idiom == .phone ? "keys through iCloud Keychain" : "vault keys arrive through iCloud Keychain"],
+          "Your other devices", meta: [String(localized: "\(app.otherDevices.count) devices"), idiom == .phone ? String(localized: "keys through iCloud Keychain") : String(localized: "vault keys arrive through iCloud Keychain")],
           systemImage: "laptopcomputer", hue: .gray
         ) {
           ForEach(app.otherDevices) { device in
-            let day = device.updated.map { RelativeTime.day($0) } ?? ""
-            let seen = String(localized: "seen \(day == "Today" || day == "Yesterday" ? day.lowercased() : day)")
+            let seen = device.updated.map { RelativeTime.seen($0) } ?? ""
             SidebarRow(
               "\(device.deviceName)",
               subtitle: idiom == .phone
@@ -92,7 +91,7 @@ struct DevicesView: View {
           ForEach(app.hubs.hubs.filter { $0.status == .connected }) { hub in
             HubDevicesRow(hub: hub)
           }
-          LinkRow(title: "A device without iCloud Keychain", subtitle: "Linux, Windows or Android: it scans an invite from this \(ThisDevice.word)", systemImage: "qrcode") {
+          LinkRow(title: String(localized: "A device without iCloud Keychain"), subtitle: String(localized: "Linux, Windows or Android: it scans an invite from this \(ThisDevice.word)"), systemImage: "qrcode") {
             app.sheet = .addDevice
           }
         } accessory: {
@@ -105,7 +104,7 @@ struct DevicesView: View {
         #endif
         if idiom != .phone { identitySection }
         KitSection(
-          "People", meta: ["\(people.filter { $0.status == .verified }.count) verified", "\(people.filter { $0.status != .verified }.count) waiting"],
+          "People", meta: [String(localized: "\(people.filter { $0.status == .verified }.count) verified"), String(localized: "\(people.filter { $0.status != .verified }.count) waiting")],
           systemImage: "person.2", hue: .blue
         ) {
           ForEach(people) { person in
@@ -133,7 +132,7 @@ struct DevicesView: View {
         EmptyState(systemImage: "person.2", title: "No One Selected", message: "Pick someone to compare your safety code.")
       }
     }
-    .kitToolbar("Devices & People", meta: ["\(app.devices.count) devices", "\(people.count) people", idiom == .phone ? "" : "keys in iCloud Keychain"], systemImage: "checkmark.shield", hue: .green) {
+    .kitToolbar("Devices & People", meta: [String(localized: "\(app.devices.count) devices"), String(localized: "\(people.count) people"), idiom == .phone ? "" : String(localized: "keys in iCloud Keychain")], systemImage: "checkmark.shield", hue: .green) {
       if idiom == .phone {
         Button("Invite", systemImage: "person.badge.plus") { app.sheet = .invite }.buttonStyle(.kitRound)
       } else {
@@ -154,7 +153,7 @@ struct DevicesView: View {
     .onAppear { if idiom == .phone, LaunchOptions.pushes { pushed = app.selectedPerson } }
     .navigationDestination(item: $pushed) { id in
       if let person = people.first(where: { $0.id == id }) {
-        PushedDetail(title: person.name, meta: [person.status == .verified ? "Verified" : "Waiting", PersonItem.sharesLine(person)]) {
+        PushedDetail(title: person.name, meta: [person.status == .verified ? String(localized: "Verified") : String(localized: "Waiting"), PersonItem.sharesLine(person)]) {
           Avatar(name: person.name, letters: LetterTile.initials(person.name), size: 30)
         } content: {
           PersonInspector(person: person)
@@ -170,7 +169,7 @@ struct DevicesView: View {
   @ViewBuilder
   private var identitySection: some View {
     if let identity = app.sharing.identity {
-      KitSection("Your identity", meta: ["X25519 + Ed25519", "on all your Apple devices"], systemImage: "person", hue: .purple) {
+      KitSection("Your identity", meta: ["X25519 + Ed25519", String(localized: "on all your Apple devices")], systemImage: "person", hue: .purple) {
         InspectorRow("Signing", copyText: identity.text) { Text(identity.fingerprint).kitFont(.mono) }
         InspectorRow("Key wrapping", value: identity.agreementFingerprint, copyable: false)
         InspectorRow("Kept in", value: "iCloud Keychain, apart from the device keys", copyable: false)
@@ -178,7 +177,7 @@ struct DevicesView: View {
         if idiom != .phone { Button("Show QR Code") { app.sheet = .invite }.buttonStyle(.kit).controlSize(.small) }
       }
     } else {
-      KitSection("Your identity", meta: "made when you first share", systemImage: "person", hue: .purple) {
+      KitSection("Your identity", meta: String(localized: "made when you first share"), systemImage: "person", hue: .purple) {
         Text("Sharing uses a key pair of its own, kept in iCloud Keychain apart from your devices’ SSH keys.")
           .kitFont(.caption).padding(8)
         if let identityError { Text(identityError).kitFont(.caption).foregroundStyle(Hue.red.text).padding(.horizontal, 8) }
@@ -195,9 +194,10 @@ struct DevicesView: View {
   private func personLine(_ person: PersonItem) -> String {
     let folders = app.folders.folders.filter { person.record.roles[$0.id] != nil }.map(\.name)
     if person.status == .verified {
-      return (folders.first.map { [$0] } ?? []).joined() + " · verified \(person.record.verified.map { RelativeTime.day($0) } ?? "")"
+      let verified = String(localized: "verified \(person.record.verified.map { RelativeTime.day($0) } ?? "")")
+      return (folders.first ?? "") + " · " + verified
     }
-    return "Invited \(person.record.created.map { RelativeTime.day($0) } ?? "") · waiting for the safety code"
+    return String(localized: "Invited \(person.record.created.map { RelativeTime.day($0) } ?? "") · waiting for the safety code")
   }
 }
 
@@ -216,7 +216,7 @@ private struct PersonInspector: View {
       RichHeader(Text(person.name), size: .title) {
         Avatar(name: person.name, letters: LetterTile.initials(person.name), size: 30)
       } meta: {
-        MetaLine(person.status == .verified ? "Verified \(person.record.verified.map { RelativeTime.day($0) } ?? "")" : "Not verified yet", PersonItem.sharesLine(person))
+        MetaLine(person.status == .verified ? String(localized: "Verified \(person.record.verified.map { RelativeTime.day($0) } ?? "")") : String(localized: "Not verified yet"), PersonItem.sharesLine(person))
       } accessory: {
         EmptyView()
       }
@@ -224,7 +224,7 @@ private struct PersonInspector: View {
     }
     if let code = app.sharing.safetyCode(with: person) {
       KitSection(
-        "Safety code", meta: person.status == .verified ? ["matched on \(person.record.verified.map { RelativeTime.day($0) } ?? "")", "in person"] : ["compare it with \(first)"],
+        "Safety code", meta: person.status == .verified ? [String(localized: "matched on \(person.record.verified.map { RelativeTime.day($0) } ?? "")"), String(localized: "in person")] : [String(localized: "compare it with \(first)")],
         systemImage: "checkmark.shield", hue: person.status == .verified ? .green : .orange
       ) {
         VStack(alignment: .leading, spacing: 8) {
@@ -237,7 +237,7 @@ private struct PersonInspector: View {
         .padding(8)
       }
     }
-    KitSection("Shared with \(first)", meta: ["\(shared.count) folder", otherShares.isEmpty ? "" : "\(otherShares.count) login collection"], systemImage: "folder", hue: .teal) {
+    KitSection("Shared with \(first)", meta: [String(localized: "\(shared.count) folder"), otherShares.isEmpty ? "" : String(localized: "\(otherShares.count) login collection")], systemImage: "folder", hue: .teal) {
       ForEach(shared) { folder in
         InspectorRow(
           "\(folder.name)",
@@ -246,11 +246,11 @@ private struct PersonInspector: View {
           copyable: false)
       }
       ForEach(otherShares.sorted(by: { $0.key < $1.key }), id: \.key) { _, role in
-        InspectorRow("Design logins", value: role == .readOnly ? "Read-only" : "Read-write", copyable: false)
+        InspectorRow("Design logins", value: role == .readOnly ? String(localized: "Read-only") : String(localized: "Read-write"), copyable: false)
       }
     }
     if let identity = person.identity {
-      KitSection("Keys", meta: "added by QR code", systemImage: "key", hue: .gray) {
+      KitSection("Keys", meta: String(localized: "added by QR code"), systemImage: "key", hue: .gray) {
         InspectorRow("Signing", copyText: identity.text) { Text(identity.fingerprint).kitFont(.mono) }
         InspectorRow("Key wrapping", value: identity.agreementFingerprint, copyable: false)
       }
@@ -286,7 +286,7 @@ struct RecoveryKeyScreen: View {
     }
     .frame(maxWidth: .infinity)
     .kitPane(.content)
-    .kitToolbar("Recovery Key", meta: [app.recovery.isOn ? "On" : "Off", "optional, never nagged"], systemImage: "key", hue: .orange) {}
+    .kitToolbar("Recovery Key", meta: [app.recovery.isOn ? String(localized: "On") : String(localized: "Off"), String(localized: "optional, never nagged")], systemImage: "key", hue: .orange) {}
   }
 }
 
@@ -348,12 +348,12 @@ private struct HubDevicesRow: View {
     var body: some View {
       let host = app.vault.thisDeviceHost
       KitSection(
-        "SSH from your devices", meta: host.map { [$0.hostname, $0.user] } ?? ["off"], systemImage: "terminal",
+        "SSH from your devices", meta: host.map { [$0.hostname, $0.user] } ?? [String(localized: "off")], systemImage: "terminal",
         hue: .teal
       ) {
         LinkRow(
-          title: "Remote Settings",
-          subtitle: "Let your iPhone and iPad in, pick which can sign in, and the other keys", systemImage: "network"
+          title: String(localized: "Remote Settings"),
+          subtitle: String(localized: "Let your iPhone and iPad in, pick which can sign in, and the other keys"), systemImage: "network"
         ) {
           UserDefaults.standard.set("Remote", forKey: "settings.pane")
           openSettings()
@@ -367,7 +367,7 @@ extension PersonItem {
   /// "shares 2 things", "shares 1 thing".
   static func sharesLine(_ person: PersonItem) -> String {
     let count = person.record.roles.count
-    return "shares \(count) \(count == 1 ? "thing" : "things")"
+    return count == 1 ? String(localized: "shares 1 thing") : String(localized: "shares \(count) things")
   }
 }
 

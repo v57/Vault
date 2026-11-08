@@ -8,9 +8,9 @@ enum HostFilter: String, KitOption, CaseIterable {
 
   var title: String {
     switch self {
-    case .all: "All"
-    case .deviceKey: "Device Key"
-    case .password: "Password"
+    case .all: String(localized: "All")
+    case .deviceKey: String(localized: "Device Key")
+    case .password: String(localized: "Password")
     }
   }
 }
@@ -47,7 +47,7 @@ struct HostsView: View {
         .padding(.vertical, 6)
         if idiom == .phone {
           KitList(selection: Binding(get: { pushed }, set: { pushed = $0 })) {
-            KitSection("Hosts", meta: ["\(hosts.count) hosts", "shared with Shell and Database"], systemImage: "server.rack") {
+            KitSection("Hosts", meta: [String(localized: "\(hosts.count) hosts"), String(localized: "shared with Shell and Database")], systemImage: "server.rack") {
               ForEach(hosts) { host in
                 SidebarRow(value: host.id, host.displayName, subtitle: "\(host.user)@\(host.hostname)", systemImage: "server.rack") {
                   if host.isViaHub { Chip("Via Hub", hue: .purple).controlSize(.small) } else { HostAuthChip(auth: host.auth) }
@@ -77,7 +77,7 @@ struct HostsView: View {
         EmptyState(systemImage: "server.rack", title: "No Host Selected", message: "Pick a host to see how it signs in.")
       }
     }
-    .kitToolbar("SSH Hosts", meta: ["\(all.count) hosts", "shared with Shell and Database"], systemImage: "server.rack") {
+    .kitToolbar("SSH Hosts", meta: [String(localized: "\(all.count) hosts"), String(localized: "shared with Shell and Database")], systemImage: "server.rack") {
       if idiom == .phone {
         Button("New Host", systemImage: "plus") { app.sheet = .newItem(.host) }.buttonStyle(.kitRound)
       } else {
@@ -150,9 +150,14 @@ struct HostInspector: View {
   var body: some View {
     let vault = app.vault
     if !pushed {
-      InspectorHeader(host.displayName, meta: ["SSH host", "\(host.user)@\(host.name.isEmpty ? host.hostname : host.name)"], systemImage: "server.rack") {}
+      InspectorHeader(host.displayName, meta: [String(localized: "SSH host"), "\(host.user)@\(host.name.isEmpty ? host.hostname : host.name)"], systemImage: "server.rack") {}
     }
-    KitSection("Connection", meta: ["port \(host.port)", host.jumpHostID == nil ? "no jump host" : "through \(vault.host(id: host.jumpHostID)?.displayName ?? "a jump host")"], systemImage: "server.rack") {
+    KitSection("Connection", meta: [
+        String(localized: "port \(host.port)"),
+        host.jumpHostID == nil
+          ? String(localized: "no jump host")
+          : String(localized: "through \(vault.host(id: host.jumpHostID)?.displayName ?? String(localized: "a jump host"))"),
+      ], systemImage: "server.rack") {
       InspectorRow("Host") { Text(host.hostname).kitFont(.mono).lineLimit(1).truncationMode(.middle) }
       // The other addresses, in the order they're tried: the user's, then the ways to one of the user's devices.
       let fallbacks = vault.personalVault.fallbackAddresses(of: host)
@@ -163,35 +168,38 @@ struct HostInspector: View {
       }
       InspectorRow("User", value: host.user)
       InspectorRow("Port", value: "\(host.port)")
-      InspectorRow("Jump host", value: vault.host(id: host.jumpHostID)?.displayName ?? "None", copyable: false)
+      InspectorRow("Jump host", value: vault.host(id: host.jumpHostID)?.displayName ?? String(localized: "None"), copyable: false)
     }
     if let route = host.hub {
-      KitSection("Via Hub", meta: [vault.hub(id: route.hubID)?.displayName ?? "a Hub", HubPlatform.name(route.platform)], systemImage: "point.3.connected.trianglepath.dotted", hue: .purple) {
+      KitSection("Via Hub", meta: [vault.hub(id: route.hubID)?.displayName ?? String(localized: "a Hub"), HubPlatform.name(route.platform)], systemImage: "point.3.connected.trianglepath.dotted", hue: .purple) {
         InspectorRow("Device", value: route.deviceName, copyable: false)
-        InspectorRow("Reached at", value: "its Hub Network address", copyable: false)
-        InspectorRow("Host key", value: route.hostKey == nil ? "asked the first time" : "signed by the device", copyable: false)
+        InspectorRow("Reached at", value: String(localized: "its Hub Network address"), copyable: false)
+        InspectorRow("Host key", value: route.hostKey == nil ? String(localized: "asked the first time") : String(localized: "signed by the device"), copyable: false)
         if let seen = route.lastSeen { InspectorRow("Last seen", value: RelativeTime.day(seen), copyable: false) }
-        LinkRow(title: "Hub", subtitle: "The device, its presence and what it offers", systemImage: "point.3.connected.trianglepath.dotted") {
+        LinkRow(title: String(localized: "Hub"), subtitle: String(localized: "The device, its presence and what it offers"), systemImage: "point.3.connected.trianglepath.dotted") {
           app.selectedHubDevice = route.deviceID
           app.selection = .hub
         }
       }
     }
     if host.auth == .deviceKey {
-      KitSection("Device keys", meta: ["each device signs with its own", "Secure Enclave"], systemImage: "checkmark.shield", hue: .green) {
+      KitSection("Device keys", meta: [String(localized: "each device signs with its own"), "Secure Enclave"], systemImage: "checkmark.shield", hue: .green) {
         ForEach(app.devices) { device in
           DeviceKeyRow(device: device, isThisDevice: device.id == vault.deviceID)
         }
       }
     } else if host.auth == .password {
-      KitSection("Password", meta: ["iCloud Keychain", host.savePassword ? "saved" : "asked each time"], systemImage: "key.horizontal", hue: .gray) {
+      KitSection("Password", meta: ["iCloud Keychain", host.savePassword ? String(localized: "saved") : String(localized: "asked each time")], systemImage: "key.horizontal", hue: .gray) {
         InspectorRow("Password") { KitSecretValue { host.password } }
       }
     }
     if let known = vault.knownHost(for: host) {
       KitSection(
         "Known host",
-        meta: [host.hub != nil ? "trusted from the Hub" : "trusted \(known.accepted.map { RelativeTime.day($0) } ?? "")", "shared by every app"],
+        meta: [
+          host.hub != nil ? String(localized: "trusted from the Hub") : String(localized: "trusted \(known.accepted.map { RelativeTime.day($0) } ?? "")"),
+          String(localized: "shared by every app"),
+        ],
         systemImage: "checkmark.shield", hue: .teal
       ) {
         InspectorRow("Key", value: known.keyType.map(Self.keyName) ?? "—", copyable: false)
@@ -209,15 +217,15 @@ struct HostInspector: View {
     let databases = vault.databases.filter { $0.sshHostID == host.id }
     let logins = vault.logins.filter { $0.links.contains(host.id) }
     if !databases.isEmpty || !logins.isEmpty {
-      KitSection("Linked", meta: "\(databases.count + logins.count) items", systemImage: "link", hue: .teal) {
+      KitSection("Linked", meta: String(localized: "\(databases.count + logins.count) items"), systemImage: "link", hue: .teal) {
         ForEach(databases) { database in
-          LinkRow(title: database.name, subtitle: "\(DatabaseEngine.name(database.engine)) through this host", systemImage: "cylinder") {
+          LinkRow(title: database.name, subtitle: String(localized: "\(DatabaseEngine.name(database.engine)) through this host"), systemImage: "cylinder") {
             app.selectedDatabase = database.id
             app.selection = .databases
           }
         }
         ForEach(logins) { login in
-          LinkRow(title: login.displayName, subtitle: "Login", systemImage: "key.horizontal") {
+          LinkRow(title: login.displayName, subtitle: String(localized: "Login"), systemImage: "key.horizontal") {
             app.selectedLogin = login.id
             app.selection = .logins
           }
@@ -257,7 +265,7 @@ struct DeviceKeyRow: View {
           if isThisDevice { Text("This \(ThisDevice.word)").kitFont(.caption) }
         }
         (Text(ShortKey.fingerprint(device.fingerprint)).font(.system(size: 11, design: .monospaced))
-          + Text(device.updated.map { " · added \(RelativeTime.day($0))" } ?? ""))
+          + Text(device.updated.map { " · " + String(localized: "added \(RelativeTime.day($0))") } ?? ""))
           .kitFont(.caption)
           .lineLimit(1)
       }
@@ -296,7 +304,7 @@ struct HostPage: View {
   }
 
   var body: some View {
-    PushedDetail(title: host.displayName, meta: ["SSH host", host.user], systemImage: "server.rack") {
+    PushedDetail(title: host.displayName, meta: [String(localized: "SSH host"), host.user], systemImage: "server.rack") {
       HostInspector(host: host)
     } trailing: {
       Button("Edit") { app.sheet = .editHost(host.id) }.buttonStyle(.kit)

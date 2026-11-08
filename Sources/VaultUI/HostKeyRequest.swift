@@ -132,7 +132,7 @@ private struct HostKeyRequests: ViewModifier {
           set: { shown in if !shown, let id { request.finish(id, accepted: false) } }),
         message: question.map { question in
           let place = question.name == question.address ? question.address : "\(question.name) (\(question.address))"
-          let port = question.port == 22 ? "" : " on port \(question.port)"
+          let port = question.port == 22 ? "" : String(localized: " on port \(question.port)")
           return "This is the first connection to \(place)\(port). Nothing has been sent to it yet. Trust it only if this is its key: anyone on the network could be answering in its place."
         },
         systemImage: "key.horizontal",
@@ -140,7 +140,7 @@ private struct HostKeyRequests: ViewModifier {
       ) {
         if let question {
           VStack(alignment: .leading, spacing: 2) {
-            Text(question.keyType ?? "Fingerprint").kitFont(.caption)
+            Text(question.keyType ?? String(localized: "Fingerprint")).kitFont(.caption)
             KitCodeBlock(question.fingerprint, font: .monoSmall)
           }
           .frame(maxWidth: .infinity, alignment: .leading)

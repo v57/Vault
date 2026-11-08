@@ -53,7 +53,7 @@ struct SyncFolderView: View {
         }
         if !activity.changedHere.isEmpty {
           KitSection(
-            "Changed here", meta: folder.isReadOnly ? ["this \(ThisDevice.word) only receives", "these edits aren’t sent"] : ["not sent yet"],
+            "Changed here", meta: folder.isReadOnly ? [String(localized: "this \(ThisDevice.word) only receives"), String(localized: "these edits aren’t sent")] : [String(localized: "not sent yet")],
             systemImage: "pencil", hue: .orange
           ) {
             ForEach(activity.changedHere) { file in
@@ -84,7 +84,7 @@ struct SyncFolderView: View {
         }
         if activity.isReceiving {
           KitSection(
-            "Receiving", meta: ["\(activity.progressLine) files", activity.receivingBytes, "from \(activity.source)"],
+            "Receiving", meta: [String(localized: "\(activity.progressLine) files"), activity.receivingBytes, String(localized: "from \(activity.source)")],
             systemImage: "arrow.down", status: .working(progress: Double(activity.receivingDone) / Double(activity.receivingTotal))
           ) {
             ForEach(activity.receiving) { transfer in
@@ -137,8 +137,8 @@ struct SyncFolderView: View {
     .kitToolbar(folder.name, title: {
       KitTitle(
         folder.name,
-        meta: [activity.isReceiving ? "Receiving \(activity.progressLine)" : "Synced", edits > 0 && idiom != .phone ? "\(edits) edits kept here" : "",
-               activity.conflicts.isEmpty ? "" : "\(activity.conflicts.count) conflict"],
+        meta: [activity.isReceiving ? String(localized: "Receiving \(activity.progressLine)") : String(localized: "Synced"), edits > 0 && idiom != .phone ? String(localized: "\(edits) edits kept here") : "",
+               activity.conflicts.isEmpty ? "" : String(localized: "\(activity.conflicts.count) conflict")],
         systemImage: "arrow.triangle.2.circlepath",
         status: activity.isReceiving ? .working(progress: Double(activity.receivingDone) / Double(activity.receivingTotal)) : .idle)
     }) {
@@ -156,7 +156,7 @@ struct SyncFolderView: View {
       Button("Sync Now", systemImage: "arrow.clockwise") { app.syncNow() }
     }
     .navigationDestination(isPresented: $showsSettings) {
-      PushedDetail(title: folder.name, meta: ["Synced folder", folder.isEncrypted ? "encrypted here" : "plain here"], systemImage: "folder", hue: .blue) {
+      PushedDetail(title: folder.name, meta: [String(localized: "Synced folder"), folder.isEncrypted ? String(localized: "encrypted here") : String(localized: "plain here")], systemImage: "folder", hue: .blue) {
         SyncInspector(folder: folder)
       } trailing: {
         EmptyView()
@@ -177,7 +177,7 @@ private struct SyncInspector: View {
     let record = folder.record
     let device = app.vault.deviceID
     if !pushed {
-      InspectorHeader(folder.name, meta: ["Synced folder", folder.isEncrypted ? "encrypted here" : "plain here"], systemImage: "folder", hue: .blue) {}
+      InspectorHeader(folder.name, meta: [String(localized: "Synced folder"), folder.isEncrypted ? String(localized: "encrypted here") : String(localized: "plain here")], systemImage: "folder", hue: .blue) {}
     }
     KitSection(
       "On this \(ThisDevice.word)",
@@ -195,7 +195,7 @@ private struct SyncInspector: View {
     }
     let others = app.otherDevices
     if !others.isEmpty {
-      KitSection("Your other devices", meta: "each chooses for itself", systemImage: "laptopcomputer", hue: .gray) {
+      KitSection("Your other devices", meta: String(localized: "each chooses for itself"), systemImage: "laptopcomputer", hue: .gray) {
         ForEach(others) { other in
           let storage = record.storages[other.id]
           let mode =
@@ -228,11 +228,11 @@ private struct RecordsCard: View {
     let sources = (iCloud ? ["iCloud"] : []) + hubs.map(\.name)
     KitSection(
       "Records",
-      meta: [sources.isEmpty ? "only on this \(ThisDevice.word)" : ListFormatter.localizedString(byJoining: sources),
-             iCloud && !hubs.isEmpty ? "this \(ThisDevice.word) bridges them" : ""],
+      meta: [sources.isEmpty ? String(localized: "only on this \(ThisDevice.word)") : ListFormatter.localizedString(byJoining: sources),
+             iCloud && !hubs.isEmpty ? String(localized: "this \(ThisDevice.word) bridges them") : ""],
       systemImage: "arrow.triangle.2.circlepath", hue: .blue
     ) {
-      InspectorRow("iCloud", value: iCloud ? app.syncedLine.prefix(1).uppercased() + app.syncedLine.dropFirst() : "Off", copyable: false)
+      InspectorRow("iCloud", value: iCloud ? app.syncedLine.prefix(1).uppercased() + app.syncedLine.dropFirst() : String(localized: "Off"), copyable: false)
       ForEach(hubs) { hub in
         InspectorRow(
           "\(hub.name)",
@@ -241,17 +241,17 @@ private struct RecordsCard: View {
       }
       InspectorRow(
         "This folder’s files",
-        value: folder.record.remoteID.flatMap(app.vault.remote(id:)).map { "through \($0.name)" } ?? "only on your devices", copyable: false)
+        value: folder.record.remoteID.flatMap(app.vault.remote(id:)).map { String(localized: "through \($0.name)") } ?? String(localized: "only on your devices"), copyable: false)
     }
   }
 }
 
 /// A form line with a segmented choice at its end (Mode: Read-write | Read-only).
 private struct FormChoiceRow<Value: Hashable>: View {
-  var title: String
-  var help: String
+  var title: LocalizedStringKey
+  var help: LocalizedStringKey
   @Binding var selection: Value
-  var options: [(String, Value)]
+  var options: [(LocalizedStringKey, Value)]
 
   var body: some View {
     HStack(spacing: 10) {

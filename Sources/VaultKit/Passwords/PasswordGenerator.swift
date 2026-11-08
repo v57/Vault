@@ -87,17 +87,18 @@ public enum PasswordStrength: Int, Sendable, Comparable, CaseIterable {
 
   public var name: String {
     switch self {
-    case .weak: "Weak"
-    case .fair: "Fair"
-    case .good: "Good"
-    case .strong: "Strong"
+    case .weak: String(localized: "Weak")
+    case .fair: String(localized: "Fair")
+    case .good: String(localized: "Good")
+    case .strong: String(localized: "Strong")
     }
   }
 
   /// "Strong · 19 characters".
   public static func description(of password: String) -> String {
     let count = password.count
-    return "\(PasswordStrength(password: password).name) · \(count) character\(count == 1 ? "" : "s")"
+    let name = PasswordStrength(password: password).name
+    return count == 1 ? String(localized: "\(name) · 1 character") : String(localized: "\(name) · \(count) characters")
   }
 
   /// A rough entropy estimate: length times the bits of the character classes it uses (lowercase 26,

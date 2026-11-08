@@ -23,7 +23,9 @@ struct NewItemSheet: View {
   private var sheet: some View {
     KitSheet(
       title: title,
-      meta: "Saved in iCloud Keychain on your \(app.devices.count) devices" + (idiom == .phone ? "" : ". Only v57 apps and AutoFill can read it."),
+      meta: idiom == .phone
+        ? String(localized: "Saved in iCloud Keychain on your \(app.devices.count) devices")
+        : String(localized: "Saved in iCloud Keychain on your \(app.devices.count) devices. Only v57 apps and AutoFill can read it."),
       systemImage: kindImage(kind), width: 660
     ) {
       VStack(alignment: .leading, spacing: 6) {
@@ -52,13 +54,13 @@ struct NewItemSheet: View {
 
   private var title: String {
     switch kind {
-    case .login: "New Login"
-    case .card: "New Card"
-    case .note: "New Note"
-    case .host: "New SSH Host"
-    case .database: "New Database"
-    case .remote: "Add Remote"
-    case .folder: "New Encrypted Folder"
+    case .login: String(localized: "New Login")
+    case .card: String(localized: "New Card")
+    case .note: String(localized: "New Note")
+    case .host: String(localized: "New SSH Host")
+    case .database: String(localized: "New Database")
+    case .remote: String(localized: "Add Remote")
+    case .folder: String(localized: "New Encrypted Folder")
     }
   }
 
@@ -74,7 +76,7 @@ struct NewItemSheet: View {
     }
   }
 
-  private func choice(_ value: NewItemKind, _ title: String, _ subtitle: String) -> some View {
+  private func choice(_ value: NewItemKind, _ title: LocalizedStringKey, _ subtitle: LocalizedStringKey) -> some View {
     ChoiceCard(isOn: Binding(get: { kind == value }, set: { if $0 { withKitAnimation { kind = value } } })) {
       ChoiceCardLabel(title, subtitle: subtitle) { Tile(systemImage: kindImage(value), size: 28) }
     }
@@ -97,10 +99,10 @@ private struct KindCardHover: ViewModifier {
 
 /// A labelled field over its filled input, as the design's forms draw them.
 struct LabeledField<Content: View>: View {
-  var label: String
+  var label: LocalizedStringKey
   @ViewBuilder var content: Content
 
-  init(_ label: String, @ViewBuilder content: () -> Content) {
+  init(_ label: LocalizedStringKey, @ViewBuilder content: () -> Content) {
     self.label = label
     self.content = content()
   }
@@ -150,7 +152,10 @@ private struct LoginForm: View {
               total: 4, height: 6
             )
             .frame(width: 120)
-            Text(PasswordStrength.description(of: password) + (idiom == .phone ? "" : " from this \(ThisDevice.word)’s generator"))
+            Text(
+              idiom == .phone
+                ? PasswordStrength.description(of: password)
+                : String(localized: "\(PasswordStrength.description(of: password)) from this \(ThisDevice.word)’s generator"))
               .kitFont(.caption).lineLimit(2)
           }
           .padding(.top, 2)
@@ -201,7 +206,7 @@ private struct LoginForm: View {
       LinkPicker(selection: $links)
     }
     if let error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text) }
-    SheetFooterButtons(saveTitle: "Save", canSave: !title.isEmpty || !website.isEmpty, status: idiom == .phone ? "Fills through AutoFill" : "Fills in Safari and apps through AutoFill", onSave: save)
+    SheetFooterButtons(saveTitle: String(localized: "Save"), canSave: !title.isEmpty || !website.isEmpty, status: idiom == .phone ? String(localized: "Fills through AutoFill") : String(localized: "Fills in Safari and apps through AutoFill"), onSave: save)
   }
 
   private func strengthHue(_ strength: PasswordStrength) -> Hue {
@@ -222,17 +227,17 @@ private struct LoginForm: View {
           code = parsed
           codeError = nil
         } else {
-          codeError = "No setup code on screen. Show the site’s QR code, then scan again."
+          codeError = String(localized: "No setup code on screen. Show the site’s QR code, then scan again.")
         }
       } catch {
-        codeError = "Allow Vault to record the screen in System Settings to scan the code."
+        codeError = String(localized: "Allow Vault to record the screen in System Settings to scan the code.")
       }
     }
   }
 
   private func pasteKey() {
     guard let text = KitPasteboard.string(), let parsed = OneTimeCode(text) else {
-      codeError = "The pasteboard has no setup key."
+      codeError = String(localized: "The pasteboard has no setup key.")
       return
     }
     code = parsed
@@ -334,9 +339,9 @@ private struct CardForm: View {
         }
       }
     }
-    SheetFooterButtons(saveTitle: "Save", canSave: !number.isEmpty, status: "Fills in Safari and apps through AutoFill") {
+    SheetFooterButtons(saveTitle: String(localized: "Save"), canSave: !number.isEmpty, status: String(localized: "Fills in Safari and apps through AutoFill")) {
       guard let store = app.vault.store else { return }
-      let card = VaultCard(title: title.isEmpty ? "Card" : title, holder: holder, expiry: expiry)
+      let card = VaultCard(title: title.isEmpty ? String(localized: "Card") : title, holder: holder, expiry: expiry)
       try? store.save(card)
       try? store.setCardNumber(number, forCard: card.id)
       try? store.setCardCode(code, forCard: card.id)
@@ -358,7 +363,7 @@ private struct NoteForm: View {
     LabeledField("Text") {
       TextEditor(text: $text).font(.body).frame(minHeight: 120).scrollContentBackground(.hidden).padding(6).kitSurface(.field)
     }
-    SheetFooterButtons(saveTitle: "Save", canSave: !name.isEmpty, status: "Encrypted; Markdown and Shell show it too") {
+    SheetFooterButtons(saveTitle: String(localized: "Save"), canSave: !name.isEmpty, status: String(localized: "Encrypted; Markdown and Shell show it too")) {
       app.vault.save(VaultNote(folder: "Vault", name: name, encrypted: true, text: text))
       app.selection = .notes
       onSave()
@@ -405,7 +410,7 @@ struct HostForm: View {
       FallbackAddressesField(rows: $fallbacks, host: host)
     }
     Toggle("Sign in with each device’s own key (Secure Enclave)", isOn: $useDeviceKey).toggleStyle(.kitCheckbox)
-    SheetFooterButtons(saveTitle: "Save", canSave: !host.hostname.isEmpty, status: "Shell and Database see it at once") {
+    SheetFooterButtons(saveTitle: String(localized: "Save"), canSave: !host.hostname.isEmpty, status: String(localized: "Shell and Database see it at once")) {
       app.vault.save(host)
       app.selectedHost = host.id
       app.selection = .hosts
@@ -469,7 +474,7 @@ private struct DatabaseForm: View {
         LabeledField("Port") { TextField("5432", text: $port).kitField(mono: true) }
       }
     }
-    SheetFooterButtons(saveTitle: "Save", canSave: !name.isEmpty, status: "Database and Shell see it at once") {
+    SheetFooterButtons(saveTitle: String(localized: "Save"), canSave: !name.isEmpty, status: String(localized: "Database and Shell see it at once")) {
       let database = VaultDatabase(name: name, engine: engine, host: host, port: Int(port) ?? 5432, user: user, order: app.vault.databases.count)
       app.vault.save(database)
       app.selectedDatabase = database.id
@@ -493,7 +498,7 @@ struct NewFolderSheet: View {
       LabeledField("Name") { TextField("Taxes 2027", text: $name).kitField() }
       LabeledField("Where") {
         HStack {
-          Text(location.map { ProjectsView.tilde($0.path) } ?? "Vault’s folder on this device").kitFont(.mono).lineLimit(1).truncationMode(.middle)
+          Text(location.map { ProjectsView.tilde($0.path) } ?? String(localized: "Vault’s folder on this device")).kitFont(.mono).lineLimit(1).truncationMode(.middle)
           Spacer()
           #if os(macOS)
             Button("Choose…") { Task { location = await KitDesktop.chooseFolders(canCreateDirectories: true).first } }.buttonStyle(.kit).controlSize(.small)

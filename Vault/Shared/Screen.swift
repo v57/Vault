@@ -30,7 +30,7 @@ struct ListAndInspector<Main: View, Inspector: View>: View {
 /// The toolbar's search capsule (a filled field at the bar's end).
 struct ToolbarSearch: View {
   @Binding var text: String
-  var prompt: String
+  var prompt: LocalizedStringKey
   @Environment(\.kitIdiom) private var idiom
 
   var body: some View {

@@ -69,7 +69,8 @@
         }
         FormRow(
           "Let Your Devices In",
-          help: !loginIsOn && host == nil ? "Needs Remote Login" : host.map { "\($0.user)@\($0.hostname)" } ?? "Off",
+          help: !loginIsOn && host == nil
+            ? String(localized: "Needs Remote Login") : host.map { "\($0.user)@\($0.hostname)" } ?? String(localized: "Off"),
           systemImage: "network", hue: .teal
         ) {
           Toggle(
@@ -109,7 +110,7 @@
       }
       let letsDevicesIn = loginIsOn && host != nil
       VaultDevicesSettings(
-        vaults: vaults, note: letsDevicesIn ? "Turn on each device that may sign in to this Mac." : nil
+        vaults: vaults, note: letsDevicesIn ? String(localized: "Turn on each device that may sign in to this Mac.") : nil
       ) { device in
         if letsDevicesIn, device.id != vault.deviceID {
           Toggle(
@@ -205,7 +206,7 @@
           }
         }
         .kitConfirmation(
-          "Remove \(removing?.comment ?? "this key")?",
+          "Remove \(removing?.comment ?? String(localized: "this key"))?",
           isPresented: .init(get: { removing != nil }, set: { if !$0 { removing = nil } }),
           message: "It can’t sign in to this Mac any more. Its line goes from ~/.ssh/authorized_keys.",
           systemImage: "key", confirm: "Remove"

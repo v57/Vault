@@ -97,7 +97,7 @@ struct AutoFillPicker: View {
         Tile(systemImage: "key.horizontal", size: 34)
         VStack(alignment: .leading, spacing: 1) {
           Text("Vault").kitFont(.title3)
-          Text(model.host.map { model.wantsCode ? "One-time code for \($0)" : model.passkeys.isEmpty ? "AutoFill for \($0)" : "Sign in to \($0)" } ?? "AutoFill").kitFont(.caption)
+          Text(model.host.map { model.wantsCode ? String(localized: "One-time code for \($0)") : model.passkeys.isEmpty ? String(localized: "AutoFill for \($0)") : String(localized: "Sign in to \($0)") } ?? String(localized: "AutoFill")).kitFont(.caption)
         }
         Spacer()
       }
@@ -107,7 +107,7 @@ struct AutoFillPicker: View {
       KitSearchField(text: $search, prompt: "Search logins").padding(.horizontal, 12)
       KitList(selection: $selection) {
         if !model.passkeys.isEmpty {
-          KitSection("Passkeys", meta: "\(model.passkeys.count) for \(model.passkeys[0].relyingParty)", systemImage: "person.badge.key") {
+          KitSection("Passkeys", meta: String(localized: "\(model.passkeys.count) for \(model.passkeys[0].relyingParty)"), systemImage: "person.badge.key") {
             ForEach(model.passkeys) { passkey in
               SidebarRow(value: "passkey:" + passkey.id, "\(passkey.userName)", subtitle: "Passkey · \(passkey.relyingParty)") {
                 Tile(systemImage: "person.badge.key", hue: StableHue.pick(passkey.relyingParty), size: 24)
@@ -119,7 +119,7 @@ struct AutoFillPicker: View {
         }
         if let host = model.host, !model.suggested.isEmpty {
           KitSection(
-            host, meta: ["\(model.suggested.count) login\(model.suggested.count == 1 ? "" : "s")", model.suggested.contains(where: \.hasOneTimeCode) ? "with a code" : ""],
+            host, meta: [model.suggested.count == 1 ? String(localized: "1 login") : String(localized: "\(model.suggested.count) logins"), model.suggested.contains(where: \.hasOneTimeCode) ? String(localized: "with a code") : ""],
             systemImage: "globe"
           ) {
             ForEach(model.suggested) { login in
@@ -132,7 +132,7 @@ struct AutoFillPicker: View {
             }
           }
         }
-        KitSection(model.suggested.isEmpty ? "Logins" : "Other logins", meta: "\(rest.count) logins", systemImage: "key.horizontal") {
+        KitSection(model.suggested.isEmpty ? "Logins" : "Other logins", meta: String(localized: "\(rest.count) logins"), systemImage: "key.horizontal") {
           ForEach(rest) { row($0) }
         }
       }
@@ -185,7 +185,7 @@ struct SavePasskeySheet: View {
       .padding(.horizontal, 16)
       .padding(.top, 14)
       .padding(.bottom, 8)
-      KitSection("Passkey", meta: "signs in without a password", systemImage: "person.badge.key") {
+      KitSection("Passkey", meta: String(localized: "signs in without a password"), systemImage: "person.badge.key") {
         InspectorRow("Website", value: relyingParty, copyable: false)
         InspectorRow("Account", value: userName, copyable: false)
       }

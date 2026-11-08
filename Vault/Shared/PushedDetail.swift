@@ -57,7 +57,7 @@ struct BarMenu<Items: View>: View {
   @ViewBuilder var items: Items
   @State private var isPresented = false
 
-  init(_ title: String = "More", systemImage: String = "ellipsis", @ViewBuilder items: () -> Items) {
+  init(_ title: String = String(localized: "More"), systemImage: String = "ellipsis", @ViewBuilder items: () -> Items) {
     self.title = title
     self.systemImage = systemImage
     self.items = items()
@@ -72,7 +72,7 @@ struct BarMenu<Items: View>: View {
 
 /// A list screen's own bottom bar on iPhone (search, then its actions), where the Mac has toolbar tools.
 struct PhoneBars<Actions: View>: ViewModifier {
-  var prompt: String
+  var prompt: LocalizedStringKey
   @Binding var search: String
   @ViewBuilder var actions: Actions
   @Environment(\.kitIdiom) private var idiom
@@ -88,7 +88,7 @@ struct PhoneBars<Actions: View>: ViewModifier {
 
 extension View {
   /// The bottom bar of a list screen on iPhone; nothing elsewhere.
-  func phoneBottomBar<Actions: View>(prompt: String, search: Binding<String>, @ViewBuilder actions: () -> Actions) -> some View {
+  func phoneBottomBar<Actions: View>(prompt: LocalizedStringKey, search: Binding<String>, @ViewBuilder actions: () -> Actions) -> some View {
     modifier(PhoneBars(prompt: prompt, search: search, actions: actions))
   }
 }

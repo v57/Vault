@@ -17,11 +17,11 @@ enum LostDeviceActions {
     let hubDevice = hub.record.members[device.id]
     let unavailable: String? =
       if hubDevice == nil {
-        "It isn’t a member of this Hub, as far as your vault knows."
+        String(localized: "It isn’t a member of this Hub, as far as your vault knows.")
       } else if hub.status != .connected {
-        "This \(ThisDevice.word) isn’t connected to it. Revoke it from a device that is."
+        String(localized: "This \(ThisDevice.word) isn’t connected to it. Revoke it from a device that is.")
       } else if !hub.isOwner {
-        "Only this Hub’s owner can revoke a device."
+        String(localized: "Only this Hub’s owner can revoke a device.")
       } else {
         nil
       }
@@ -31,8 +31,8 @@ enum LostDeviceActions {
       guard let hubDevice else { return "" }
       await hubs.revoke(hubDevice, on: hub.id)
       let now = hubs.hubs.first { $0.id == hub.id }?.devices.first { $0.id == hubDevice }
-      if now?.isRevoked == true || now == nil { return "Revoked on \(hub.name)." }
-      return "Asked \(hub.name) to revoke it. It hasn’t confirmed yet: check its device list."
+      if now?.isRevoked == true || now == nil { return String(localized: "Revoked on \(hub.name).") }
+      return String(localized: "Asked \(hub.name) to revoke it. It hasn’t confirmed yet: check its device list.")
     }
   }
 
@@ -53,7 +53,7 @@ enum LostDeviceActions {
     guard status == 0, let lines = VaultAuthorizedKeys.sweptLines(from: collected.text) else {
       throw SweepError(host: host.displayName)
     }
-    return lines == 0 ? "It wasn’t there." : "Took out \(lines) line\(lines == 1 ? "" : "s")."
+    return lines == 0 ? String(localized: "It wasn’t there.") : lines == 1 ? String(localized: "Took out 1 line.") : String(localized: "Took out \(lines) lines.")
   }
 
   /// This device's key or the saved password, and only a host key the user already accepted: a sweep doesn't stop to

@@ -17,18 +17,18 @@ public enum VaultProjectsLayout: String, CaseIterable, Identifiable, Sendable {
 
   public var title: String {
     switch self {
-    case .separate: "Project Below the List"
-    case .folding: "Project Below, List Folded"
-    case .inline: "Project Inside the List"
+    case .separate: String(localized: "Project Below the List")
+    case .folding: String(localized: "Project Below, List Folded")
+    case .inline: String(localized: "Project Inside the List")
     }
   }
 
   /// What the layout does, for the menu's preview panel.
   public var preview: String {
     switch self {
-    case .separate: "Shows the picked project in a section under the list, which stays open."
-    case .folding: "Folds the list away once you pick a project, leaving its section the room. Its header opens it again."
-    case .inline: "Shows the picked project right under its row in the list."
+    case .separate: String(localized: "Shows the picked project in a section under the list, which stays open.")
+    case .folding: String(localized: "Folds the list away once you pick a project, leaving its section the room. Its header opens it again.")
+    case .inline: String(localized: "Shows the picked project right under its row in the list.")
     }
   }
 }
@@ -53,26 +53,26 @@ public enum VaultProjectsSort: String, CaseIterable, Identifiable, Sendable {
 
   public var title: String {
     switch self {
-    case .arranged: "As Arranged"
-    case .name: "Name"
-    case .added: "Recently Added"
-    case .recent: "Recently Opened"
-    case .changes: "With Changes First"
-    case .lastCommit: "Last Commit"
-    case .lastPush: "Last Push"
+    case .arranged: String(localized: "As Arranged")
+    case .name: String(localized: "Name")
+    case .added: String(localized: "Recently Added")
+    case .recent: String(localized: "Recently Opened")
+    case .changes: String(localized: "With Changes First")
+    case .lastCommit: String(localized: "Last Commit")
+    case .lastPush: String(localized: "Last Push")
     }
   }
 
   /// How it orders them, for the menu's preview panel.
   public var preview: String {
     switch self {
-    case .arranged: "In the order you arranged them, in this app or any other."
-    case .name: "By name, A to Z, groups too."
-    case .added: "The projects added last first."
-    case .recent: "The projects opened here last first."
-    case .changes: "Those with something to commit, push or pull first, as their devices last said."
-    case .lastCommit: "The newest commit on any of your devices first."
-    case .lastPush: "The newest push from any of your devices first."
+    case .arranged: String(localized: "In the order you arranged them, in this app or any other.")
+    case .name: String(localized: "By name, A to Z, groups too.")
+    case .added: String(localized: "The projects added last first.")
+    case .recent: String(localized: "The projects opened here last first.")
+    case .changes: String(localized: "Those with something to commit, push or pull first, as their devices last said.")
+    case .lastCommit: String(localized: "The newest commit on any of your devices first.")
+    case .lastPush: String(localized: "The newest push from any of your devices first.")
     }
   }
 }
@@ -390,7 +390,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
       sorted(tree.roots), picked: rowContent != nil || (layout == .inline && !opensElsewhere) ? picked?.id : nil,
       sort: sorted)
     var section = KitSection(
-      title, meta: [count == 1 ? "1 project" : "\(count) projects"] + meta, systemImage: "square.stack.3d.up",
+      title, meta: [count == 1 ? String(localized: "1 project") : String(localized: "\(count) projects")] + meta, systemImage: "square.stack.3d.up",
       hue: .indigo, isExpanded: isExpanded
     ) {
       KitOutline(items, children: \.children, collapsed: $collapsedGroups.animation(.kit)) { item in

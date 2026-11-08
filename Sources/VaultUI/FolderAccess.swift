@@ -19,15 +19,15 @@ public enum VaultFolderAccess {
   ) async -> URL? {
     if let folder = grants.access(to: folder) { return folder }
     let around = FolderGrants.folder(around: folder, among: others)
-    let app = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "The app"
+    let app = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? String(localized: "The app")
     let isAround = around.standardizedFileURL.path != folder.standardizedFileURL.path
     let explanation =
       message
       ?? (isAround
-        ? "Open “\(name)” in \(app). Choose “\(around.lastPathComponent)” to open every project in it without asking again."
-        : "Open “\(name)” in \(app). \(app) opens only folders you choose.")
+        ? String(localized: "Open “\(name)” in \(app). Choose “\(around.lastPathComponent)” to open every project in it without asking again.")
+        : String(localized: "Open “\(name)” in \(app). \(app) opens only folders you choose."))
     guard
-      let picked = await KitDesktop.chooseFolders(prompt: "Open", message: explanation, directory: around).first
+      let picked = await KitDesktop.chooseFolders(prompt: String(localized: "Open"), message: explanation, directory: around).first
     else { return nil }
     return grants.grant(picked, for: folder)
   }

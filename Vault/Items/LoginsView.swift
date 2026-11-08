@@ -8,10 +8,10 @@ enum LoginFilter: String, KitOption, CaseIterable {
 
   var title: String {
     switch self {
-    case .all: "All"
-    case .favorites: "Favorites"
-    case .withCodes: "With Codes"
-    case .shared: "Shared"
+    case .all: String(localized: "All")
+    case .favorites: String(localized: "Favorites")
+    case .withCodes: String(localized: "With Codes")
+    case .shared: String(localized: "Shared")
     }
   }
 }
@@ -81,8 +81,8 @@ struct LoginsView: View {
           }
           KitSection(
             filter == .all ? "All Logins" : "\(filter.title)",
-            meta: ["\(logins.count) logins", "\(logins.filter(\.hasOneTimeCode).count) with \(idiom == .phone ? "codes" : "one-time codes")",
-                   sharedCount(logins) > 0 && idiom != .phone ? "\(sharedCount(logins)) shared" : ""],
+            meta: [String(localized: "\(logins.count) logins"), idiom == .phone ? String(localized: "\(logins.filter(\.hasOneTimeCode).count) with codes") : String(localized: "\(logins.filter(\.hasOneTimeCode).count) with one-time codes"),
+                   sharedCount(logins) > 0 && idiom != .phone ? String(localized: "\(sharedCount(logins)) shared") : ""],
             systemImage: "key.horizontal"
           ) {
             ForEach(logins) { LoginRow(login: $0) }
@@ -194,7 +194,7 @@ struct LoginInspector: View {
       LetterTile(name: login.displayName, size: 30)
     } meta: {
       VStack(alignment: .leading, spacing: 4) {
-        MetaLine("Login", login.domain ?? "")
+        MetaLine(String(localized: "Login"), login.domain ?? "")
         if login.favorite { Chip("Favorite", hue: .yellow).controlSize(.small) }
       }
     } accessory: {
@@ -254,7 +254,8 @@ struct LoginInspector: View {
       }
     }
     ChangesSection(id: login.id, fields: [
-      ("Password", "passwordChanged"), ("One-time code", "otpChanged"), ("Username", "username"), ("Website", "website"),
+      (String(localized: "Password"), "passwordChanged"), (String(localized: "One-time code"), "otpChanged"), (String(localized: "Username"), "username"),
+      (String(localized: "Website"), "website"),
     ], dates: ["passwordChanged": login.passwordChanged, "otpChanged": login.otpChanged].compactMapValues { $0 })
   }
 }
@@ -266,7 +267,7 @@ struct LoginPage: View {
   @State private var copies = 0
 
   var body: some View {
-    PushedDetail(title: login.displayName, meta: ["Login", login.domain ?? ""]) {
+    PushedDetail(title: login.displayName, meta: [String(localized: "Login"), login.domain ?? ""]) {
       LetterTile(name: login.displayName, size: 30)
     } content: {
       LoginInspector(login: login)
@@ -331,22 +332,24 @@ struct LinkedItems {
     var items: [LinkedItem] = []
     let vault = app.vault
     for host in vault.hosts where ids.contains(host.id) {
-      items.append(LinkedItem(id: host.id, title: host.displayName, subtitle: "SSH host · Shell, Database", systemImage: "server.rack", destination: .hosts))
+      items.append(LinkedItem(id: host.id, title: host.displayName, subtitle: String(localized: "SSH host · Shell, Database"), systemImage: "server.rack", destination: .hosts))
     }
     for database in vault.databases where ids.contains(database.id) {
       let through = database.sshHostID.flatMap { vault.host(id: $0)?.displayName }
       let engine = DatabaseEngine.name(database.engine)
       items.append(LinkedItem(
-        id: database.id, title: database.name, subtitle: [through.map { "\(engine) through \($0)" } ?? engine, "Database"].joined(separator: " · "),
+        id: database.id, title: database.name, subtitle: [through.map { String(localized: "\(engine) through \($0)") } ?? engine, String(localized: "Database")].joined(separator: " · "),
         systemImage: "cylinder", destination: .databases))
     }
     for folder in app.folders.folders where ids.contains(folder.id) {
       items.append(LinkedItem(
-        id: folder.id, title: folder.name, subtitle: folder.isEncrypted ? "Encrypted folder" + (folder.sharedWith.map { " · shared with \($0)" } ?? "") : "Synced folder",
+        id: folder.id, title: folder.name, subtitle: folder.isEncrypted
+          ? folder.sharedWith.map { String(localized: "Encrypted folder · shared with \($0)") } ?? String(localized: "Encrypted folder")
+          : String(localized: "Synced folder"),
         systemImage: "lock.rectangle.stack", destination: .folder(folder.id)))
     }
     for project in vault.projects where ids.contains(project.id) {
-      items.append(LinkedItem(id: project.id, title: project.name, subtitle: "Project · Git, Code, Dev", systemImage: "arrow.triangle.branch", destination: .projects))
+      items.append(LinkedItem(id: project.id, title: project.name, subtitle: String(localized: "Project · Git, Code, Dev"), systemImage: "arrow.triangle.branch", destination: .projects))
     }
     return items
   }

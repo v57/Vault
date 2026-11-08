@@ -34,11 +34,11 @@ struct DatabasesView: View {
       }
     } inspector: {
       if let database = vault.databases.first(where: { $0.id == app.selectedDatabase }) {
-        InspectorHeader(database.name, meta: [DatabaseEngine.name(database.engine), "Database"], systemImage: "cylinder", hue: .indigo) {
+        InspectorHeader(database.name, meta: [DatabaseEngine.name(database.engine), String(localized: "Database")], systemImage: "cylinder", hue: .indigo) {
           if database.isProduction { Chip.production.controlSize(.small) }
           if database.isReadOnly { Chip.readOnly.controlSize(.small) }
         }
-        KitSection("Server", meta: [database.useTLS ? "TLS" : "no TLS", database.database], systemImage: "cylinder", hue: .indigo) {
+        KitSection("Server", meta: [database.useTLS ? "TLS" : String(localized: "no TLS"), database.database], systemImage: "cylinder", hue: .indigo) {
           if database.filePath.isEmpty {
             InspectorRow("Host") { Text(database.host).kitFont(.mono) }
             InspectorRow("Port", value: "\(database.port)")
@@ -49,19 +49,19 @@ struct DatabasesView: View {
           InspectorRow("Password") { KitSecretValue { VaultSecrets.password(for: database.id) } }
         }
         if let host = vault.host(id: database.sshHostID) {
-          KitSection("Tunnel", meta: "through SSH", systemImage: "server.rack") {
+          KitSection("Tunnel", meta: String(localized: "through SSH"), systemImage: "server.rack") {
             LinkRow(title: host.displayName, subtitle: "\(host.user)@\(host.hostname)", systemImage: "server.rack") {
               app.selectedHost = host.id
               app.selection = .hosts
             }
           }
         }
-        ChangesSection(id: database.id, fields: [("Host", "host"), ("User", "user"), ("Database", "database")])
+        ChangesSection(id: database.id, fields: [(String(localized: "Host"), "host"), (String(localized: "User"), "user"), (String(localized: "Database"), "database")])
       } else {
         EmptyState(systemImage: "cylinder", title: "No Connection Selected", message: "Pick a connection to see its server.")
       }
     }
-    .kitToolbar("Databases", meta: ["\(vault.databases.count) connections", "shared with Database"], systemImage: "cylinder", hue: .indigo) {
+    .kitToolbar("Databases", meta: [String(localized: "\(vault.databases.count) connections"), String(localized: "shared with Database")], systemImage: "cylinder", hue: .indigo) {
       ToolbarSearch(text: $search, prompt: "Name, server")
     }
     .onAppear { selection = app.selectedDatabase.map { [$0] } ?? [] }
@@ -81,7 +81,7 @@ struct ProjectsView: View {
     let projects = vault.projects.filter { query.isEmpty || $0.name.lowercased().contains(query) }
     ListAndInspector(name: "projects") {
       KitList(selection: $app.selectedProject) {
-        KitSection("Projects", meta: ["\(projects.count) projects", "\(vault.localProjects.count) on this device"], systemImage: "folder", hue: .brown) {
+        KitSection("Projects", meta: [String(localized: "\(projects.count) projects"), String(localized: "\(vault.localProjects.count) on this device")], systemImage: "folder", hue: .brown) {
           ForEach(projects) { project in
             let place: LocalizedStringKey =
               if let path = project.localPath { "\(Self.tilde(path))" } else { "Not on this device" }
@@ -101,8 +101,8 @@ struct ProjectsView: View {
       .padding(.top, KitMetrics.gutter)
     } inspector: {
       if let project = vault.projects.first(where: { $0.id == app.selectedProject }) {
-        InspectorHeader(project.name, meta: ["Project", project.remoteURL.flatMap { URL(string: $0)?.host } ?? "local"], systemImage: "folder", hue: .brown) {}
-        KitSection("Folders", meta: "\(project.paths.count) devices", systemImage: "folder", hue: .brown) {
+        InspectorHeader(project.name, meta: [String(localized: "Project"), project.remoteURL.flatMap { URL(string: $0)?.host } ?? String(localized: "local")], systemImage: "folder", hue: .brown) {}
+        KitSection("Folders", meta: String(localized: "\(project.paths.count) devices"), systemImage: "folder", hue: .brown) {
           ForEach(project.paths.sorted(by: { $0.key < $1.key }), id: \.key) { device, path in
             InspectorRow(app.deviceName(device)) { Text(Self.tilde(path)).kitFont(.mono).lineLimit(1).truncationMode(.middle) }
           }
@@ -116,7 +116,7 @@ struct ProjectsView: View {
         EmptyState(systemImage: "folder", title: "No Project Selected", message: "Projects come from Git, Code and Dev.")
       }
     }
-    .kitToolbar("Projects", meta: ["\(vault.projects.count) projects", "from Git, Code and Dev"], systemImage: "folder", hue: .brown) {
+    .kitToolbar("Projects", meta: [String(localized: "\(vault.projects.count) projects"), String(localized: "from Git, Code and Dev")], systemImage: "folder", hue: .brown) {
       ToolbarSearch(text: $search, prompt: "Search projects")
     }
     .onAppear { if app.selectedProject == nil { app.selectedProject = vault.projects.first?.id } }
@@ -137,7 +137,7 @@ struct CardsView: View {
     let cards = app.vault.cards
     ListAndInspector(name: "cards") {
       KitList(selection: $selected) {
-        KitSection("Cards", meta: "\(cards.count) cards", systemImage: "creditcard", hue: .orange) {
+        KitSection("Cards", meta: String(localized: "\(cards.count) cards"), systemImage: "creditcard", hue: .orange) {
           ForEach(cards) { card in
             SidebarRow(value: card.id, card.title, subtitle: "\(card.brand) •••• \(card.last4)", systemImage: "creditcard") {
               Text(card.expiry).kitFont(.caption)
@@ -150,7 +150,7 @@ struct CardsView: View {
     } inspector: {
       if let card = cards.first(where: { $0.id == (selected ?? cards.first?.id) }) {
         InspectorHeader(card.title, meta: [card.brand, "•••• \(card.last4)"], systemImage: "creditcard", hue: .orange) {}
-        KitSection("Card", meta: ["iCloud Keychain", "v57 apps only"], systemImage: "creditcard", hue: .orange) {
+        KitSection("Card", meta: ["iCloud Keychain", String(localized: "v57 apps only")], systemImage: "creditcard", hue: .orange) {
           InspectorRow("Holder", value: card.holder)
           InspectorRow("Number") { KitSecretValue(label: "Number") { card.number } }
           InspectorRow("Expires", value: card.expiry)
@@ -162,7 +162,7 @@ struct CardsView: View {
         }
       }
     }
-    .kitToolbar("Cards", meta: ["\(cards.count) cards"], systemImage: "creditcard", hue: .orange) {
+    .kitToolbar("Cards", meta: [String(localized: "\(cards.count) cards")], systemImage: "creditcard", hue: .orange) {
       ToolGroup { Button("New Card", systemImage: "plus") { app.sheet = .newItem(.card) } }
     }
   }
@@ -177,7 +177,7 @@ struct NotesView: View {
     let notes = app.notes.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     ListAndInspector(name: "notes") {
       KitList(selection: $selected) {
-        KitSection("Notes", meta: ["\(notes.count) notes", "\(notes.filter(\.encrypted).count) encrypted"], systemImage: "doc.text", hue: .yellow) {
+        KitSection("Notes", meta: [String(localized: "\(notes.count) notes"), String(localized: "\(notes.filter(\.encrypted).count) encrypted")], systemImage: "doc.text", hue: .yellow) {
           ForEach(notes) { note in
             SidebarRow(value: note.id, "\(note.name)", subtitle: note.folder.isEmpty ? "Notes" : "\(note.folder)", systemImage: "doc.text") {
               if note.encrypted { Image(systemName: "lock").font(.system(size: 10)).foregroundStyle(.kitTertiary) }
@@ -188,14 +188,14 @@ struct NotesView: View {
       .padding(.top, KitMetrics.gutter)
     } inspector: {
       if let note = notes.first(where: { $0.id == (selected ?? notes.first?.id) }) {
-        InspectorHeader(note.name, meta: [note.folder.isEmpty ? "Notes" : note.folder, note.encrypted ? "encrypted" : "plain"], systemImage: "doc.text", hue: .yellow) {}
-        KitSection("Text", meta: "\(note.text.split(whereSeparator: \.isWhitespace).count) words", systemImage: "text.alignleft", hue: .yellow) {
+        InspectorHeader(note.name, meta: [note.folder.isEmpty ? String(localized: "Notes") : note.folder, note.encrypted ? String(localized: "encrypted") : String(localized: "plain")], systemImage: "doc.text", hue: .yellow) {}
+        KitSection("Text", meta: String(localized: "\(note.text.split(whereSeparator: \.isWhitespace).count) words"), systemImage: "text.alignleft", hue: .yellow) {
           Text(note.text).kitFont(.callout).textSelection(.enabled).padding(8).frame(maxWidth: .infinity, alignment: .leading)
         }
       } else {
         EmptyState(systemImage: "doc.text", title: "No Notes", message: "Notes come from Markdown and Shell.")
       }
     }
-    .kitToolbar("Notes", meta: ["\(notes.count) notes", "from Markdown and Shell"], systemImage: "doc.text", hue: .yellow) {}
+    .kitToolbar("Notes", meta: [String(localized: "\(notes.count) notes"), String(localized: "from Markdown and Shell")], systemImage: "doc.text", hue: .yellow) {}
   }
 }
