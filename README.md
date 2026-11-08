@@ -49,11 +49,17 @@ attributes) are internal targets, not products. The user guide is in [docs/](doc
 | Entitlement | Value |
 |---|---|
 | `com.apple.security.application-groups` | `$(TeamIdentifierPrefix)dev.v57` (macOS), `group.dev.v57` (iOS) |
-| `keychain-access-groups` | `$(AppIdentifierPrefix)dev.v57.shared`; Vault and its AutoFill extension also `$(AppIdentifierPrefix)dev.v57.secrets` |
+| `keychain-access-groups` | `$(AppIdentifierPrefix)dev.v57.shared` in Vault, its AutoFill extension and every app that connects (Shell, Database, Markdown, Git, Code, Dev, Remote, Community); `$(AppIdentifierPrefix)dev.v57.records` in every app but the AutoFill extension (Get, Player and Hub list it instead of `dev.v57.shared`); `$(AppIdentifierPrefix)dev.v57.secrets` in Vault and its AutoFill extension only; `$(AppIdentifierPrefix)dev.v57.device` in Vault and the Hub app only. Shell, Get and Player also list their own group (`$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)`) |
 | `com.apple.developer.icloud-container-identifiers` | `iCloud.dev.v57` |
 | `com.apple.developer.icloud-services` | `CloudKit` |
 | `com.apple.developer.icloud-container-environment` | `Production`, in debug builds too |
 | `com.apple.developer.aps-environment` (`aps-environment` on iOS) | `development` / `production`, for sync pushes |
+
+What the groups hold (`VaultConfiguration`): `dev.v57.shared` the vault keys, connection passwords, the SSH identity and
+the GitHub token; `dev.v57.records` a copy of the vault keys and this device's id for apps that read records but hold no
+secrets, kept current by the apps in the shared group (`VaultKeychain.mirrorRecordKeys`); `dev.v57.secrets` the logins'
+secrets (below); `dev.v57.device` this device's Hub keys (`HubKeyStore`), moved out of the shared group the first time an
+app entitled to it reads them.
 
 Every app on a device shares one store, and an item one app sends is sent for all of them, so they all sync in
 CloudKit's Production environment: a debug build left in Development would send the others' writes where none of them
@@ -114,8 +120,8 @@ any team app, or a bug in one, can still sign silently.
 
 **Two keychain groups.** Logins' passwords, one-time codes, cards, passkeys, the personal identity and the digests' key
 live in `dev.v57.secrets`, which only Vault and its AutoFill extension list (`VaultSecretTiers`). Connection passwords,
-the vault keys, the device key, the GitHub token and the Hub keys stay in `dev.v57.shared`, because the apps that connect
-use them. So another app's bug can't read a login's password through the keychain. It can still read the login's
+the vault keys, the device key and the GitHub token stay in `dev.v57.shared`, because the apps that connect use them
+(the Hub keys are in `dev.v57.device`, which only Vault and the Hub app list). So another app's bug can't read a login's password through the keychain. It can still read the login's
 record (title, website, username, notes), since those are sealed under the vault key every app holds, and an app can't
 list these secrets, write them or delete them: it's told they aren't there.
 
