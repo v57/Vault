@@ -90,17 +90,32 @@ struct AddDocumentSheet: View {
         LabeledField("Tags") { TextField("warranty, travel", text: $tags).kitField() }
         if let field = documentKind.remindingField {
           LabeledField("Reminder") {
-            HStack(spacing: 8) {
-              let months = remindMonths ?? documentKind.remindMonths ?? 0
-              KitStepper(value: Binding(get: { max(1, months) }, set: { remindMonths = $0 }), in: 1...24) {
-                $0 == 1
-                  ? String(localized: "1 month before \(field.label.lowercased())")
-                  : String(localized: "\($0) months before \(field.label.lowercased())")
+            let months = remindMonths ?? documentKind.remindMonths ?? 0
+            let stepper = KitStepper(value: Binding(get: { max(1, months) }, set: { remindMonths = $0 }), in: 1...24) {
+              $0 == 1
+                ? String(localized: "1 month before \(field.label.lowercased())")
+                : String(localized: "\($0) months before \(field.label.lowercased())")
+            }
+            .disabled(months == 0)
+            let toggle = Toggle("Remind", isOn: Binding(get: { months > 0 }, set: { remindMonths = $0 ? (documentKind.remindMonths ?? 3) : 0 }))
+              .toggleStyle(.kitSwitch).labelsHidden()
+            // On an iPhone the stepper and the switch don't fit on one line (the sheet grew past the screen): the
+            // switch goes on a line of its own above.
+            ViewThatFits(in: .horizontal) {
+              HStack(spacing: 8) {
+                stepper
+                Spacer(minLength: 0)
+                toggle
               }
-              .disabled(months == 0)
-              Spacer(minLength: 0)
-              Toggle("Remind", isOn: Binding(get: { months > 0 }, set: { remindMonths = $0 ? (documentKind.remindMonths ?? 3) : 0 }))
-                .toggleStyle(.kitSwitch).labelsHidden()
+              VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                  Text("Remind me").kitFont(.callout)
+                  Spacer(minLength: 0)
+                  toggle
+                }
+                stepper
+              }
+              .padding(.vertical, 6)
             }
             .padding(.horizontal, 8)
             .frame(minHeight: 34)
@@ -188,22 +203,21 @@ struct AddDocumentSheet: View {
           }
         }
         .frame(height: idiom == .phone ? 260 : 300)
-        HStack(alignment: .bottom, spacing: 12) {
-          KitPageStrip(
-            pages: pages.map { KitPage(id: $0.id, label: $0.pageCount > 1 ? String(localized: "\($0.pageCount) pages") : $0.name, imageData: $0.preview, aspectRatio: $0.aspectRatio) },
-            selection: Binding(get: { page ?? pages.first?.id }, set: { page = $0 }), height: 52, add: chooseFiles)
-          Spacer(minLength: 0)
-          if pages.contains(where: { !$0.isPDF }) {
-            KitSegmented(selection: $look, segments: [
-              KitSegment("Color", value: .color), KitSegment("Grey", value: .grayscale), KitSegment("Document", value: .document),
-            ])
-            .controlSize(.small)
+        let strip = KitPageStrip(
+          pages: pages.map { KitPage(id: $0.id, label: $0.pageCount > 1 ? String(localized: "\($0.pageCount) pages") : $0.name, imageData: $0.preview, aspectRatio: $0.aspectRatio) },
+          selection: Binding(get: { page ?? pages.first?.id }, set: { page = $0 }), height: 52, add: chooseFiles)
+        if idiom == .phone {
+          // No room beside the strip on an iPhone: the look and Remove Page go under it.
+          VStack(alignment: .leading, spacing: 10) {
+            strip
+            HStack(spacing: 12) { pageControls(current) }
           }
-          Button("Remove Page", systemImage: "trash") {
-            app.documentImport.pages.removeAll { $0.id == current.id }
-            page = nil
+        } else {
+          HStack(alignment: .bottom, spacing: 12) {
+            strip
+            Spacer(minLength: 0)
+            pageControls(current)
           }
-          .buttonStyle(.kit).labelStyle(.iconOnly).controlSize(.small)
         }
       }
       .dropDestination(for: URL.self) { urls, _ in
@@ -369,6 +383,26 @@ struct AddDocumentSheet: View {
     holder = person.id
     newHolder = ""
     addsHolder = false
+  }
+
+  /// The page's look (photos only) and Remove Page.
+  @ViewBuilder private func pageControls(_ current: IncomingPage) -> some View {
+    if info.pages.contains(where: { !$0.isPDF }) {
+      KitSegmented(selection: $look, segments: [
+        KitSegment("Color", value: .color), KitSegment("Grey", value: .grayscale), KitSegment("Document", value: .document),
+      ])
+      .controlSize(.small)
+    }
+    if idiom == .phone { Spacer(minLength: 0) }
+    Button {
+      app.documentImport.pages.removeAll { $0.id == current.id }
+      page = nil
+    } label: {
+      Image(systemName: "trash")
+    }
+    .buttonStyle(.kit).controlSize(.small)
+    .accessibilityLabel("Remove Page")
+    .help("Remove Page")
   }
 
   private func chooseFiles() {
