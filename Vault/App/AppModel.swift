@@ -364,7 +364,17 @@ final class AppModel {
       ? String(localized: "iCloud · \(devices.count) devices") : String(localized: "On this \(KitDevice.name)")
   }
 
+  /// Whether passwords, cards and codes go to iCloud Keychain: not while iCloud is off on this device, when they stay
+  /// in its own keychain (`VaultKeychain`'s offline twin) and nothing syncs (V-012).
+  var keepsSecretsInICloud: Bool { isDemo || !VaultICloudStatus.shared.isOff }
+
+  /// Where passwords, cards and codes are kept, for a card's meta: "iCloud Keychain" or "this iPhone's keychain".
+  var secretsPlace: String {
+    keepsSecretsInICloud ? String(localized: "iCloud Keychain") : String(localized: "this \(ThisDevice.word)’s keychain")
+  }
+
   var syncedLine: String {
+    if !keepsSecretsInICloud { return String(localized: "on this \(ThisDevice.word)") }
     guard let lastSync else { return isDemo ? String(localized: "synced 1 min ago") : String(localized: "not synced yet") }
     return String(localized: "synced \(RelativeTime.short(lastSync))")
   }

@@ -170,7 +170,7 @@ struct CardsView: View {
     } inspector: {
       if let card = cards.first(where: { $0.id == (selected ?? cards.first?.id) }) {
         InspectorHeader(card.title, meta: [card.brand, "•••• \(card.last4)"], systemImage: "creditcard", hue: .orange) {}
-        KitSection("Card", meta: ["iCloud Keychain", String(localized: "v57 apps only")], systemImage: "creditcard", hue: .orange) {
+        KitSection("Card", meta: [app.secretsPlace, String(localized: "v57 apps only")], systemImage: "creditcard", hue: .orange) {
           InspectorRow("Holder", value: card.holder)
           InspectorRow("Number") { KitSecretValue(label: "Number") { card.number } }
           InspectorRow("Expires", value: card.expiry)

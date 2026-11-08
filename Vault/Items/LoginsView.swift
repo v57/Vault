@@ -208,7 +208,7 @@ struct LoginInspector: View {
 
   @ViewBuilder
   private var sections: some View {
-    KitSection("Sign-in", meta: ["iCloud Keychain", "v57 apps only"], systemImage: "key.horizontal") {
+    KitSection("Sign-in", meta: [app.secretsPlace, String(localized: "v57 apps only")], systemImage: "key.horizontal") {
       InspectorRow("Username", value: login.username)
       InspectorRow("Password") { KitSecretValue { login.password } }
       ForEach(app.vault.passkeys(forLogin: login.id)) { passkey in

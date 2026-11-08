@@ -23,7 +23,10 @@ struct NewItemSheet: View {
   private var sheet: some View {
     KitSheet(
       title: title,
-      meta: idiom == .phone
+      meta: !app.keepsSecretsInICloud
+        // iCloud off on this device: the keychain's own copy, nowhere else.
+        ? String(localized: "Saved in this \(ThisDevice.word)’s keychain; iCloud is off")
+        : idiom == .phone
         ? String(localized: "Saved in iCloud Keychain on your \(app.devices.count) devices")
         : String(localized: "Saved in iCloud Keychain on your \(app.devices.count) devices. Only v57 apps and AutoFill can read it."),
       systemImage: kindImage(kind), width: 660

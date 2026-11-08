@@ -32,7 +32,8 @@ struct SidebarView: View {
     } status: {
       HStack(spacing: 6) {
         StatusDot(hue: app.vault.sync?.isRunning == true || app.isDemo ? .green : .gray)
-        Text(idiom.isTouch ? "iCloud" : app.cloudSummary)
+        // iCloud off on this device: nothing syncs, so the status says where the vault is.
+        Text(idiom.isTouch ? (app.keepsSecretsInICloud ? String(localized: "iCloud") : String(localized: "This \(ThisDevice.word)")) : app.cloudSummary)
       }
     }
     .navigationTitle("Vault")

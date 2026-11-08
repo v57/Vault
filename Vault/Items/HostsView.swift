@@ -189,7 +189,7 @@ struct HostInspector: View {
         }
       }
     } else if host.auth == .password {
-      KitSection("Password", meta: ["iCloud Keychain", host.savePassword ? String(localized: "saved") : String(localized: "asked each time")], systemImage: "key.horizontal", hue: .gray) {
+      KitSection("Password", meta: [app.secretsPlace, host.savePassword ? String(localized: "saved") : String(localized: "asked each time")], systemImage: "key.horizontal", hue: .gray) {
         InspectorRow("Password") { KitSecretValue { host.password } }
       }
     }
