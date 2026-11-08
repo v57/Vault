@@ -116,20 +116,35 @@ struct LabeledField<Content: View>: View {
   }
 }
 
-/// The login's fields, its one-time code and its links.
+/// The login's fields, its one-time code and its links, for a new login or (with `editing`) a saved one.
 private struct LoginForm: View {
+  var editing: VaultLogin?
   var onSave: () -> Void
   @Environment(AppModel.self) private var app
   @Environment(\.kitIdiom) private var idiom
-  @State private var title = ""
-  @State private var website = ""
-  @State private var username = ""
-  @State private var password = PasswordGenerator().generate()
+  @Environment(\.kitSecretAccess) private var secretAccess
+  @State private var title: String
+  @State private var website: String
+  @State private var username: String
+  @State private var password: String
+  /// Editing: the saved password stays hidden (and unchanged) until Show, which asks the app lock first.
+  @State private var passwordHidden: Bool
   @State private var code: OneTimeCode?
   @State private var codeError: String?
   @State private var scansCamera = false
-  @State private var links: Set<String> = []
+  @State private var links: Set<String>
   @State private var error: String?
+
+  init(editing: VaultLogin? = nil, onSave: @escaping () -> Void) {
+    self.editing = editing
+    self.onSave = onSave
+    _title = State(initialValue: editing?.title ?? "")
+    _website = State(initialValue: editing?.website ?? "")
+    _username = State(initialValue: editing?.username ?? "")
+    _password = State(initialValue: editing == nil ? PasswordGenerator().generate() : "")
+    _passwordHidden = State(initialValue: editing != nil)
+    _links = State(initialValue: editing?.links ?? [])
+  }
 
   var body: some View {
     let strength = PasswordStrength(password: password)
@@ -141,11 +156,28 @@ private struct LoginForm: View {
       FieldRow {
         LabeledField("Username") { TextField("you@example.com", text: $username).kitField(content: .verbatim) }
         LabeledField("Password") {
+          if passwordHidden {
+            HStack {
+              Text(verbatim: "••••••••").kitFont(.mono).foregroundStyle(.kitSecondary)
+              Spacer()
+              Button("Show") { showPassword() }.buttonStyle(.kitPlain).controlSize(.small)
+              Button("Generate", systemImage: "wand.and.stars") {
+                password = PasswordGenerator().generate()
+                passwordHidden = false
+              }
+              .buttonStyle(.kitPlain).controlSize(.small)
+            }
+            .padding(.horizontal, idiom == .mac ? 10 : 12)
+            .padding(.vertical, 6)
+            .kitSurface(.field)
+          } else {
           TextField("Password", text: $password)
             .kitField(mono: true) {
               Button("Generate", systemImage: "wand.and.stars") { password = PasswordGenerator().generate() }
                 .buttonStyle(.kitPlain).controlSize(.small)
             }
+          }
+          if !passwordHidden {
           HStack(spacing: 10) {
             MeterBar(
               segments: (0..<4).map { MeterSegment("", value: $0 <= strength.rawValue ? 1 : 0, hue: strengthHue(strength)) },
@@ -159,12 +191,17 @@ private struct LoginForm: View {
               .kitFont(.caption).lineLimit(2)
           }
           .padding(.top, 2)
+          }
         }
       }
     }
     LabeledField("One-time code") {
       FormCard {
-        if let code {
+        if code == nil, editing?.hasOneTimeCode == true {
+          FormRow("One-time code", help: "Saved; paste or scan a new setup key to replace it", systemImage: "clock") {
+            Button("Paste Key") { pasteKey() }.buttonStyle(.kit).controlSize(.small)
+          }
+        } else if let code {
           let name: LocalizedStringKey = if let name = code.issuer ?? code.account { "\(name)" } else { "Added" }
           FormRow("One-time code", help: name, systemImage: "clock") {
             KitOneTimeCode(period: TimeInterval(code.period), showsSeconds: false) { code.code(at: $0) }
@@ -244,12 +281,26 @@ private struct LoginForm: View {
     codeError = nil
   }
 
+  /// The saved password into its field, once the app lock allows it.
+  private func showPassword() {
+    Task {
+      if let secretAccess, !(await secretAccess(String(localized: "Password"))) { return }
+      password = editing?.password ?? ""
+      passwordHidden = false
+    }
+  }
+
   private func save() {
     guard let store = app.vault.store else { return }
     do {
-      let login = VaultLogin(title: title.isEmpty ? website : title, website: website, username: username, links: links)
+      var login = editing ?? VaultLogin(title: "", website: "", username: "", links: [])
+      login.title = title.isEmpty ? website : title
+      login.website = website
+      login.username = username
+      login.links = links
       try store.save(login)
-      try store.setPassword(password, forLogin: login.id)
+      // A password left hidden is the saved one, unchanged.
+      if !passwordHidden { try store.setPassword(password, forLogin: login.id) }
       if let code { try store.setOneTimeCode(code, forLogin: login.id) }
       app.vault.reload()
       app.selectedLogin = login.id
@@ -539,6 +590,25 @@ struct FieldRow<Content: View>: View {
       VStack(spacing: 12) { content }
     } else {
       HStack(alignment: .top, spacing: 12) { content }
+    }
+  }
+}
+
+/// Edit Login: the login's fields in `LoginForm`, saved in place.
+struct EditLoginSheet: View {
+  let loginID: String
+  @Environment(AppModel.self) private var app
+  @Environment(\.kitDismiss) private var dismiss
+
+  var body: some View {
+    let login = app.vault.logins.first { $0.id == loginID }
+    let meta: LocalizedStringKey = if let login { "\(login.displayName)" } else { "This login was deleted" }
+    KitSheet(title: "Edit Login", meta: meta, systemImage: "key.horizontal", width: 660) {
+      if let login {
+        LoginForm(editing: login, onSave: { dismiss() })
+      } else {
+        EmptyState(systemImage: "key.horizontal", title: "No Login", message: "Another device deleted it.")
+      }
     }
   }
 }

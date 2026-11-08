@@ -50,6 +50,8 @@ enum AppSheet: Identifiable, Hashable {
   case newItem(NewItemKind)
   /// Edit SSH Host for the host with this id.
   case editHost(String)
+  /// Edit Login for the login with this id.
+  case editLogin(String)
   case addRemote
   case decrypt(String)
   case share(String)

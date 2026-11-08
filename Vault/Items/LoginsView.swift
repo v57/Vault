@@ -177,7 +177,7 @@ struct LoginInspector: View {
     sections
     if !pushed {
       ActionBar {
-        Button("Edit") { app.sheet = .newItem(.login) }
+        Button("Edit") { app.sheet = .editLogin(login.id) }
         Button("Copy Password") {
           Task {
             guard await AppLock.shared.allow(String(localized: "Password")) else { return }
@@ -275,7 +275,7 @@ struct LoginPage: View {
     } content: {
       LoginInspector(login: login)
     } trailing: {
-      Button("Edit") { app.sheet = .newItem(.login) }.buttonStyle(.kit)
+      Button("Edit") { app.sheet = .editLogin(login.id) }.buttonStyle(.kit)
     } actions: {
       Button("Copy Password", systemImage: "doc.on.doc") {
         Task {
