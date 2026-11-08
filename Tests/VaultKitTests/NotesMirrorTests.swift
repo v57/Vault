@@ -48,6 +48,55 @@ struct NotesMirrorTests {
     #expect(try EncryptedNote.open(sealed, keys: keys) == "secret text")
   }
 
+  /// A synced record chooses its own path: one that climbs out of the notes folder (H1: a LaunchAgent written by whoever
+  /// can write records) is refused and counted, and nothing appears outside the folder, through `..`, an absolute path or
+  /// a symlinked subfolder. A note moved to `../..` stays where it was.
+  @Test func aRecordsPathNeverLeavesTheNotesFolder() throws {
+    let (mirror, store, folder) = try make()
+    let parent = folder.deletingLastPathComponent()
+    let outside = parent.appendingPathComponent("outside", isDirectory: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: folder.appendingPathComponent("Linked"), withDestinationURL: outside)
+
+    let escapes = [
+      "../escaped.plist", "a/../../escaped.plist", parent.appendingPathComponent("absolute.plist").path,
+      "Linked/escaped.plist", "Linked/../../escaped2.plist", "./x/../../escaped3.plist", "a//b.txt", "back\\slash.txt",
+    ]
+    for path in escapes { try store.save(VaultNoteFile(path: path, data: Data("evil".utf8))) }
+    try store.save(VaultNote(folder: "../..", name: "Climb", encrypted: false, text: "evil"))
+    try store.save(VaultNote(folder: "Linked", name: "Through", encrypted: false, text: "evil"))
+    // A note already here, then moved out by a synced edit of its folder.
+    try write("mine", "Mine.md", in: folder)
+    mirror.reconcileNow()
+    let mine = try #require(try notes(store).first { $0.name == "Mine" })
+    var moved = mine
+    moved.folder = "../../.."
+    try store.save(moved)
+
+    let report = mirror.reconcileNow()
+    #expect(report.refused == escapes.count + 3)
+    #expect(try read("Mine.md", in: folder) == "mine")
+    let leaked = try FileManager.default.subpathsOfDirectory(atPath: parent.path).filter { path in
+      !path.hasPrefix("Notes") && !path.hasPrefix("vault") && !path.hasPrefix("state") && path != "outside"
+    }
+    #expect(leaked.isEmpty)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path).isEmpty)
+
+    // An ordinary nested path still works.
+    try store.save(VaultNoteFile(path: "Images/a.png", data: Data([1, 2, 3])))
+    mirror.reconcileNow()
+    #expect(try Data(contentsOf: folder.appendingPathComponent("Images/a.png")) == Data([1, 2, 3]))
+  }
+
+  @Test func safeRelativePaths() {
+    for path in ["a.md", "Work/Plan.md", "a b/c.md", "Ünïcode/ノート.md", "..hidden.md", "a..b.md"] {
+      #expect(NotesMirror.isSafeRelativePath(path), "\(path)")
+    }
+    for path in ["", "/etc/x", "~/x", "../x", "a/../../x", "a/./b", "a//b", "a/", "a\\b", "a\u{0}b", "a\nb"] {
+      #expect(!NotesMirror.isSafeRelativePath(path), "\(path)")
+    }
+  }
+
   /// A note whose key hasn't arrived isn't a note deleted elsewhere: its file stays, and so does the row.
   @Test func aNoteThatDoesntOpenHereKeepsItsFile() throws {
     let (mirror, store, folder) = try make()

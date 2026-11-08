@@ -71,6 +71,14 @@ public final class NotesMirror: @unchecked Sendable {
     public var merged = 0
     public var removedFiles = 0
     public var removedNotes = 0
+    /// Records whose path would leave the notes folder (`safeURL(for:)`): nothing of them was written.
+    public var refused = 0
+  }
+
+  /// A record's path that doesn't stay inside the notes folder.
+  public struct UnsafePath: LocalizedError, Equatable {
+    public let path: String
+    public var errorDescription: String? { "A note's path leaves the notes folder, so it wasn't written: \(path)" }
   }
 
   /// - Parameters:
@@ -177,6 +185,9 @@ public final class NotesMirror: @unchecked Sendable {
     for id in Set(byID.keys).union(index.entries.keys).union(records.keys) {
       do {
         try reconcile(id: id, file: byID[id], record: records[id], entry: index.entries[id], report: &report)
+      } catch let error as UnsafePath {
+        report.refused += 1
+        lock.withLock { self.error = error.localizedDescription }
       } catch {
         lock.withLock { self.error = error.localizedDescription }
       }
@@ -312,7 +323,8 @@ public final class NotesMirror: @unchecked Sendable {
       data = other.data
       path = other.path
     }
-    var target = folder.appendingPathComponent(path)
+    // The path comes from a synced record, which whoever can write records chooses.
+    guard var target = safeURL(for: path) else { throw UnsafePath(path: path) }
     let fileManager = FileManager.default
     // The place is taken by another file: the next free name.
     if fileManager.fileExists(atPath: target.path), Self.id(of: target) != record.id, file?.url != target {
@@ -327,6 +339,46 @@ public final class NotesMirror: @unchecked Sendable {
     if let text { bases.setBase(text, for: baseKey(record.id)) }
     index.entries[record.id] = Entry(
       path: relativePath(of: target), hash: Self.hash(data), clock: record.fields.latestClock.description)
+  }
+
+  /// Where a record's relative path lands in the folder, or nil when it would land anywhere else. A synced record's path
+  /// is whatever its writer chose (`../../Library/LaunchAgents/x.plist`), and the Mac apps aren't sandboxed, so it has to:
+  /// - be relative, with no empty, `.` or `..` part, no `\`, NUL or control character (nor `:` on Windows);
+  /// - stay under the folder once symlinks on the way are resolved, so a symlinked subfolder can't lead out;
+  /// - not name a symlink itself, which writing would follow.
+  func safeURL(for path: String) -> URL? {
+    guard Self.isSafeRelativePath(path) else { return nil }
+    let target = folder.appendingPathComponent(path)
+    let root = folder.path + "/"
+    // The deepest part that exists, resolved, must be the folder or inside it; what's below it is made fresh.
+    var existing = target
+    while !FileManager.default.fileExists(atPath: existing.path) {
+      let parent = existing.deletingLastPathComponent()
+      guard parent.path != existing.path else { return nil }
+      existing = parent
+    }
+    let resolved = existing.standardizedFileURL.resolvingSymlinksInPath().path
+    guard resolved == folder.path || resolved.hasPrefix(root) else { return nil }
+    if existing.path == target.path,
+      (try? FileManager.default.destinationOfSymbolicLink(atPath: target.path)) != nil
+    {
+      return nil
+    }
+    return target
+  }
+
+  /// A relative path with nothing in it that can climb out or confuse a file system.
+  static func isSafeRelativePath(_ path: String) -> Bool {
+    guard !path.isEmpty, !path.hasPrefix("/"), !path.hasPrefix("~") else { return false }
+    for scalar in path.unicodeScalars {
+      if scalar.value < 0x20 || scalar.value == 0x7F || scalar == "\\" { return false }
+      #if os(Windows)
+        if scalar == ":" { return false }
+      #endif
+    }
+    return path.split(separator: "/", omittingEmptySubsequences: false).allSatisfy { part in
+      !part.isEmpty && part != "." && part != ".."
+    }
   }
 
   private func remember(id: String, path: String, hash: String) throws {
