@@ -308,8 +308,11 @@ engine's position has already moved past it. A store doesn't finish with one wai
 waits there too, for a month at most, and asks for a full fetch, which is what can bring it back. An old tombstone is purged
 only by a finished store, and not while the server's record at that id is one it refused, as the delete would take that too.
 
-Format 2 CloudKit records carry no `keyID` field, so an old build on another device skips them rather than storing them
-over its copy (given a key id it would blank the row). A device that migrates later re-sends every row, which converges
+Format 2 CloudKit records carry their payload in `sealed` (or `sealedAsset`) and clear `keyID`, `payload` and
+`payloadAsset`, so an old build on another device skips them rather than storing them over its copy (given a key id it
+would blank the row). Should CloudKit keep a cleared field, it keeps the format 1 `keyID` and payload together, which an
+old build opens as the version it had. The two fields must be in the Production schema (record type `Item`, `sealed`
+Bytes, `sealedAsset` Asset) before a build that writes them syncs there. A device that migrates later re-sends every row, which converges
 through the field merge, and asks Hub members to send theirs again.
 
 **CloudKit deletions.** They can't be authenticated, so they get less trust than the records. A row dropped by one leaves

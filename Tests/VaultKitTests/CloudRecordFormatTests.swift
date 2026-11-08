@@ -16,13 +16,20 @@ import Testing
         kind: "host", fields: Data("{}".utf8), id: "r", account: "personal", keyID: "abcd", key: SymmetricKey(size: .bits256))
     }
 
-    /// `CloudSync.remote` as it was at c4ba614: without the field, no record.
-    private func oldBuildSees(_ record: CKRecord) -> Bool { record["keyID"] as? String != nil }
+    /// `CloudSync.remote` as it was at c4ba614: a record needs a `keyID` and a payload, and the payload it gets.
+    private func oldBuildSees(_ record: CKRecord) -> Bool { oldBuildPayload(record) != nil }
+
+    private func oldBuildPayload(_ record: CKRecord) -> Data? {
+      guard record["keyID"] as? String != nil else { return nil }
+      return record["payload"] as? Data ?? (record["payloadAsset"] as? CKAsset)?.fileURL.flatMap { try? Data(contentsOf: $0) }
+    }
 
     @Test func aFormat2RecordHasNoKeyIDAndComesBackWithTheHeaders() throws {
       let outgoing = OutgoingRecord(id: "r", keyID: "abcd", payload: try format2(), systemFields: nil, version: 1)
       let record = CloudSync.makeRecord(outgoing, id: id)
       #expect(record["keyID"] == nil)
+      #expect(record["payload"] == nil)
+      #expect(record[CloudSync.sealedField] as? Data == outgoing.payload)
       #expect(!oldBuildSees(record))
       let remote = try #require(CloudSync.remote(record))
       #expect(remote.keyID == "abcd")
@@ -51,6 +58,41 @@ import Testing
       #expect(record["keyID"] == nil)
       #expect(record.changedKeys().contains("keyID"))
       #expect(record.changedKeys().contains("payload"))
+      #expect(record.changedKeys().contains(CloudSync.sealedField))
+    }
+
+    /// Security audit M1, whatever the server keeps: if CloudKit ignored the clearing and kept the format 1 `keyID` and
+    /// payload, an old build still gets the version it can open, never the new payload under the old key's name (which
+    /// it would store over its own copy, losing the item), and a new build reads the format 2 one.
+    @Test func aServerThatKeepsClearedFieldsStillGivesOldBuildsWhatTheyCanOpen() throws {
+      let format1 = Data(repeating: 7, count: 64)
+      let server = CKRecord(recordType: CloudSync.recordType, recordID: id)
+      server["keyID"] = "abcd" as NSString
+      server["payload"] = format1 as NSData
+      let outgoing = OutgoingRecord(id: "r", keyID: "abcd", payload: try format2(), systemFields: CloudSync.archive(server), version: 2)
+      let sent = CloudSync.makeRecord(outgoing, id: id)
+
+      // The server applies the changed fields that have a value and keeps the rest.
+      for key in sent.changedKeys() where sent[key] != nil { server[key] = sent[key] }
+      #expect(oldBuildPayload(server) == format1)
+      #expect(CloudSync.remote(server)?.payload == outgoing.payload)
+
+      // And one that honours the clearing: the old build skips it.
+      for key in sent.changedKeys() { server[key] = sent[key] }
+      #expect(!oldBuildSees(server))
+      #expect(CloudSync.remote(server)?.payload == outgoing.payload)
+    }
+
+    @Test func aLargeFormat2PayloadGoesAsItsOwnAsset() throws {
+      var payload = try format2()
+      payload += Data(count: CloudSync.assetThreshold)
+      let outgoing = OutgoingRecord(id: "big-\(UUID())", keyID: "abcd", payload: payload, systemFields: nil, version: 1)
+      let record = CloudSync.makeRecord(outgoing, id: id)
+      defer { CloudSync.removeAssetFile(of: record) }
+      #expect(record["payloadAsset"] == nil && record[CloudSync.sealedField] == nil)
+      #expect(record[CloudSync.sealedAssetField] is CKAsset)
+      #expect(!oldBuildSees(record))
+      #expect(CloudSync.remote(record)?.payload == payload)
     }
 
     @Test func aRecordWithNeitherIsSkipped() throws {

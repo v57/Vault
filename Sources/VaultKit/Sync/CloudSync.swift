@@ -523,18 +523,30 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   /// Payloads bigger than this go as an asset (a record holds about 1 MB in all).
   static let assetThreshold = 700_000
 
+  /// Where a format 2 payload goes: fields old builds don't read (security audit M1). An old build takes a record only
+  /// with a `keyID` and a `payload` (or `payloadAsset`); a format 2 record clears all three and fills these instead. If
+  /// CloudKit honours the clearing, an old build skips the record. If it kept a cleared field, the server still holds
+  /// the old format 1 `keyID` and payload together, which an old build opens as the version it had: never a payload it
+  /// can't read under a key name it has, which it would store over its own copy and lose the item (Ideas/Security V1).
+  static let sealedField = "sealed"
+  static let sealedAssetField = "sealedAsset"
+
   static func makeRecord(_ outgoing: OutgoingRecord, id: CKRecord.ID) -> CKRecord {
     let record =
       outgoing.systemFields.flatMap(unarchive) ?? CKRecord(recordType: recordType, recordID: id)
-    // Empty for format 2, whose payload names its key: it's what makes an old build skip the record instead of storing
-    // what it can't read over its own copy (Ideas/Security V1). The field stays in the schema for format 1.
-    record["keyID"] = VaultItemSeal.parse(outgoing.payload) == nil ? outgoing.keyID as NSString : nil
+    let isFormat2 = VaultItemSeal.parse(outgoing.payload) != nil
+    let (field, assetField) = isFormat2 ? (sealedField, sealedAssetField) : ("payload", "payloadAsset")
+    // Clearing a field counts as a change even on a record rebuilt from system fields alone, so the save carries it.
+    for cleared in isFormat2 ? ["keyID", "payload", "payloadAsset"] : [sealedField, sealedAssetField] {
+      record[cleared] = nil
+    }
+    if !isFormat2 { record["keyID"] = outgoing.keyID as NSString }
     if outgoing.payload.count > assetThreshold, let file = try? assetFile(for: outgoing) {
-      record["payload"] = nil
-      record["payloadAsset"] = CKAsset(fileURL: file)
+      record[field] = nil
+      record[assetField] = CKAsset(fileURL: file)
     } else {
-      record["payload"] = outgoing.payload as NSData
-      record["payloadAsset"] = nil
+      record[field] = outgoing.payload as NSData
+      record[assetField] = nil
     }
     return record
   }
@@ -549,8 +561,10 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   }
 
   static func removeAssetFile(of record: CKRecord) {
-    if let url = (record["payloadAsset"] as? CKAsset)?.fileURL, url.path.contains("/VaultAssets/") {
-      try? FileManager.default.removeItem(at: url)
+    for field in ["payloadAsset", sealedAssetField] {
+      if let url = (record[field] as? CKAsset)?.fileURL, url.path.contains("/VaultAssets/") {
+        try? FileManager.default.removeItem(at: url)
+      }
     }
   }
 
@@ -563,13 +577,15 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
 
   static func fetched(_ record: CKRecord) -> FetchedRecord {
     let id = record.recordID.recordName
+    // The format 2 fields first: where CloudKit kept a cleared format 1 payload, it's the older version.
+    let asset = (record[sealedAssetField] ?? record["payloadAsset"]) as? CKAsset
     let payload: Data
-    if let data = record["payload"] as? Data {
+    if let data = (record[sealedField] ?? (record[sealedAssetField] == nil ? record["payload"] : nil)) as? Data {
       payload = data
-    } else if let url = (record["payloadAsset"] as? CKAsset)?.fileURL, let data = try? Data(contentsOf: url) {
+    } else if let url = asset?.fileURL, let data = try? Data(contentsOf: url) {
       payload = data
     } else {
-      return .unread(UnreadRecord(id: id, changeTag: record.recordChangeTag, hasPayload: record["payloadAsset"] is CKAsset))
+      return .unread(UnreadRecord(id: id, changeTag: record.recordChangeTag, hasPayload: asset != nil))
     }
     guard let keyID = VaultItemSeal.parse(payload)?.keyID ?? record["keyID"] as? String else {
       return .unread(UnreadRecord(id: id, changeTag: record.recordChangeTag, hasPayload: false))
