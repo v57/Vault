@@ -47,6 +47,6 @@
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Confirms it's you before this device's SSH key signs in to a server.</string>
+	<string>Confirms it's you when Vault opens, before a password, card or document number is shown or copied, and before this device's SSH key signs in to a server.</string>
 </dict>
 </plist>

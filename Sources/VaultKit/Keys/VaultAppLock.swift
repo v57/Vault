@@ -105,6 +105,21 @@ public enum VaultAppLock {
 
   // MARK: Asking
 
+  /// Whether the system shows the reason on its own (iPhone and iPad) rather than after "“Vault” is trying to" (the
+  /// Mac). Callers write it to follow that phrase ("open your vault").
+  static let standalone: Bool = {
+    #if os(macOS)
+      false
+    #else
+      true
+    #endif
+  }()
+
+  /// A reason written to follow "“Vault” is trying to", as a line of its own: "Open your vault".
+  static func sentence(_ reason: String) -> String {
+    reason.prefix(1).uppercased() + reason.dropFirst()
+  }
+
   private static func askOwner(reason: String) async -> Bool {
     #if canImport(LocalAuthentication)
       let context = LAContext()
@@ -113,7 +128,8 @@ public enum VaultAppLock {
         // No password, Touch ID or Face ID on this device: there's no owner to tell apart.
         return error?.code == LAError.passcodeNotSet.rawValue
       }
-      return (try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
+      let shown = standalone ? sentence(reason) : reason
+      return (try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: shown)) ?? false
     #else
       // Linux and Windows have no Vault app yet; their kits read secrets as every app does.
       return true

@@ -90,4 +90,11 @@ struct AppLockTests {
     #expect(await VaultAppLock.setEnabled(true, reason: ""))
     #expect(!VaultAppLock.isUnlocked)
   }
+
+  /// The reason follows "“Vault” is trying to" on the Mac; on iPhone and iPad it's a line of its own (V-021).
+  @Test func aStandaloneReasonStartsWithACapital() {
+    #expect(VaultAppLock.sentence("open your vault") == "Open your vault")
+    #expect(VaultAppLock.sentence("show or copy “Atlas admin”") == "Show or copy “Atlas admin”")
+    #expect(VaultAppLock.sentence("") == "")
+  }
 }
