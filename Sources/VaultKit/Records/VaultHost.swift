@@ -340,7 +340,12 @@ public struct VaultDeviceKey: VaultRecord, Hashable {
   /// The `authorized_keys` line.
   public var publicKey: String
   public var platform: String
+  /// When the key, the name or the platform was last published.
   public var updated: Date?
+  /// When the device last ran a v57 app with sync on (`VaultStore.markDeviceSeen`), to within a few hours; nil until a
+  /// build that notes it ran there. Not in `values`: only `markDeviceSeen` writes it, so publishing the key (here or
+  /// from an older build) never clears it.
+  public var lastSeen: Date?
   /// For an app's own key (`isAppKey`): its bundle id, and the device it runs on. Get and Player hold no device key
   /// (security audit M4, V3), so they sign in to the user's machines with a key of their own, which the user allows on
   /// each Mac (Settings ▸ Remote) and which sshd takes with `restrict` (no forwarding, no terminal).
@@ -371,6 +376,7 @@ public struct VaultDeviceKey: VaultRecord, Hashable {
     publicKey = read.string("publicKey", default: "")
     platform = read.string("platform", default: "")
     updated = read.date("updated")
+    lastSeen = read.date("lastSeen")
     app = read.string("app").flatMap { $0.isEmpty ? nil : $0 }
     device = read.string("device").flatMap { $0.isEmpty ? nil : $0 }
   }
@@ -386,6 +392,13 @@ public struct VaultDeviceKey: VaultRecord, Hashable {
   }
 
   public var fingerprint: String? { VaultIdentity.fingerprint(keyLine: publicKey) }
+
+  /// When the device was last seen: when it last ran a v57 app, else (a build that doesn't note it) when it published
+  /// its key.
+  public var seen: Date? { lastSeen ?? updated }
+
+  /// How long a device's `lastSeen` stands before it's written again (on a new day it's written anyway).
+  public static let seenInterval: TimeInterval = 4 * 3600
 }
 
 extension VaultStore {
@@ -408,6 +421,21 @@ extension VaultStore {
     try save(
       VaultDeviceKey(
         id: deviceID, deviceName: name, customName: existing?.customName, publicKey: line, platform: platform))
+  }
+
+  /// Notes that this device runs a v57 app (`VaultDeviceKey.lastSeen`), for the other devices' "seen today". Writes
+  /// only that field of its published key, and only when the last note is from another day or `seenInterval` old, so
+  /// every app can call it on each sync. Nothing before the device has published its key, and nothing from an app
+  /// without the device key (`VaultKeychain.readsRecordsOnly`). Returns whether it wrote.
+  @discardableResult
+  public func markDeviceSeen(now: Date = .now, calendar: Calendar = .current) throws -> Bool {
+    guard !VaultKeychain.readsRecordsOnly, let key = try record(VaultDeviceKey.self, id: deviceID) else { return false }
+    if let seen = key.lastSeen, calendar.isDate(seen, inSameDayAs: now), now.timeIntervalSince(seen) < VaultDeviceKey.seenInterval,
+      seen <= now
+    {
+      return false
+    }
+    return try save(id: deviceID, kind: VaultDeviceKey.kind, changes: ["lastSeen": .init(now)])
   }
 
   /// An app without the device key (`VaultKeychain.readsRecordsOnly`) publishes its own (`VaultDeviceKey.isAppKey`), as

@@ -60,7 +60,7 @@ struct DevicesView: View {
           systemImage: "laptopcomputer", hue: .gray
         ) {
           ForEach(app.otherDevices) { device in
-            let seen = device.updated.map { RelativeTime.seen($0) } ?? ""
+            let seen = device.seen.map { RelativeTime.seen($0) } ?? ""
             SidebarRow(
               "\(device.deviceName)",
               subtitle: idiom == .phone

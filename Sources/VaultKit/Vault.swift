@@ -119,12 +119,21 @@ public final class Vault {
       Task { @MainActor in self?.syncChanged() }
     }
     sync?.start()
+    markSeen()
   }
 
   /// The engine fetched or sent something: read what arrived, and note when.
   private func syncChanged() {
     reload()
     if let date = sync?.lastSynced, date != lastSynced { lastSynced = date }
+    markSeen()
+  }
+
+  /// Notes that this device ran a v57 app (`VaultStore.markDeviceSeen`, a few times a day at most), for the other
+  /// devices' "seen today". Personal only: devices' keys are kept there.
+  private func markSeen() {
+    guard isPersonal, let store, (try? store.markDeviceSeen()) == true else { return }
+    reload()
   }
 
   /// Keeps the icons of this device's projects current (`VaultStore.refreshProjectIcons`), in the background: looks
@@ -160,7 +169,11 @@ public final class Vault {
     let revision = store.revision
     guard force || revision != self.revision else { return }
     self.revision = revision
-    let oldDeviceKeys = deviceKeys + appKeys
+    #if os(macOS)
+      // A device noting that it ran (`lastSeen`) changes nothing for authorized_keys.
+      let unseen: ([VaultDeviceKey]) -> [VaultDeviceKey] = { $0.map { var key = $0; key.lastSeen = nil; return key } }
+      let oldDeviceKeys = unseen(deviceKeys + appKeys)
+    #endif
     do {
       projects = try store.records(VaultProject.self).sorted {
         $0.name.localizedStandardCompare($1.name) == .orderedAscending
@@ -230,7 +243,7 @@ public final class Vault {
     }
     #if os(macOS)
       // At launch, and when a device's key arrives, changes or goes: keep this Mac's authorized_keys and host current.
-      if deviceKeys + appKeys != oldDeviceKeys, isPersonal, thisDeviceHost != nil {
+      if unseen(deviceKeys + appKeys) != oldDeviceKeys, isPersonal, thisDeviceHost != nil {
         Task { @MainActor [weak self] in self?.refreshThisMac() }
       }
     #endif
