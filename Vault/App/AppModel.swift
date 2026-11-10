@@ -123,8 +123,16 @@ final class AppModel {
   var documentImport = DocumentImport()
   /// Shared documents being read now (`readSharedDocuments`), so two passes don't read one twice.
   var readingDocuments: Set<String> = []
-  /// When iCloud last synced, as this app saw it.
-  var lastSync: Date?
+  /// When iCloud last fetched or sent changes (`Vault.lastSynced`: Personal's engine carries every account); the demo
+  /// sets its own.
+  var lastSync: Date? {
+    get { demoSync ?? vault.personalVault.lastSynced }
+    set { demoSync = newValue }
+  }
+  private var demoSync: Date?
+  /// Counts `open` calls: the iPhone shows the detail column again even when the item was selected already (a row
+  /// tapped again after Back, a Save that opens its list).
+  private(set) var openCount = 0
 
   init(vault: Vault, deviceVault: Vault? = nil, isDemo: Bool, folders: FolderLibrary, remotes: any RemoteService,
        sharing: any SharingService, recovery: any RecoveryService, hubs: any HubEngine) {
@@ -169,7 +177,6 @@ final class AppModel {
         vault: vault, isDemo: false, folders: FolderLibrary(vault: vault, sync: NoFolderSync()),
         remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault), recovery: LiveRecovery(vault: vault),
         hubs: LiveHubs(directory: hubs))
-      model.lastSync = vault.sync?.isRunning == true ? .now : nil
       moveSecrets()
     }
     model.applyLaunchOptions()
@@ -226,7 +233,6 @@ final class AppModel {
       folders: FolderLibrary(vault: vault, sync: NoFolderSync()),
       remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault),
       recovery: personal?.recovery ?? LiveRecovery(vault: Vaults.shared.personal), hubs: LiveHubs(directory: hubs))
-    model.lastSync = personal?.lastSync
     model.applyLaunchOptions()
     models[vault.accountID] = model
     return model
@@ -323,7 +329,12 @@ final class AppModel {
   func syncNow() {
     vault.sync?.syncNow()
     folders.checkRemotes()
-    lastSync = .now
+  }
+
+  /// Opens an item: selects it, and on iPhone shows its screen even when it was selected already.
+  func open(_ item: SidebarItem) {
+    selection = item
+    openCount += 1
   }
 
   // MARK: Counts
@@ -334,10 +345,11 @@ final class AppModel {
   }
 
   /// The notes, read again only when the store changed: each read decrypts every note, and the sidebar asked three
-  /// times on each update.
+  /// times on each update. Reads the vault's observable revision, so the sidebar's counts and the Notes list follow a
+  /// save and a note that synced in (V-035).
   var notes: [VaultNote] {
     guard let store = vault.store else { return [] }
-    let revision = store.revision
+    let revision = vault.revision
     if let cached = notesCache, cached.revision == revision { return cached.notes }
     let notes = (try? store.records(VaultNote.self)) ?? []
     notesCache = (revision, notes)

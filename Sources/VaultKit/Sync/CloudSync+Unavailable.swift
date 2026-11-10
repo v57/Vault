@@ -5,6 +5,7 @@
   public final class CloudSync: @unchecked Sendable {
     public let store: VaultStore
     public private(set) var lastError: String?
+    public var lastSynced: Date? { nil }
 
     public init(store: VaultStore, onChange: @escaping @Sendable () -> Void = {}) {
       self.store = store

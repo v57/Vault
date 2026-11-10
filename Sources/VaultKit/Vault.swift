@@ -64,6 +64,12 @@ public final class Vault {
   public var isPersonal: Bool { accountID == VaultAccount.personal.id }
   /// Why the store couldn't open or save, for the UI.
   public var error: String?
+  /// The store's revision this vault last read. Observable: a view that reads the store beyond these lists (notes,
+  /// which decrypt on each read) follows every change, a save here as much as one that synced in.
+  public private(set) var revision: Int64 = -1
+  /// When iCloud last fetched or sent changes, as this app's engine saw it: nil until it has, and while sync is off.
+  /// Only Personal's is set (its engine carries every account): read it through `personalVault`.
+  public private(set) var lastSynced: Date?
 
   /// The store, nil when it couldn't open.
   @ObservationIgnored public let store: VaultStore?
@@ -74,7 +80,6 @@ public final class Vault {
   /// Called after every reload that read the store (`Vaults` follows Personal's accounts).
   @ObservationIgnored var didReload: (() -> Void)?
   @ObservationIgnored private var observer: VaultChangeObserver?
-  @ObservationIgnored private var loadedRevision: Int64 = -1
   @ObservationIgnored var dumpObserver: VaultChangeObserver?
   @ObservationIgnored var commandObserver: VaultChangeObserver?
   @ObservationIgnored private var iconFinder: (find: @Sendable (URL) -> URL?, thumbnail: @Sendable (URL) -> Data?)?
@@ -111,9 +116,15 @@ public final class Vault {
       Task.detached(priority: .utility) { VaultKeychain.mirrorRecordKeys() }
     #endif
     sync = CloudSync(store: store) { [weak self] in
-      Task { @MainActor in self?.reload() }
+      Task { @MainActor in self?.syncChanged() }
     }
     sync?.start()
+  }
+
+  /// The engine fetched or sent something: read what arrived, and note when.
+  private func syncChanged() {
+    reload()
+    if let date = sync?.lastSynced, date != lastSynced { lastSynced = date }
   }
 
   /// Keeps the icons of this device's projects current (`VaultStore.refreshProjectIcons`), in the background: looks
@@ -147,8 +158,8 @@ public final class Vault {
   public func reload(force: Bool = false) {
     guard let store else { return }
     let revision = store.revision
-    guard force || revision != loadedRevision else { return }
-    loadedRevision = revision
+    guard force || revision != self.revision else { return }
+    self.revision = revision
     let oldDeviceKeys = deviceKeys + appKeys
     do {
       projects = try store.records(VaultProject.self).sorted {

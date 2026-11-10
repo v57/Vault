@@ -25,7 +25,7 @@ struct SidebarView: View {
     } bottomBar: {
       if idiom.isTouch {
         // No Settings window on iPhone and iPad: Settings is pushed from the bar.
-        Button("Settings", systemImage: "gearshape") { app.selection = .settings }
+        Button("Settings", systemImage: "gearshape") { app.open(.settings) }
       }
       Button("New", systemImage: "plus") { showsNew = true }
         .kitMenu(isPresented: $showsNew) { NewMenu() }
@@ -104,9 +104,12 @@ private struct SelectingSidebar<Content: View, BottomBar: View, Status: View>: V
   }
 
   var body: some View {
-    @Bindable var app = app
+    // A row tapped again opens its screen again: on iPhone, after Back, the row is still the selection.
+    let selection = Binding<SidebarItem?>(
+      get: { app.selection },
+      set: { item in if let item { app.open(item) } else { app.selection = nil } })
     KitSidebar(
-      selection: $app.selection, searchText: $searchText, searchPrompt: "Search Vault",
+      selection: selection, searchText: $searchText, searchPrompt: "Search Vault",
       columnVisibility: columnVisibility
     ) {
       content

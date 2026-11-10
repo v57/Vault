@@ -307,7 +307,7 @@ private struct LoginForm: View {
       if let code { try store.setOneTimeCode(code, forLogin: login.id) }
       app.vault.reload()
       app.selectedLogin = login.id
-      app.selection = .logins
+      app.open(.logins)
       onSave()
     } catch {
       self.error = error.localizedDescription
@@ -401,7 +401,7 @@ private struct CardForm: View {
       try? store.setCardNumber(number, forCard: card.id)
       try? store.setCardCode(code, forCard: card.id)
       app.vault.reload()
-      app.selection = .cards
+      app.open(.cards)
       onSave()
     }
   }
@@ -420,7 +420,7 @@ private struct NoteForm: View {
     }
     SheetFooterButtons(saveTitle: String(localized: "Save"), canSave: !name.isEmpty, status: String(localized: "Encrypted; Markdown and Shell show it too")) {
       app.vault.save(VaultNote(folder: "Vault", name: name, encrypted: true, text: text))
-      app.selection = .notes
+      app.open(.notes)
       onSave()
     }
   }
@@ -468,7 +468,7 @@ struct HostForm: View {
     SheetFooterButtons(saveTitle: String(localized: "Save"), canSave: !host.hostname.isEmpty, status: String(localized: "Shell and Database see it at once")) {
       app.vault.save(host)
       app.selectedHost = host.id
-      app.selection = .hosts
+      app.open(.hosts)
       onSave()
     }
   }
@@ -533,7 +533,7 @@ private struct DatabaseForm: View {
       let database = VaultDatabase(name: name, engine: engine, host: host, port: Int(port) ?? 5432, user: user, order: app.vault.databases.count)
       app.vault.save(database)
       app.selectedDatabase = database.id
-      app.selection = .databases
+      app.open(.databases)
       onSave()
     }
   }
@@ -576,7 +576,7 @@ struct NewFolderSheet: View {
     let parent = location ?? app.folders.decryptedRoot.deletingLastPathComponent().appendingPathComponent("Folders")
     do {
       let record = try app.folders.create(name: name, at: parent.appendingPathComponent(name, isDirectory: true))
-      app.selection = .folder(record.id)
+      app.open(.folder(record.id))
       dismiss()
     } catch {
       self.error = error.localizedDescription

@@ -110,14 +110,16 @@ private struct SheetHost: ViewModifier {
   }
 }
 
-/// A new selection shows the detail column (iPhone). A modifier of its own, so a selection change updates it, not the
-/// window's body with the split view and both its columns.
+/// A new selection, or an item opened again (`AppModel.open`), shows the detail column (iPhone). A modifier of its own,
+/// so a selection change updates it, not the window's body with the split view and both its columns.
 private struct SelectionFollower: ViewModifier {
   @Binding var compactColumn: NavigationSplitViewColumn
   @Environment(AppModel.self) private var app
 
   func body(content: Content) -> some View {
-    content.onChange(of: app.selection) { _, _ in compactColumn = .detail }
+    content
+      .onChange(of: app.selection) { _, _ in compactColumn = .detail }
+      .onChange(of: app.openCount) { _, _ in compactColumn = .detail }
   }
 }
 

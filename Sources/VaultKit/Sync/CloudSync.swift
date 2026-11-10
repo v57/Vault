@@ -43,6 +43,12 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   /// The last problem, for a status line.
   public private(set) var lastError: String?
 
+  /// When this engine last finished a fetch or sent records: nil until it has.
+  public var lastSynced: Date? { lock.withLock { synced } }
+  private var synced: Date?
+
+  private func noteSynced() { lock.withLock { synced = .now } }
+
   /// Whether this app's sync works: nil until it's known. While it fails, the app takes no outbox leases and
   /// leaves its own writes unleased, so an app whose sync works sends them.
   private var isHealthy: Bool? {
@@ -341,6 +347,8 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         try await engine.fetchChanges()
         try await engine.sendChanges()
         isHealthy = true
+        noteSynced()
+        onChange()
       } catch {
         record(error)
         isHealthy = false
@@ -446,8 +454,14 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         }
       }
       isHealthy = true
+      noteSynced()
       // Accounts that just arrived in Personal start syncing; deleted ones go.
       queueOutbox()
+      onChange()
+
+    case .didFetchChanges:
+      // A fetch that brought nothing new still says the vault is current.
+      noteSynced()
       onChange()
 
     case .didFetchRecordZoneChanges(let fetch):
@@ -463,7 +477,10 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       for failure in changes.failedZoneSaves { record(failure.error) }
 
     case .sentRecordZoneChanges(let changes):
-      if !changes.savedRecords.isEmpty { isHealthy = true }
+      if !changes.savedRecords.isEmpty {
+        isHealthy = true
+        noteSynced()
+      }
       for saved in changes.savedRecords {
         Self.removeAssetFile(of: saved)
         let zone = saved.recordID.zoneID.zoneName
