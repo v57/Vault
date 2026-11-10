@@ -121,6 +121,9 @@ struct LoginsView: View {
     .navigationDestination(item: $pushed) { id in
       if let login = app.vault.logins.first(where: { $0.id == id }) {
         LoginPage(login: login)
+      } else {
+        // Deleted, here or on another device: back to the list.
+        Color.clear.onAppear { pushed = nil }
       }
     }
   }
@@ -171,6 +174,7 @@ struct LoginInspector: View {
   @Environment(\.pushedDetail) private var pushed
   @State private var copies = 0
   @State private var removing: VaultPasskey?
+  @State private var confirmsDelete = false
 
   var body: some View {
     if !pushed { header }
@@ -187,8 +191,11 @@ struct LoginInspector: View {
         }
         .effect(.success, on: copies)
         Button("Share…") { app.selection = .devices }
-        Button("More", systemImage: "ellipsis") {}.labelStyle(.iconOnly)
+        BarMenu {
+          Button("Delete…", systemImage: "trash", role: .destructive) { confirmsDelete = true }
+        }
       }
+      .loginDeletion(login, isPresented: $confirmsDelete, app: app)
     }
   }
 
@@ -268,6 +275,7 @@ struct LoginPage: View {
   let login: VaultLogin
   @Environment(AppModel.self) private var app
   @State private var copies = 0
+  @State private var confirmsDelete = false
 
   var body: some View {
     PushedDetail(title: login.displayName, meta: [String(localized: "Login"), login.domain ?? ""]) {
@@ -297,7 +305,26 @@ struct LoginPage: View {
           }
         }
         Button("Copy Website", systemImage: "link") { KitPasteboard.copy(login.website) }.disabled(login.website.isEmpty)
+        Divider()
+        Button("Delete…", systemImage: "trash", role: .destructive) { confirmsDelete = true }
       }
+    }
+    .loginDeletion(login, isPresented: $confirmsDelete, app: app)
+  }
+}
+
+extension View {
+  /// Asks before deleting a login, then deletes it with its password, one-time code and passkeys
+  /// (`VaultStore.deleteLogin`), on every device.
+  func loginDeletion(_ login: VaultLogin, isPresented: Binding<Bool>, app: AppModel) -> some View {
+    kitConfirmation(
+      "Delete “\(login.displayName)”?", isPresented: isPresented,
+      message: "Its password, one-time code and passkeys are deleted on all your devices. This can’t be undone.",
+      systemImage: "trash", confirm: "Delete"
+    ) {
+      let id = login.id
+      if app.selectedLogin == id { app.selectedLogin = nil }
+      app.vault.perform { try $0.deleteLogin(id: id) }
     }
   }
 }
