@@ -65,7 +65,7 @@ struct DevicesView: View {
               "\(device.deviceName)",
               subtitle: idiom == .phone
                 ? "\(seen)"
-                : "\(device.platform == "iOS" ? "iPadOS" : "macOS") · key \(ShortKey.fingerprint(device.fingerprint)) · \(seen)"
+                : "\(device.systemName) · key \(ShortKey.fingerprint(device.fingerprint)) · \(seen)"
             ) {
               RowTile(systemImage: DeviceGlyph.systemImage(device))
             } trailing: {

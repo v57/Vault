@@ -72,6 +72,22 @@ public enum VaultDevice {
     #endif
   }
 
+  /// What kind of device this is, for the other devices' lists (`VaultDeviceKey.model`): "Mac", "iPhone" or "iPad"; nil
+  /// elsewhere.
+  @MainActor public static var model: String? {
+    #if os(macOS)
+      "Mac"
+    #elseif os(iOS)
+      switch UIDevice.current.userInterfaceIdiom {
+      case .pad: "iPad"
+      case .phone: "iPhone"
+      default: nil
+      }
+    #else
+      nil
+    #endif
+  }
+
   /// The IPv4 and IPv6 addresses of the device's network interfaces now, its Hub Network overlay address among them
   /// while that's connected. Empty where it can't tell (Windows). Read again at most once a second: views ask for it
   /// as they update, and reading the interfaces took about a millisecond.

@@ -138,7 +138,7 @@ public struct VaultDevicesSettings<Control: View>: View {
     let projects = opened.reduce(0) { count, vault in count + vault.projects.filter { $0.paths[device.id] != nil }.count }
     return [
       device.id == vault.deviceID ? String(localized: "This \(KitDevice.name)") : nil,
-      device.platform == "custom" ? nil : device.platform,
+      device.platform == "custom" ? nil : device.systemName,
       projects == 0 ? nil : projects == 1 ? String(localized: "1 project") : String(localized: "\(projects) projects"),
     ].compactMap { $0 }.joined(separator: " · ")
   }
@@ -155,7 +155,7 @@ extension VaultDeviceKey {
   /// The device's symbol.
   var systemImage: String {
     let name = deviceName.lowercased()
-    if platform == "iOS" { return name.contains("iphone") ? "iphone" : "ipad" }
+    if platform == "iOS" { return model.map { $0 == "iPhone" } ?? name.contains("iphone") ? "iphone" : "ipad" }
     if name.contains("macbook") { return "laptopcomputer" }
     if platform == "windows" || platform == "linux" { return "pc" }
     return "desktopcomputer"

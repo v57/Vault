@@ -340,6 +340,9 @@ public struct VaultDeviceKey: VaultRecord, Hashable {
   /// The `authorized_keys` line.
   public var publicKey: String
   public var platform: String
+  /// "Mac", "iPhone" or "iPad" (`VaultDevice.model`): an iPhone and an iPad are both `platform` "iOS". Nil from a build
+  /// that doesn't say, and on other systems.
+  public var model: String?
   /// When the key, the name or the platform was last published.
   public var updated: Date?
   /// When the device last ran a v57 app with sync on (`VaultStore.markDeviceSeen`), to within a few hours; nil until a
@@ -354,13 +357,14 @@ public struct VaultDeviceKey: VaultRecord, Hashable {
 
   public init(
     id: String, deviceName: String, customName: String? = nil, publicKey: String, platform: String,
-    updated: Date? = .now, app: String? = nil, device: String? = nil
+    model: String? = nil, updated: Date? = .now, app: String? = nil, device: String? = nil
   ) {
     self.id = id
     self.deviceName = deviceName
     self.customName = customName
     self.publicKey = publicKey
     self.platform = platform
+    self.model = model
     self.updated = updated
     self.app = app
     self.device = device
@@ -375,6 +379,7 @@ public struct VaultDeviceKey: VaultRecord, Hashable {
     customName = read.string("customName").flatMap { $0.isEmpty ? nil : $0 }
     publicKey = read.string("publicKey", default: "")
     platform = read.string("platform", default: "")
+    model = read.string("model").flatMap { $0.isEmpty ? nil : $0 }
     updated = read.date("updated")
     lastSeen = read.date("lastSeen")
     app = read.string("app").flatMap { $0.isEmpty ? nil : $0 }
@@ -386,6 +391,8 @@ public struct VaultDeviceKey: VaultRecord, Hashable {
       "deviceName": .string(deviceName), "customName": .init(customName), "publicKey": .string(publicKey),
       "platform": .string(platform), "updated": .init(updated),
     ]
+    // Only when known: a key saved without it (another app's mirror, an older build) keeps the one the device wrote.
+    if let model { values["model"] = .string(model) }
     if let app { values["app"] = .string(app) }
     if let device { values["device"] = .string(device) }
     return values
@@ -396,6 +403,19 @@ public struct VaultDeviceKey: VaultRecord, Hashable {
   /// When the device was last seen: when it last ran a v57 app, else (a build that doesn't note it) when it published
   /// its key.
   public var seen: Date? { lastSeen ?? updated }
+
+  /// The device's system as people read it: "macOS", "iOS" or "iPadOS" (by `model`, else by the name an iPad goes
+  /// by), "Windows", "Linux".
+  public var systemName: String {
+    switch platform {
+    case "iOS":
+      if let model { return model == "iPad" ? "iPadOS" : "iOS" }
+      return deviceName.localizedCaseInsensitiveContains("ipad") ? "iPadOS" : "iOS"
+    case "windows": return "Windows"
+    case "linux": return "Linux"
+    default: return platform
+    }
+  }
 
   /// How long a device's `lastSeen` stands before it's written again (on a new day it's written anyway).
   public static let seenInterval: TimeInterval = 4 * 3600
@@ -416,26 +436,31 @@ extension VaultStore {
     #else
       let platform = "iOS"
     #endif
+    let model = VaultDevice.model
     let existing = try record(VaultDeviceKey.self, id: deviceID)
-    if let existing, existing.publicKey == line, existing.deviceName == name { return }
+    if let existing, existing.publicKey == line, existing.deviceName == name, existing.model == model { return }
     try save(
       VaultDeviceKey(
-        id: deviceID, deviceName: name, customName: existing?.customName, publicKey: line, platform: platform))
+        id: deviceID, deviceName: name, customName: existing?.customName, publicKey: line, platform: platform,
+        model: model))
   }
 
   /// Notes that this device runs a v57 app (`VaultDeviceKey.lastSeen`), for the other devices' "seen today". Writes
   /// only that field of its published key, and only when the last note is from another day or `seenInterval` old, so
   /// every app can call it on each sync. Nothing before the device has published its key, and nothing from an app
-  /// without the device key (`VaultKeychain.readsRecordsOnly`). Returns whether it wrote.
+  /// without the device key (`VaultKeychain.readsRecordsOnly`). A `model` the key doesn't have yet is written with it
+  /// (a device whose key a build without `model` published). Returns whether it wrote.
   @discardableResult
-  public func markDeviceSeen(now: Date = .now, calendar: Calendar = .current) throws -> Bool {
+  public func markDeviceSeen(now: Date = .now, model: String? = nil, calendar: Calendar = .current) throws -> Bool {
     guard !VaultKeychain.readsRecordsOnly, let key = try record(VaultDeviceKey.self, id: deviceID) else { return false }
-    if let seen = key.lastSeen, calendar.isDate(seen, inSameDayAs: now), now.timeIntervalSince(seen) < VaultDeviceKey.seenInterval,
-      seen <= now
-    {
-      return false
-    }
-    return try save(id: deviceID, kind: VaultDeviceKey.kind, changes: ["lastSeen": .init(now)])
+    var changes: [String: JSONValue] = [:]
+    if let model, key.model != model { changes["model"] = .string(model) }
+    let isRecent = key.lastSeen.map { seen in
+      calendar.isDate(seen, inSameDayAs: now) && now.timeIntervalSince(seen) < VaultDeviceKey.seenInterval && seen <= now
+    } ?? false
+    if !isRecent { changes["lastSeen"] = .init(now) }
+    guard !changes.isEmpty else { return false }
+    return try save(id: deviceID, kind: VaultDeviceKey.kind, changes: changes)
   }
 
   /// An app without the device key (`VaultKeychain.readsRecordsOnly`) publishes its own (`VaultDeviceKey.isAppKey`), as

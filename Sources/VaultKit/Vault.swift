@@ -132,7 +132,7 @@ public final class Vault {
   /// Notes that this device ran a v57 app (`VaultStore.markDeviceSeen`, a few times a day at most), for the other
   /// devices' "seen today". Personal only: devices' keys are kept there.
   private func markSeen() {
-    guard isPersonal, let store, (try? store.markDeviceSeen()) == true else { return }
+    guard isPersonal, let store, (try? store.markDeviceSeen(model: VaultDevice.model)) == true else { return }
     reload()
   }
 

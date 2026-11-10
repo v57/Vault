@@ -286,7 +286,7 @@ struct DeviceKeyRow: View {
 enum DeviceGlyph {
   static func systemImage(_ device: VaultDeviceKey) -> String {
     let name = device.deviceName.lowercased()
-    if device.platform == "iOS" { return name.contains("iphone") ? "iphone" : "ipad" }
+    if device.platform == "iOS" { return device.model.map { $0 == "iPhone" } ?? name.contains("iphone") ? "iphone" : "ipad" }
     if name.contains("macbook") { return "laptopcomputer" }
     if device.platform == "windows" || device.platform == "linux" { return "pc" }
     return "desktopcomputer"
