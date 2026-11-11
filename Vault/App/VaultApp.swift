@@ -103,7 +103,8 @@ struct MainWindow: View {
     #else
       { [accountID] in
         UserDefaults.standard.set("Accounts", forKey: "settings.pane")
-        AppModel.all.first { $0.vault.accountID == accountID }?.selection = .settings
+        // `open`, not a new selection: on iPhone the stack follows `open` even when Settings was selected already (V-029).
+        AppModel.all.first { $0.vault.accountID == accountID }?.open(.settings)
       }
     #endif
   }
