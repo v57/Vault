@@ -92,7 +92,8 @@ code would mean someone swapped a key.
 
 Select the person and click **Remove…**, then confirm. They go from your People list.
 
-Sending a folder or logins to someone comes in a later version of Vault.
+To give someone a folder, open it and choose **Share…**: see [Folder Sync](Folder-Sync.md#share-a-folder). Sending
+logins to someone comes in a later version of Vault.
 
 ## Let your devices sign in to a Mac
 

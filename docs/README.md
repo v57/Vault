@@ -25,6 +25,8 @@ There's no Vault app for Linux or Windows. The other v57 apps there keep their o
 - [SSH Hosts](SSH-Hosts.md): servers, each device's own key, fallback addresses and server keys.
 - [Documents](Documents.md): passports, IDs and other papers, scanned or imported, with reminders and redacted copies.
 - [Encrypted Folders](Encrypted-Folders.md): folders only v57 apps can open, and decrypting them for a while.
+- [Folder Sync](Folder-Sync.md): keeping a folder in step through S3 storage, on your devices and with people you
+  share it with, read-only for them if you like.
 - [Devices and People](Devices-and-People.md): your devices, a lost device, invites and safety codes, and letting your
   devices sign in to a Mac.
 - [Hub](Hub.md): connecting your devices through a Hub you run.

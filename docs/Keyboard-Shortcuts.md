@@ -10,13 +10,13 @@ These work on the Mac, and on iPad with a hardware keyboard. On iPad, hold ⌘ t
 | ⇧⌘N | New Encrypted Folder… |
 | ⌥⌘N | New Document… |
 
-On the Mac these are in the File menu, with **Add Remote…**.
+On the Mac these are in the File menu, with **Sync a Folder…** and **Add Remote…**.
 
 ## Vault
 
 | Shortcut | Command |
 |---|---|
-| ⌘R | Sync Now |
+| ⌘R | Sync Now (iCloud, and the remotes your synced folders use) |
 | ⌃⌘L | Lock All Folders (while a folder is decrypted) |
 | ⌃⌘1 … ⌃⌘9 | Switch the window to your first nine accounts |
 | ⌘, | Settings (Mac) |

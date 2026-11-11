@@ -33,12 +33,13 @@ The sidebar has these sections:
 - **Items:** **Logins**, **Cards**, **Notes**, **SSH Hosts**, **Databases** and **Projects**, each with a count. The
   section's **+** makes a new login.
 - **Documents:** **All Documents**, the **Inbox** while it holds something, and your collections.
-- **Folders:** your encrypted folders, each with a lock or the minutes it stays decrypted.
+- **Folders:** your encrypted folders, each with a lock or the minutes it stays decrypted, and your
+  [synced folders](Folder-Sync.md).
 - **Locations:** this device and the remotes you added.
 - **Keys:** **Devices & People**, **Hub** and **Recovery Key**.
 
 The **+** in the sidebar's bar opens the New menu: **New Login…**, **New Card…**, **New SSH Host…**, **New Document…**,
-**New Encrypted Folder…** and **Add Remote…**.
+**New Encrypted Folder…**, **Sync a Folder…** and **Add Remote…**.
 
 The sidebar's status shows where your vault syncs: iCloud, or this device when iCloud is off.
 

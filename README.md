@@ -440,13 +440,19 @@ picker first in the sidebar, Settings ▸ Accounts to make, rename and delete th
 records every v57 app already shares (logins, cards, notes, SSH hosts, databases, projects, devices) and the newer
 pieces: encrypted folders with timed decryption for other apps, people and safety codes, remotes, and the user's own
 Hubs (`VaultHub`: connect per device, the devices with presence and SSH, approvals with the safety code, revoke). What VaultKit doesn't do yet is drawn against protocols in `Vault/Engine/`
-(`FolderSyncEngine`, `RemoteService` backends, `RecoveryService`; `HubEngine` is live, with a demo), each saying plainly what isn't there yet.
+(`RemoteService` backends past S3, `RecoveryService`), each saying plainly what isn't there yet. `HubEngine` and
+`FolderSyncEngine` (`LiveFolderSync`: VaultSync on every folder that syncs through an S3 remote) are live, each with a demo.
 
 `--demo` opens a demo vault in a temporary folder: in-memory keys, secrets and identity, real encrypted folders, and
 sample data only for folder sync and remote listings. It never touches the user's vault. Other launch arguments
 (`--select logins|hosts|hub|folder:<name>|…`, `--login`, `--host`, `--person`, `--hub-device`, `--sheet decrypt|share|new-login|add-remote|add-hub`,
 `--welcome`, `--waiting-for-keys`, `--settings`, `--settings-pane`, `--dark`, `--light`) open any screen;
 `.dev/screenshots.json` lists the screenshot scenes.
+
+`--sandbox <folder>` (Debug) runs a live vault of its own in that folder instead: keys, secrets and the identity in
+memory, real folder sync and remotes, no iCloud and no Hub, so a Mac and a simulator can share a folder through a
+throwaway S3 server (Hub's `hub-s3-local`) without touching the user's vault. `--sandbox-device <id>` names the device.
+Each launch starts over: its keys go with the process.
 
 ## Layout
 

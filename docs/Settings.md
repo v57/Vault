@@ -19,10 +19,11 @@ Your document collections and the people documents belong to. See
 - **Use iCloud**, the same switch as in Privacy. See [Sync and Accounts](Sync-and-Accounts.md).
 - **Other devices** shows when a device on an older version wrote records, or when this device waits for keys.
 - **Replaced values:** passwords and codes replaced by a later change on another device.
-- **Check remotes** and **In the background:** for folders synced through a remote, which comes in a later version.
+- **Check remotes:** how often Vault checks the remotes your [synced folders](Folder-Sync.md) use while it's open.
+  **In the background** (iPhone and iPad) lets the system check them now and then while Vault is closed.
 - **Hub:** **Vault records through** each of your Hubs. See [Hub](Hub.md#sync-your-vault-through-a-hub).
   **Live changes from your Hub** isn't available yet.
-- **Notify about conflicts:** for folder sync, which comes in a later version.
+- **Notify about conflicts:** comes in a later version; conflicts show in the folder until you choose.
 
 ## Recovery Key
 

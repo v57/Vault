@@ -25,13 +25,11 @@ import Foundation
 import VaultKit
 import VaultSync
 
-func syncFolder(_ record: VaultFolder, remote: any RemoteFileSystem, at url: URL) async throws {
-  let identity = try VaultPersonalIdentity.current()
+func syncFolder(_ record: VaultFolder, remote: any RemoteFileSystem, at url: URL, state: URL) async throws {
   let sync = try FolderSync(
     FolderSync.Configuration(
-      folderID: record.id, remote: remote, remotePath: record.remotePath ?? record.id, local: try PlainSyncFolder(url: url),
-      device: VaultDevice.id, identity: identity, ownerSigningKey: identity.publicIdentity.signingKey,
-      mode: record.mode(for: VaultDevice.id)))
+      folder: record, remote: remote, local: try PlainSyncFolder(url: url), device: VaultDevice.id,
+      identity: try VaultPersonalIdentity.current(), stateDirectory: state))
   await sync.observe { status in
     print(status.phase)   // hop to the main actor to show it
   }
@@ -39,9 +37,10 @@ func syncFolder(_ record: VaultFolder, remote: any RemoteFileSystem, at url: URL
 }
 ```
 
-`ownerSigningKey` is the user's own key for a folder of their own; for a folder someone shared, it is
-`VaultFolder.ownerSigningKey`. A new folder's remote side is made once with
-`FolderSync.createRemoteFolder(remote:remotePath:folderID:owner:ownerName:key:)`.
+The record gives the rest: its path on the remote (`syncPath`), the owner's key (the user's own, or the inviter's on a
+folder someone shared), this device's mode, and one state file per folder in `stateDirectory`. A new folder's remote
+side is made once with `FolderSync.createRemoteFolder(remote:remotePath:folderID:owner:ownerName:key:)`; a folder
+someone shares arrives as `VaultFolder.shared(by:)` from their invite.
 
 ## Main API
 
@@ -49,6 +48,8 @@ func syncFolder(_ record: VaultFolder, remote: any RemoteFileSystem, at url: URL
 |---|---|
 | `FolderSync` | The engine, an actor, one per folder. `FolderSync(_:)` checks the configuration. |
 | `FolderSync.Configuration(folderID:remote:remotePath:local:device:identity:ownerSigningKey:mode:stateURL:)` | The folder, the remote and the path on it, the local copy, this device's id, the person's identity, the owner's key, read-write or read-only, and where to keep the sync state (nil keeps it in memory). Also `chunkSize`, `snapshotAfter`, `gracePeriod`, `factsInterval`, `recentLimit`, `now`. |
+| `FolderSync.Configuration(folder:remote:local:device:identity:stateDirectory:)` | The same from a `VaultFolder` record: `syncPath`, the owner's key, this device's mode, `<stateDirectory>/<folder id>.v57sync`. Throws `damaged` when the record's owner key isn't one. |
+| `VaultFolder.shared(by:)`, `syncPath`, `isOwned(by:)`, `ownerSigningKey(for:)` | A folder record from someone's invite (read-only until they add you), the folder's path on the remote, and whose it is. |
 | `FolderSync.createRemoteFolder(remote:remotePath:folderID:owner:ownerName:key:)` | Makes the remote folder's member list with the owner as its only member. Throws `folderExists`. |
 | `sync()` | One pass: read the member list and other devices' changes, send this device's, apply theirs, tidy up. |
 | `observe(_:)`, `status` | `FolderSyncStatus`: `phase` (`idle`, `checking`, `receiving`, `sending`, `cleaning`), files being received and sent, `changedHere`, `conflicts`, `receivedRecently`, `remote` facts, `lastError`. |
@@ -72,14 +73,20 @@ func syncFolder(_ record: VaultFolder, remote: any RemoteFileSystem, at url: URL
 The engine contacts only the `RemoteFileSystem` it is given. Today VaultKit has backends for S3-compatible storage and
 local folders; SFTP is left to the app (from Database's `SFTPClient`), and SMB, FTP and iCloud have none yet.
 
-No app runs the engine on real folders yet: the Vault app's folder screens use a stand-in with no sync behind it
-(`--demo` shows sample sync data). The engine itself is covered by the tests below.
+The Vault app runs it (`Vault/Engine/LiveFolderSync.swift`): one engine per folder that syncs through an enabled S3
+remote, on open, on Sync Now, when the app comes to the front, every few minutes while it's open and in iOS background
+refresh. `--demo` shows sample sync data instead.
 
 ## Testing
 
 ```bash
 swift test --filter VaultSyncTests   # member lists, several devices on a fake remote
+VAULT_SYNC_S3="http://127.0.0.1:9317 hub <key> <secret>" swift test --filter SyncedFolderLiveTests   # a real S3 server
 ```
+
+`SyncedFolderTests` runs the app's flow from records (owner, invite, a read-only friend) on a memory remote;
+`SyncedFolderLiveTests` does it against the S3 server `VAULT_SYNC_S3` names (endpoint, bucket, access key, secret),
+for example Hub's `hub-s3-local`, and is skipped without it.
 
 The tests run several people and devices against a `MemoryRemoteFileSystem` with a clock they move by hand
 (`Tests/VaultSyncTests/Support/SyncWorld.swift`, test-only). The same works in an app's tests:

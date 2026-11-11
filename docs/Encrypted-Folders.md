@@ -65,10 +65,9 @@ On iPad and the Mac, **Show Encrypted Folder** shows the encrypted folder itself
 
 ## Sharing and syncing folders
 
-These come in a later version of Vault:
+An encrypted folder syncs through a remote like any other: in its inspector, **Remote ▸ Sync…** picks the remote, and
+**Share…** hands its key to the people you add. The remote only holds ciphertext, and each device chooses whether its
+copy is encrypted or plain. See [Folder Sync](Folder-Sync.md).
 
-- **Share…** on a folder shows your invite and lets you compare safety codes with someone, but sending them the
-  folder's key isn't available yet.
-- Folders don't sync between your devices yet. **Add Remote…** saves an S3, SFTP, SMB or iCloud location's details,
-  but Vault doesn't connect to remotes yet: **Test** says so. The **Locations** section lists this device, which you can
-  browse, and the remotes you added.
+The **Locations** section lists this device, which you can browse, and the remotes you added. Vault connects only to S3
+remotes so far; SFTP, SMB and iCloud remotes can be saved, and **Test** says they come later.

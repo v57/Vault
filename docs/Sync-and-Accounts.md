@@ -39,8 +39,8 @@ Sync ▸ Replaced values ▸ Show…** lists the kept values. They're never dele
 
 ## Other sync settings
 
-- **Check remotes** and **Notify about conflicts** in **Settings ▸ Sync** are for folder sync, which comes in a later
-  version.
+- **Check remotes** in **Settings ▸ Sync** sets how often Vault checks the remotes your folders sync through while it's
+  open. See [Folder Sync](Folder-Sync.md#when-it-syncs). **Notify about conflicts** comes in a later version.
 - **Live changes from your Hub** says "Not yet".
 
 ## Accounts
