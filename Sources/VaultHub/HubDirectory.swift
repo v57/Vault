@@ -18,7 +18,8 @@ public final class HubDirectory {
 
   @ObservationIgnored public let vault: Vault
   @ObservationIgnored private var keys: [HubKeyScope: (device: HubKey, client: HubKey)] = [:]
-  @ObservationIgnored private var isStarted = false
+  /// Whether `start` ran: the app starts the directory once the user opens something that shows the Hubs.
+  public private(set) var isStarted = false
 
   public init(vault: Vault) {
     self.vault = vault

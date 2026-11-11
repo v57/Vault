@@ -169,10 +169,11 @@ final class AppModel {
     } else {
       let vault = Vault.shared
       // iCloud sync is on, unless the user turned it off in Settings ▸ Privacy: turning iCloud on for the Mac was the
-      // consent. Remotes and Hub start off: a Hub connects only once the user adds it and turns it on for this device.
+      // consent. Remotes and Hub start off: a Hub connects only once the user adds it and turns it on for this device,
+      // and even then not at launch: only once the user opens a screen that shows the Hubs (`HubEngine.connect`), so
+      // nothing on the network is reached, and no Local Network prompt comes up, before the user asks (V-034).
       vault.startSync()
       let hubs = HubDirectory(vault: vault)
-      hubs.start()
       #if DEBUG
         // `--add-hub <ws address>`: adds a Hub and connects this device to it, for device tests without typing
         if let address = LaunchOptions.value("--add-hub") { _ = try? hubs.add(url: address) }
@@ -267,13 +268,12 @@ final class AppModel {
   }
 
   /// The model of the account a window shows (`VaultAccountScope`'s vault): Personal's from `launch()`, an account's
-  /// made on first use with its own folders (sealed with the shared vault keys), remotes, people and Hubs. It starts the
-  /// account's Hubs, which writes to its vault, so call it outside a view's body.
+  /// made on first use with its own folders (sealed with the shared vault keys), remotes, people and Hubs (connected
+  /// once a screen shows them, as Personal's). Call it outside a view's body.
   static func model(for vault: Vault) -> AppModel {
     if let model = models[vault.accountID] { return model }
     let personal = models[VaultAccount.personal.id]
     let hubs = HubDirectory(vault: vault)
-    hubs.start()
     let sync = LiveFolderSync(vault: vault)
     let model = AppModel(
       vault: vault, deviceVault: personal?.vault ?? Vaults.shared.personal, isDemo: false,

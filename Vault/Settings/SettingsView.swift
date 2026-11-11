@@ -199,6 +199,7 @@ private struct SyncPane: View {
           .disabled(true)
       }
     }
+    .onAppear { app.hubs.connect() }
     FormCard("Conflicts") {
       FormRow("Notify about conflicts", help: "A file changed here and elsewhere, or edited in a read-only folder.", systemImage: "exclamationmark.triangle", hue: .orange) {
         Toggle("Notify about conflicts", isOn: $notifyConflicts).toggleStyle(.kitSwitch).kitLabelsHidden()
@@ -406,6 +407,7 @@ private struct HubPane: View {
         }
       }
     }
+    .onAppear { app.hubs.connect() }
   }
 }
 

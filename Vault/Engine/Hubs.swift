@@ -50,6 +50,9 @@ struct HubIdentity: Hashable {
 @MainActor
 protocol HubEngine: AnyObject {
   var hubs: [HubItem] { get }
+  /// Connects the Hubs turned on for this device, once: when a screen that shows them appears (Hub, Devices, Settings'
+  /// Hub and Sync panes) or the user changes one, never at launch (V-034).
+  func connect()
   var identity: HubIdentity? { get }
   var error: String? { get }
   func add(url: String, name: String) throws
@@ -72,17 +75,22 @@ final class LiveHubs: HubEngine {
     self.directory = directory
   }
 
+  func connect() { directory.start() }
+
   var hubs: [HubItem] {
     directory.vault.hubs.map { record in
-      guard record.connects(on: directory.vault.deviceID), let connection = directory.connection(for: record.id) else {
-        return HubItem(record: record, status: .off)
+      let syncs = record.syncs.contains(directory.vault.deviceID)
+      guard record.connects(on: directory.vault.deviceID) else { return HubItem(record: record, status: .off) }
+      guard let connection = directory.connection(for: record.id) else {
+        // Turned on here, not connected yet: the screen showing it connects it (`connect`).
+        return HubItem(record: record, status: directory.isStarted ? .off : .connecting, syncsRecords: syncs)
       }
       return HubItem(
         record: record, status: Self.status(connection.status), devices: connection.devices,
         pending: connection.pending, isOwner: connection.isOwner,
         identity: HubIdentity(id: connection.device.id, safetyCode: connection.safetyCode),
         isUnencrypted: connection.isUnencrypted, securityMode: connection.securityMode,
-        error: connection.error, syncsRecords: record.syncs.contains(directory.vault.deviceID),
+        error: connection.error, syncsRecords: syncs,
         recordSyncLine: Self.line(connection.recordSync))
     }
   }
@@ -101,17 +109,23 @@ final class LiveHubs: HubEngine {
   var identity: HubIdentity? { directory.thisDevice.map { HubIdentity(id: $0.id, safetyCode: nil) } }
   var error: String? { directory.error }
 
-  func add(url: String, name: String) throws { try directory.add(url: url, name: name) }
+  func add(url: String, name: String) throws {
+    connect()
+    try directory.add(url: url, name: name)
+  }
 
   func setConnects(_ hubID: String, _ on: Bool) {
+    connect()
     if let hub = directory.vault.hub(id: hubID) { directory.setConnects(hub, on) }
   }
 
   func setSyncs(_ hubID: String, _ on: Bool) {
+    connect()
     if let hub = directory.vault.hub(id: hubID) { directory.setSyncs(hub, on) }
   }
 
   func leave(_ hubID: String) {
+    connect()
     guard let hub = directory.vault.hub(id: hubID) else { return }
     directory.setSyncs(hub, false)
     directory.setConnects(hub, false)
@@ -241,6 +255,8 @@ final class DemoHubs: HubEngine {
       vault.perform { try $0.mirrorHubDevices(hub.devices, hubID: hub.id, thisDevice: identity?.id) }
     }
   }
+
+  func connect() {}
 
   func add(url: String, name: String) throws {
     guard let url = HubDirectory.normalized(url) else { throw HubDirectoryError.badAddress }

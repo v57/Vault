@@ -43,7 +43,10 @@ struct HubView: View {
         ToolGroup { Button("Add Hub", systemImage: "plus") { app.sheet = .addHub } }
       }
     }
-    .onAppear { if idiom == .phone, LaunchOptions.pushes { pushed = app.selectedHubDevice } }
+    .onAppear {
+      app.hubs.connect()
+      if idiom == .phone, LaunchOptions.pushes { pushed = app.selectedHubDevice }
+    }
     .navigationDestination(item: $pushed) { id in
       if let (hub, device) = find(id) {
         PushedDetail(

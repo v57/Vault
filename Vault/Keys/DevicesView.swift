@@ -150,7 +150,11 @@ struct DevicesView: View {
     .kitSheet(item: $lost) { device in
       VaultLostDeviceSheet(device: device, actions: LostDeviceActions.make(for: device, app: app))
     }
-    .onAppear { if idiom == .phone, LaunchOptions.pushes { pushed = app.selectedPerson } }
+    .onAppear {
+      // The Hubs' devices and the lost-device actions on them.
+      app.hubs.connect()
+      if idiom == .phone, LaunchOptions.pushes { pushed = app.selectedPerson }
+    }
     .navigationDestination(item: $pushed) { id in
       if let person = people.first(where: { $0.id == id }) {
         PushedDetail(title: person.name, meta: [person.status == .verified ? String(localized: "Verified") : String(localized: "Waiting"), PersonItem.sharesLine(person)]) {
