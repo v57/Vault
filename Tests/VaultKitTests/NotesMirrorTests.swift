@@ -293,6 +293,50 @@ struct NotesMirrorTests {
     #expect(try notes(store).count == 1)
   }
 
+  func modified(_ path: String, in folder: URL) throws -> Date {
+    try #require(try FileManager.default.attributesOfItem(atPath: folder.appendingPathComponent(path).path)[.modificationDate] as? Date)
+  }
+
+  func inode(_ path: String, in folder: URL) throws -> Int {
+    try #require(try FileManager.default.attributesOfItem(atPath: folder.appendingPathComponent(path).path)[.systemFileNumber] as? Int)
+  }
+
+  /// M-013: a note written from the vault keeps the date its text changed, not the time of the pass; a pass that finds
+  /// the same bytes doesn't write them again, and a file a pass dated before gets its note's date back.
+  @Test func filesKeepTheirNotesDate() throws {
+    let (mirror, store, folder) = try make()
+    try store.save(VaultNote(id: "n", name: "Dated", encrypted: false, text: "written earlier"))
+    let saved = Date()
+    Thread.sleep(forTimeInterval: 1.5)
+    mirror.reconcileNow()
+    #expect(abs(try modified("Dated.md", in: folder).timeIntervalSince(saved)) < 1)
+
+    // The record changes, the bytes don't (a field saved again): the file stays as it is.
+    let before = try inode("Dated.md", in: folder)
+    var note = try #require(try store.record(VaultNote.self, id: "n"))
+    note.text = "written earlier"
+    try store.save(note)
+    try store.save(VaultNote(id: "n", name: "Dated", encrypted: false, text: "written earlier"))
+    mirror.reconcileNow()
+    #expect(try inode("Dated.md", in: folder) == before)
+    #expect(abs(try modified("Dated.md", in: folder).timeIntervalSince(saved)) < 1)
+
+    // Dated by an earlier write (before this fix): the next pass gives it the note's date again.
+    try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: folder.appendingPathComponent("Dated.md").path)
+    mirror.reconcileNow()
+    #expect(abs(try modified("Dated.md", in: folder).timeIntervalSince(saved)) < 1)
+
+    // Edited elsewhere: the file takes that edit's date.
+    Thread.sleep(forTimeInterval: 1.5)
+    note = try #require(try store.record(VaultNote.self, id: "n"))
+    note.text = "edited on the phone"
+    try store.save(note)
+    let edited = Date()
+    mirror.reconcileNow()
+    #expect(try read("Dated.md", in: folder) == "edited on the phone")
+    #expect(abs(try modified("Dated.md", in: folder).timeIntervalSince(edited)) < 1)
+  }
+
   /// M-014: two notes of one name ("Twin.md", "Twin 2.md"); on another device the first is renamed and the second
   /// edited. The second takes the freed name in the same pass, whichever note the pass reaches first.
   @Test func aRenamedNoteFreesItsNameInOnePass() throws {

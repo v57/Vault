@@ -238,8 +238,10 @@ public final class NotesMirror: @unchecked Sendable {
       } else if recordChanged {
         try write(record, over: file)
         report.written += 1
-      } else if file.id != id {
-        Self.setID(id, of: file.url)
+      } else {
+        if file.id != id { Self.setID(id, of: file.url) }
+        // A file written before the mirror dated it (every note showed the time of that pass): the note's own date.
+        Self.date(file, as: Self.contentDate(of: record))
       }
 
     case let (file?, record?, nil):
@@ -251,6 +253,7 @@ public final class NotesMirror: @unchecked Sendable {
       if same {
         index.entries[id] = Entry(path: file.path, hash: file.hash, clock: record.fields.latestClock.description)
         Self.setID(id, of: file.url)
+        Self.date(file, as: Self.contentDate(of: record))
       } else if file.modified > record.modified {
         try send(file, id: id, over: record)
         report.sent += 1
@@ -336,7 +339,9 @@ public final class NotesMirror: @unchecked Sendable {
 
   // MARK: - Vault → file
 
-  /// Writes a record to its file, moving the file when the record's path changed.
+  /// Writes a record to its file, moving the file when the record's path changed. The file keeps the note's own date
+  /// (when its text last changed, on any device), not the time of the write, and a file that already holds the same
+  /// bytes isn't written again (M-013).
   private func write(_ record: VaultItem, over file: LocalFile?, mayWait: Bool = true) throws {
     let data: Data
     let path: String
@@ -364,7 +369,10 @@ public final class NotesMirror: @unchecked Sendable {
     if let file, file.url.path != target.path {
       try coordinateMove(from: file.url, to: target)
     }
-    try coordinateWrite(data, to: target)
+    let current: Data? =
+      if let file { file.data } else if Self.id(of: target) == record.id { coordinatedRead(target) } else { nil }
+    if current != data { try coordinateWrite(data, to: target) }
+    Self.date(target, as: Self.contentDate(of: record))
     Self.setID(record.id, of: target)
     if let text { bases.setBase(text, for: baseKey(record.id)) }
     index.entries[record.id] = Entry(
@@ -383,6 +391,24 @@ public final class NotesMirror: @unchecked Sendable {
   static func path(of record: VaultItem) -> String {
     record.kind == VaultNote.kind
       ? VaultNote(id: record.id, values: record.values).path : VaultNoteFile(id: record.id, values: record.values).path
+  }
+
+  /// When a note's text (or an attachment's bytes) last changed, on whichever device: its file's modification date.
+  static func contentDate(of record: VaultItem) -> Date {
+    let clock = record.fields.stamped[record.kind == VaultNote.kind ? "text" : "data"]?.clock ?? record.fields.latestClock
+    return Date(timeIntervalSince1970: Double(clock.millis) / 1000)
+  }
+
+  /// Gives a file dated after its note's text changed the note's date (a write that dated it then). An earlier date
+  /// stays: a file edited while no mirror ran is sent later than it was saved, and keeps the time it was edited.
+  private static func date(_ file: LocalFile, as date: Date) {
+    guard file.modified.timeIntervalSince(date) >= 1 else { return }
+    Self.date(file.url, as: date)
+  }
+
+  private static func date(_ url: URL, as date: Date) {
+    guard date.timeIntervalSince1970 > 0 else { return }
+    try? FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
   }
 
   /// Where a record's relative path lands in the folder, or nil when it would land anywhere else. A synced record's path
