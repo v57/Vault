@@ -414,3 +414,150 @@ struct NoteTextSyncTests {
     #expect(a.merged(with: b, base: nil, textKeys: ["text"]).values["name"] == "b")
   }
 }
+
+/// M-016: a note deleted on one device while the other device's Markdown wasn't running stays deleted when that app
+/// starts: its file is removed rather than sent back as a note. A file the user makes in the folder is still a new note.
+struct NoteDeletedElsewhereTests {
+  let keys = MemoryKeyProvider()
+  let cloud = FakeCloud()
+
+  /// The phone's app: its store (the shared app-group vault) stays where it is; its notes folder and the mirror's state
+  /// live in the app's own container, which iOS moves to a new path when the app is updated or reinstalled.
+  final class Phone {
+    let app: FakeApp
+    var container: URL
+    var mirror: NotesMirror?
+    var folder: URL { container.appendingPathComponent("Documents") }
+
+    init(keys: VaultKeyProvider) throws {
+      let root = temporaryDirectory()
+      app = try FakeApp(directory: root.appendingPathComponent("group"), keys: keys, device: "phone", name: "phone")
+      container = root.appendingPathComponent("Containers/\(UUID().uuidString)")
+      try FileManager.default.createDirectory(at: container.appendingPathComponent("Documents"), withIntermediateDirectories: true)
+    }
+
+    /// Opens the app: a mirror runs one pass.
+    @discardableResult
+    func open(keys: VaultKeyProvider) -> NotesMirror.Report {
+      let mirror = NotesMirror(
+        folder: folder, store: app.store, keys: keys,
+        stateDirectory: container.appendingPathComponent("Library/Application Support/NotesMirror"))
+      mirror.usesTrash = false
+      self.mirror = mirror
+      return mirror.reconcileNow()
+    }
+
+    func quit() {
+      mirror?.stop()
+      mirror = nil
+    }
+
+    /// The app was updated: iOS gives its container a new path, with the same contents.
+    func update() throws {
+      let moved = container.deletingLastPathComponent().appendingPathComponent(UUID().uuidString)
+      try FileManager.default.moveItem(at: container, to: moved)
+      container = moved
+    }
+
+    func files() throws -> [String] {
+      try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { !$0.hasPrefix(".") }.sorted()
+    }
+  }
+
+  func setUp() throws -> (FakeApp, Phone) {
+    let mac = try FakeApp(directory: temporaryDirectory(), keys: keys, device: "mac", name: "mac")
+    let phone = try Phone(keys: keys)
+    try mac.store.save(VaultNote(id: "gone", name: "ZZ sync", encrypted: false, text: "throwaway"))
+    try mac.store.save(VaultNote(id: "kept", name: "Kept", encrypted: false, text: "stays"))
+    mac.sync(cloud)
+    phone.app.sync(cloud)
+    phone.open(keys: keys)
+    #expect(try phone.files() == ["Kept.md", "ZZ sync.md"])
+    phone.quit()
+    return (mac, phone)
+  }
+
+  func liveIDs(_ app: FakeApp) throws -> [String] {
+    try app.store.records(VaultNote.self).map(\.id).sorted()
+  }
+
+  /// Deleted on the Mac, synced to the phone's vault (by another v57 app there) while Markdown didn't run.
+  @Test func staysDeletedWhenTheAppOpensLater() throws {
+    let (mac, phone) = try setUp()
+    try mac.store.delete(id: "gone")
+    mac.sync(cloud)
+    phone.app.sync(cloud)
+
+    phone.open(keys: keys)
+    phone.app.sync(cloud)
+    mac.sync(cloud)
+    #expect(try phone.files() == ["Kept.md"])
+    #expect(try liveIDs(phone.app) == ["kept"])
+    #expect(try liveIDs(mac) == ["kept"])
+  }
+
+  /// The same after an update of the phone's app moved its container: the mirror's index names the old folder path.
+  @Test func staysDeletedAfterTheAppsContainerMoved() throws {
+    let (mac, phone) = try setUp()
+    try mac.store.delete(id: "gone")
+    mac.sync(cloud)
+    phone.app.sync(cloud)
+    try phone.update()
+
+    phone.open(keys: keys)
+    phone.app.sync(cloud)
+    mac.sync(cloud)
+    #expect(try phone.files() == ["Kept.md"])
+    #expect(try liveIDs(phone.app) == ["kept"])
+    #expect(try liveIDs(mac) == ["kept"])
+  }
+
+  /// The deletion arrives after the moved app's first pass, and the tombstones were purged since: still removed.
+  @Test func staysDeletedWhenTheDeletionArrivesAfterTheFirstPass() throws {
+    let (mac, phone) = try setUp()
+    try phone.update()
+    phone.open(keys: keys)
+    try mac.store.delete(id: "gone")
+    mac.sync(cloud)
+    phone.app.sync(cloud)
+    phone.mirror?.reconcileNow()
+    #expect(try phone.files() == ["Kept.md"])
+    #expect(try liveIDs(phone.app) == ["kept"])
+  }
+
+  /// A file the user makes in the moved folder, and a deleted note's file edited before the app saw the delete, are
+  /// notes: nothing the user wrote is dropped.
+  @Test func filesMadeOrEditedHereStillBecomeNotes() throws {
+    let (mac, phone) = try setUp()
+    try mac.store.delete(id: "gone")
+    mac.sync(cloud)
+    phone.app.sync(cloud)
+    try phone.update()
+    try Data("made in Files".utf8).write(to: phone.folder.appendingPathComponent("New.md"))
+    try Data("throwaway, edited on the phone".utf8).write(to: phone.folder.appendingPathComponent("ZZ sync.md"))
+
+    phone.open(keys: keys)
+    phone.app.sync(cloud)
+    mac.sync(cloud)
+    #expect(try phone.files() == ["Kept.md", "New.md", "ZZ sync.md"])
+    let names = try mac.store.records(VaultNote.self).map(\.name).sorted()
+    #expect(names == ["Kept", "New", "ZZ sync"])
+    #expect(try mac.store.record(VaultNote.self, id: "gone")?.text == "throwaway, edited on the phone")
+  }
+
+  /// A copy of a deleted note's file put back under another name is the user's: it becomes a note.
+  @Test func aCopyUnderAnotherNameBecomesANote() throws {
+    let (mac, phone) = try setUp()
+    try mac.store.delete(id: "gone")
+    mac.sync(cloud)
+    phone.app.sync(cloud)
+    try phone.update()
+    try FileManager.default.copyItem(
+      at: phone.folder.appendingPathComponent("ZZ sync.md"), to: phone.folder.appendingPathComponent("Copy.md"))
+    try FileManager.default.removeItem(at: phone.folder.appendingPathComponent("ZZ sync.md"))
+
+    phone.open(keys: keys)
+    #expect(try phone.files() == ["Copy.md", "Kept.md"])
+    #expect(try phone.app.store.records(VaultNote.self).map(\.name).sorted() == ["Copy", "Kept"])
+  }
+}

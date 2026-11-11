@@ -29,6 +29,8 @@ public final class NotesMirror: @unchecked Sendable {
   private let queue = DispatchQueue(label: "dev.v57.vault.notes-mirror")
   private let lock = NSLock()
   private var index: Index
+  /// The entries of an index saved for the folder at another path (`loadIndex()`), until a pass has run here.
+  private var movedEntries: [String: Entry] = [:]
   /// The records of the pass running, and whether a write may wait for the end of it (`PlaceTaken`).
   private var passRecords: [String: VaultItem] = [:]
   private var defersTakenPlaces = false
@@ -188,6 +190,15 @@ public final class NotesMirror: @unchecked Sendable {
       }
     }
 
+    // The folder at a new path (iOS gives an app's container a new one when the app is updated): a file still carrying
+    // its note's id at the place the old index knew, with nothing in the index here, is that file. Its old entry tells a
+    // note deleted on another device meanwhile (the file as it was synced: removed) from one edited here (sent), rather
+    // than every such file reading as a new note and bringing deleted notes back (M-016). Only a file that is there
+    // takes an old entry: a missing one says nothing about a folder that may not be the same.
+    for (id, file) in byID where index.entries[id] == nil && file.id == id {
+      if let entry = movedEntries[id], entry.path == file.path { index.entries[id] = entry }
+    }
+
     // A note written where another note's file still is, when that file moves or goes in this pass (renamed on
     // another device, two notes of the same name), waits for the rest: the name is free then, rather than taken as
     // "Name 3" (M-014).
@@ -219,6 +230,7 @@ public final class NotesMirror: @unchecked Sendable {
     }
     passRecords = [:]
     saveIndex()
+    movedEntries = [:]
     return report
   }
 
@@ -507,8 +519,15 @@ public final class NotesMirror: @unchecked Sendable {
 
   private func loadIndex() {
     let saved = (try? Data(contentsOf: indexURL)).flatMap { try? JSONDecoder().decode(Index.self, from: $0) }
-    // An index of another folder says nothing about this one: start over (nothing is deleted then).
-    index = saved?.folder == folder.path ? saved! : Index(folder: folder.path, entries: [:])
+    // An index of another folder path starts over (nothing is deleted then); its entries only pair the files that are
+    // still where it had them, with their ids (the same folder at a new path, `reconcile()`).
+    if let saved, saved.folder == folder.path {
+      index = saved
+      movedEntries = [:]
+    } else {
+      index = Index(folder: folder.path, entries: [:])
+      movedEntries = saved?.entries ?? [:]
+    }
   }
 
   private func saveIndex() {
