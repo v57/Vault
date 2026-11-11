@@ -180,6 +180,21 @@ struct S3FileSystemTests {
     #expect(try await fs.stat("photos/20") == nil)
   }
 
+  /// hub-s3-local's server answers HEAD on a folder as if it were a file: writes and listings under it still work, and
+  /// a real file in the way is still refused.
+  @Test func serversThatAnswerHeadOnFolders() async throws {
+    let fake = FakeS3()
+    await fake.setAnswersHeadOnFolders(true)
+    let fs = try Self.fileSystem(fake, prefix: "vault")
+    try await fs.write(Data("m".utf8), to: "folder-1/members")
+    try await fs.write(Data("c".utf8), to: "folder-1/chunks/ab")
+    try await fs.createDirectory("folder-1/log")
+    #expect(try await fs.list("folder-1").map(\.name) == ["chunks", "log", "members"])
+    try await fs.write(Data("f".utf8), to: "file")
+    await #expect(throws: RemoteFileError.notADirectory("file")) { try await fs.write(Data(), to: "file/x") }
+    await #expect(throws: RemoteFileError.alreadyExists("file")) { try await fs.createDirectory("file") }
+  }
+
   @Test func staysUnderItsPrefix() async throws {
     let fake = FakeS3(objects: ["other/x": Data("x".utf8)])
     let fs = try Self.fileSystem(fake, prefix: "/vault/devices/")

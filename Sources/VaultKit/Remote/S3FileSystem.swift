@@ -120,7 +120,9 @@ public enum S3Error: LocalizedError, Equatable {
 /// S3 has keys, not folders: a folder is the keys under `path/`, plus an empty `path/` object (a folder marker)
 /// that `createDirectory` writes so empty folders stay. Folders made by other tools without markers list the same.
 /// To keep the `RemoteFileSystem` rules, a folder that a delete or a move empties gets a marker, and writes check
-/// that no file sits where a parent folder should be.
+/// that no file sits where a parent folder should be. A path with keys under it is a folder even when the server also
+/// answers for it as an object: servers that keep objects as files on disk (hub-s3-local's Bun server) answer HEAD on a
+/// folder with 200.
 public struct S3FileSystem: RemoteFileSystem {
   public let configuration: S3Configuration
   private let transport: any S3Transport
@@ -162,7 +164,7 @@ public struct S3FileSystem: RemoteFileSystem {
     }
     if entries.isEmpty, !path.isEmpty, page.objects.isEmpty {
       // Not even a marker: no folder here.
-      if try await head(path) != nil { throw RemoteFileError.notADirectory(path) }
+      if try await fileHead(path) != nil { throw RemoteFileError.notADirectory(path) }
       throw RemoteFileError.notFound(path)
     }
     return entries.values.sorted { $0.name < $1.name }
@@ -211,8 +213,8 @@ public struct S3FileSystem: RemoteFileSystem {
   public func createDirectory(_ path: String) async throws {
     let path = try RemotePath.normalize(path)
     guard !path.isEmpty else { return }
-    if try await head(path) != nil { throw RemoteFileError.alreadyExists(path) }
     if try await isFolder(path) { return }
+    if try await head(path) != nil { throw RemoteFileError.alreadyExists(path) }
     try await checkParents(path)
     try await putMarker(path)
   }
@@ -227,7 +229,7 @@ public struct S3FileSystem: RemoteFileSystem {
     guard source != destination else { return }
     if destination.hasPrefix(source + "/") { throw RemoteFileError.invalidPath(destination) }
     if try await isFolder(destination) { throw RemoteFileError.alreadyExists(destination) }
-    if isDirectory, try await head(destination) != nil { throw RemoteFileError.alreadyExists(destination) }
+    if isDirectory, try await fileHead(destination) != nil { throw RemoteFileError.alreadyExists(destination) }
     try await checkParents(destination)
 
     if file != nil {
@@ -287,6 +289,13 @@ public struct S3FileSystem: RemoteFileSystem {
     }
   }
 
+  /// The object at `path` unless keys sit under it too, which makes it a folder (a server that keeps objects on disk
+  /// answers HEAD on a folder). Lists only when HEAD finds something, so real S3 pays nothing extra.
+  private func fileHead(_ path: String) async throws -> RemoteFileInfo? {
+    guard let file = try await head(path) else { return nil }
+    return try await isFolder(path) ? nil : file
+  }
+
   /// Whether any key (a marker or a file) sits under `path/`.
   private func isFolder(_ path: String) async throws -> Bool {
     path.isEmpty ? true : try await !listKeys(prefix: folderKey(path), delimiter: false, limit: 1).objects.isEmpty
@@ -308,7 +317,7 @@ public struct S3FileSystem: RemoteFileSystem {
     try await withThrowingTaskGroup(of: Void.self) { group in
       for index in 1..<parts.count {
         let parent = parts[..<index].joined(separator: "/")
-        group.addTask { if try await head(parent) != nil { throw RemoteFileError.notADirectory(parent) } }
+        group.addTask { if try await fileHead(parent) != nil { throw RemoteFileError.notADirectory(parent) } }
       }
       try await group.waitForAll()
     }

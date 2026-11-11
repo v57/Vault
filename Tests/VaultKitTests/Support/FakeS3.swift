@@ -19,6 +19,11 @@ actor FakeS3: S3Transport {
   private(set) var objects: [String: Object] = [:]
   /// Every request, "METHOD host path?query".
   private(set) var log: [String] = []
+  /// Answers HEAD on a folder (keys under `key/`) with 200, as servers that keep objects as files on disk do
+  /// (hub-s3-local's Bun server).
+  var answersHeadOnFolders = false
+
+  func setAnswersHeadOnFolders(_ value: Bool) { answersHeadOnFolders = value }
 
   init(
     bucket: String = "vault-test", accessKeyID: String = "AKIDTEST", secretAccessKey: String = "secret",
@@ -76,6 +81,9 @@ actor FakeS3: S3Transport {
       guard bounds.count == 2, bounds[0] < object.data.count else { return error(416, "InvalidRange") }
       return S3Response(status: 206, body: object.data.subdata(in: bounds[0]..<min(bounds[1] + 1, object.data.count)))
     case "HEAD":
+      if objects[key] == nil, answersHeadOnFolders, objects.keys.contains(where: { $0.hasPrefix(key + "/") }) {
+        return S3Response(status: 200, headers: ["Content-Length": "96", "Last-Modified": "Tue, 14 Nov 2023 22:13:20 GMT"])
+      }
       guard let object = objects[key] else { return S3Response(status: 404) }
       return S3Response(
         status: 200,
