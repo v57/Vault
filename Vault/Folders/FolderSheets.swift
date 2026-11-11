@@ -130,10 +130,12 @@ struct ShareSheet: View {
   @State private var link = ""
   @State private var error: String?
   @State private var copies = 0
+  @State private var adding = false
 
   var body: some View {
     let folder = app.folders.folder(folderID)
     let name = folder?.name ?? String(localized: "folder")
+    let delivers = app.sharing.deliversKey(to: folderID)
     // Whoever's key arrived last (and isn't verified yet) first.
     let candidates = app.sharing.people.filter { $0.record.roles[folderID] == nil && $0.identity != nil }
       .sorted { ($0.status == .verified ? 1 : 0, $1.record.created ?? .distantPast) < ($1.status == .verified ? 1 : 0, $0.record.created ?? .distantPast) }
@@ -181,21 +183,37 @@ struct ShareSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
       }
+      if !delivers {
+        Banner(
+          folder?.record.remoteID == nil ? "Sync “\(name)” through a remote first." : "Only the folder’s owner adds people.",
+          message: folder?.record.remoteID == nil
+            ? "Its key reaches the people you add in the folder’s member list on the remote, signed by you."
+            : "The member list on the remote is signed by the owner; ask them to add whoever you want to share with.",
+          systemImage: "externaldrive.badge.icloud", hue: .orange)
+        if folder?.record.remoteID == nil {
+          Button("Sync Through a Remote…") { app.sheet = .syncFolder(folderID) }.buttonStyle(.kit)
+        }
+      }
       if let folder, let remote = folder.record.remoteID.flatMap(app.vault.remote(id:)) {
         FormCard {
           FormRow(
             "\(remote.name) holds this folder",
-            help: idiom == .phone ? "\(first) needs their own access to it" : "\(first) needs their own access to it. Vault only shares the folder key.",
+            help: idiom == .phone
+              ? (person == nil ? "They need their own access to it" : "\(first) needs their own access to it")
+              : (person == nil
+                ? "They add it in Vault with the same endpoint, bucket and folder. Vault only shares the folder key."
+                : "\(first) adds it in Vault with the same endpoint, bucket and folder. Vault only shares the folder key."),
             systemImage: LocationKind(remote.kind).systemImage, hue: .indigo
           ) {
             if idiom != .phone {
-              Button("Copy Path") { KitPasteboard.copy(folder.record.remotePath ?? remote.path) }.buttonStyle(.kitPlain)
+              // What they type into Add Remote; never the keys, which they get from whoever runs the storage.
+              Button("Copy Details") { KitPasteboard.copy(remoteDetails(remote)) }.buttonStyle(.kitPlain)
             }
           }
         }
         if idiom != .phone {
           FormCard {
-            FormRow("\(name) · \(app.folders.totals(folderID).items) items", help: "The folder key is wrapped to \(first)’s key and added to the signed member list.", systemImage: "lock.rectangle.stack", hue: .teal)
+            FormRow("\(name) · \(app.folders.totals(folderID).items) items", help: person == nil ? "The folder key is wrapped to their key and added to the signed member list." : "The folder key is wrapped to \(first)’s key and added to the signed member list.", systemImage: "lock.rectangle.stack", hue: .teal)
           }
         }
       }
@@ -207,22 +225,39 @@ struct ShareSheet: View {
         SheetStatus("Waiting for their key", systemImage: "person", status: .working)
       }
       Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-      Button("Add \(first)") { add(person) }
-        .buttonStyle(.kitPrimary).keyboardShortcut(.defaultAction).disabled(person == nil || !matches)
+      Button(person == nil ? String(localized: "Add") : String(localized: "Add \(first)")) { add(person) }
+        .buttonStyle(.kitPrimary).keyboardShortcut(.defaultAction).disabled(person == nil || !matches || !delivers || adding)
     }
     .onAppear {
       link = (try? app.sharing.inviteLink(folderID: folderID, folderName: name, role: nil)) ?? ""
     }
   }
 
+  /// Verifies them, then adds them to the folder's member list on the remote (the folder key wrapped to their key).
+  /// The remote as Add Remote asks for it, so someone with their own keys to it can add the same one.
+  private func remoteDetails(_ remote: VaultRemote) -> String {
+    switch remote.kind {
+    case .s3:
+      [String(localized: "Endpoint: \(remote.endpoint)"), String(localized: "Bucket: \(remote.bucket)"),
+       remote.path.isEmpty ? nil : String(localized: "Folder in the bucket: \(remote.path)")].compactMap { $0 }.joined(separator: "\n")
+    default:
+      [remote.endpoint, remote.path].filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+  }
+
   private func add(_ person: PersonItem?) {
     guard let person else { return }
-    do {
-      if person.status != .verified { app.sharing.verify(person.id) }
-      try app.sharing.add(person.id, to: folderID, role: role)
-      dismiss()
-    } catch {
-      self.error = error.localizedDescription
+    adding = true
+    error = nil
+    Task {
+      defer { adding = false }
+      do {
+        if person.status != .verified { app.sharing.verify(person.id) }
+        try await app.sharing.add(person.id, to: folderID, role: role)
+        dismiss()
+      } catch {
+        self.error = error.localizedDescription
+      }
     }
   }
 }

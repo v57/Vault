@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		2669A0EF3031C45000C52779 /* VaultFiles in Frameworks */ = {isa = PBXBuildFile; productRef = 2669A0EE3031C45000C52779 /* VaultFiles */; };
+		5F5C0DE000000000000000003 /* VaultSync in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5C0DE000000000000000002 /* VaultSync */; };
 		4B0B0DE000000000000000003 /* VaultHub in Frameworks */ = {isa = PBXBuildFile; productRef = 4B0B0DE000000000000000002 /* VaultHub */; };
 		5C56F8A6336B183BEBF30E38 /* VaultKit in Frameworks */ = {isa = PBXBuildFile; productRef = 699545B0CBF14D31A04E078E /* VaultKit */; };
 		7A11E7000000000000000002 /* VaultUI in Frameworks */ = {isa = PBXBuildFile; productRef = 7A11E7000000000000000001 /* VaultUI */; };
@@ -139,6 +140,7 @@
 			isa = PBXFrameworksBuildPhase;
 			files = (
 				2669A0EF3031C45000C52779 /* VaultFiles in Frameworks */,
+				5F5C0DE000000000000000003 /* VaultSync in Frameworks */,
 				4B0B0DE000000000000000003 /* VaultHub in Frameworks */,
 				DE5C0DE0000000000000000003 /* DevScreenshots in Frameworks */,
 				D5C0DE000000000000000003 /* UpdateKit in Frameworks */,
@@ -213,6 +215,7 @@
 			name = Vault;
 			packageProductDependencies = (
 				2669A0EE3031C45000C52779 /* VaultFiles */,
+				5F5C0DE000000000000000002 /* VaultSync */,
 				4B0B0DE000000000000000002 /* VaultHub */,
 				D5C0DE000000000000000002 /* UpdateKit */,
 				C0C0DE000000000000000002 /* ComponentKit */,
@@ -832,6 +835,10 @@
 		2669A0EE3031C45000C52779 /* VaultFiles */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = VaultFiles;
+		};
+		5F5C0DE000000000000000002 /* VaultSync */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = VaultSync;
 		};
 		699545B0CBF14D31A04E078E /* VaultKit */ = {
 			isa = XCSwiftPackageProductDependency;

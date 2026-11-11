@@ -29,11 +29,11 @@ struct SyncFolderView: View {
             if idiom == .phone {
               // Full width under the two copies (iPhone).
               HStack(spacing: KitMetrics.gutter) {
-                Button { withKitAnimation { sync.keepMine(conflict.name, in: folder.id) } } label: {
+                Button { withKitAnimation { sync.keepMine(conflict.path, in: folder.id) } } label: {
                   Text("Keep Mine").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.kit)
-                Button { withKitAnimation { sync.revert(conflict.name, in: folder.id) } } label: {
+                Button { withKitAnimation { sync.revert(conflict.path, in: folder.id) } } label: {
                   Text("Revert to Remote").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.kitPrimary)
@@ -44,8 +44,8 @@ struct SyncFolderView: View {
           } accessory: {
             if idiom != .phone {
               HStack(spacing: 6) {
-                Button("Keep Mine") { withKitAnimation { sync.keepMine(conflict.name, in: folder.id) } }.buttonStyle(.kit)
-                Button("Revert to Remote") { withKitAnimation { sync.revert(conflict.name, in: folder.id) } }.buttonStyle(.kitPrimary)
+                Button("Keep Mine") { withKitAnimation { sync.keepMine(conflict.path, in: folder.id) } }.buttonStyle(.kit)
+                Button("Revert to Remote") { withKitAnimation { sync.revert(conflict.path, in: folder.id) } }.buttonStyle(.kitPrimary)
               }
               .controlSize(.small)
             }
@@ -65,9 +65,9 @@ struct SyncFolderView: View {
                 }
                 Spacer()
                 if idiom != .phone {
-                  Button("Keep Mine") { withKitAnimation { sync.keepMine(file.name, in: folder.id) } }.buttonStyle(.kitPlain)
+                  Button("Keep Mine") { withKitAnimation { sync.keepMine(file.path, in: folder.id) } }.buttonStyle(.kitPlain)
                 }
-                Button("Revert") { withKitAnimation { sync.revert(file.name, in: folder.id) } }.buttonStyle(.kit)
+                Button("Revert") { withKitAnimation { sync.revert(file.path, in: folder.id) } }.buttonStyle(.kit)
               }
               .controlSize(.small)
               .padding(.horizontal, 8)
@@ -137,7 +137,7 @@ struct SyncFolderView: View {
     .kitToolbar(folder.name, title: {
       KitTitle(
         folder.name,
-        meta: [activity.isReceiving ? String(localized: "Receiving \(activity.progressLine)") : String(localized: "Synced"), edits > 0 && idiom != .phone ? String(localized: "\(edits) edits kept here") : "",
+        meta: [activity.isReceiving ? String(localized: "Receiving \(activity.progressLine)") : String(localized: "Synced"), edits > 0 && idiom != .phone ? (edits == 1 ? String(localized: "1 edit kept here") : String(localized: "\(edits) edits kept here")) : "",
                activity.conflicts.isEmpty ? "" : String(localized: "\(activity.conflicts.count) conflict")],
         systemImage: "arrow.triangle.2.circlepath",
         status: activity.isReceiving ? .working(progress: Double(activity.receivingDone) / Double(activity.receivingTotal)) : .idle)

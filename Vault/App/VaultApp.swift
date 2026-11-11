@@ -72,7 +72,7 @@ struct MainWindow: View {
 
   var body: some View {
     Group {
-      if personal.isDemo {
+      if personal.isDemo || AppModel.isSandbox {
         AccountWindow(vault: personal.vault)
       } else {
         VaultAccountScope(
@@ -89,7 +89,7 @@ struct MainWindow: View {
     .task(id: [AnyHashable(personal.vault.logins), AnyHashable(personal.vault.passkeys)]) {
       // What the system offers in password and passkey fields (only once Vault is turned on in AutoFill settings):
       // Personal's, the store the AutoFill extension reads, whichever account the window shows.
-      if !personal.isDemo { await VaultAutoFill.publish(personal.vault.logins, passkeys: personal.vault.passkeys) }
+      if !personal.isDemo, !AppModel.isSandbox { await VaultAutoFill.publish(personal.vault.logins, passkeys: personal.vault.passkeys) }
     }
   }
 
@@ -150,6 +150,7 @@ struct VaultCommands: Commands {
         .keyboardShortcut("n")
       Button("New Encrypted Folder…") { app.sheet = .newItem(.folder) }
         .keyboardShortcut("n", modifiers: [.command, .shift])
+      Button("Sync a Folder…") { app.sheet = .syncFolder(nil) }
       Button("Add Remote…") { app.sheet = .addRemote }
       Divider()
       Button("New Document…") { app.newDocument() }

@@ -45,7 +45,9 @@ struct AddRemoteSheet: View {
             LabeledField(draft.kind == .s3 ? "Endpoint" : "Address") {
               TextField(draft.kind == .s3 ? "https://…r2.cloudflarestorage.com" : "smb://nas.local/vault", text: $draft.endpoint).kitField(mono: true, content: .url)
             }
-
+            if draft.kind == .s3 {
+              LabeledField("Folder in the bucket") { TextField("vault (optional)", text: $draft.path).kitField(mono: true) }
+            }
           }
           FieldRow {
             LabeledField(draft.kind == .s3 ? "Access key ID" : "User") { TextField("", text: $draft.accessKeyID).kitField(mono: true) }
@@ -162,6 +164,11 @@ struct LocationView: View {
         InspectorHeader(location.name, meta: [location.kind.title, location.detail], systemImage: location.kind.systemImage, hue: .indigo) {}
         if let remote {
           KitSection("Remote", meta: [remote.enabled ? String(localized: "On") : String(localized: "Off"), String(localized: "checked only while a v57 app is open")], systemImage: location.kind.systemImage, hue: .indigo) {
+            Toggle("Vault may reach it", isOn: Binding(get: { remote.enabled }, set: { app.remotes.setEnabled($0, for: remote.id) }))
+              .toggleStyle(.kitSwitch)
+              .padding(.horizontal, 8)
+              .padding(.vertical, 4)
+            if !remote.path.isEmpty { InspectorRow("Folder", value: remote.path) }
             if !remote.endpoint.isEmpty { InspectorRow("Endpoint") { Text(remote.endpoint).kitFont(.mono).lineLimit(1).truncationMode(.middle) } }
             if !remote.bucket.isEmpty { InspectorRow("Bucket", value: remote.bucket) }
             if let host = app.vault.host(id: remote.hostID) { InspectorRow("Host", value: host.displayName) }
@@ -184,7 +191,7 @@ struct LocationView: View {
         if idiom == .phone { Button("Details", systemImage: "info.circle") { pushed = true } }
       }
     }
-    .task(id: path) { await load() }
+    .task(id: [path, String(remote?.enabled ?? false)]) { await load() }
   }
 
   private func load() async {

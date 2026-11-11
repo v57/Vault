@@ -12,7 +12,9 @@ struct FolderScreen: View {
 
   var body: some View {
     if let folder = app.folders.folder(folderID) {
-      if let activity = app.folders.sync.activity(for: folderID),
+      if folder.record.isShared && folder.record.remoteID == nil || folder.record.remoteID != nil && folder.localURL == nil {
+        FolderSetupView(folder: folder)
+      } else if let activity = app.folders.sync.activity(for: folderID),
         !activity.conflicts.isEmpty || !activity.changedHere.isEmpty || activity.isReceiving
       {
         SyncFolderView(folder: folder, activity: activity)
@@ -73,7 +75,7 @@ private struct FolderBrowser: View {
     }
     .kitToolbar(folder.name, title: {
       KitTitle(
-        folder.name, meta: session.map { _ in [String(localized: "Decrypted"), String(localized: "locks in \(session?.minutesLeft ?? 0) min")] } ?? [folder.isEncrypted ? String(localized: "Encrypted") : String(localized: "Plain here"), folder.isEncrypted ? String(localized: "only v57 apps can read it") : String(localized: "synced")],
+        folder.name, meta: session.map { _ in [String(localized: "Decrypted"), String(localized: "locks in \(session?.minutesLeft ?? 0) min")] } ?? [folder.isEncrypted ? String(localized: "Encrypted") : String(localized: "Plain here"), folder.isEncrypted ? String(localized: "only v57 apps can read it") : syncWord],
         systemImage: session == nil ? "lock.rectangle.stack" : "lock.open", hue: session == nil ? .teal : .orange,
         status: session.map { .working(progress: $0.fractionLeft) } ?? .idle)
     }) {
@@ -158,8 +160,21 @@ private struct FolderBrowser: View {
 
   private var statusBarStatus: WorkStatus {
     if let session, session.activity.phase == .sealing { return .working(progress: session.activity.fraction) }
-    if let sending = app.folders.sync.activity(for: folder.id)?.sending.values.first { return .working(progress: sending) }
+    let sync = app.folders.sync.activity(for: folder.id)
+    if let sending = sync?.sending.values.first { return .working(progress: sending) }
+    if let error = sync?.error { return .failed(error) }
+    if sync?.isWorking == true { return .working }
+    if sync?.waiting != nil { return .idle }
     return session == nil ? .done : .idle
+  }
+
+  /// The header's second word for a plain folder: synced, waiting for its owner, or kept only here.
+  private var syncWord: String {
+    guard folder.record.remoteID != nil else { return String(localized: "only here") }
+    let sync = app.folders.sync.activity(for: folder.id)
+    if sync?.waiting != nil { return String(localized: "waiting") }
+    if sync?.error != nil { return String(localized: "not synced") }
+    return String(localized: "synced")
   }
 
   private var statusLine: String {
@@ -170,7 +185,11 @@ private struct FolderBrowser: View {
       return session.sealedEdits == 0 ? String(localized: "Watching for edits to seal back") : String(localized: "\(session.sealedEdits) edits sealed back")
     }
     if let remote = folder.record.remoteID.flatMap(app.vault.remote(id:)) {
-      return String(localized: "Synced through \(remote.name) \(app.folders.sync.activity(for: folder.id)?.checked ?? "")")
+      let sync = app.folders.sync.activity(for: folder.id)
+      if let error = sync?.error { return error }
+      if sync?.isWorking == true { return String(localized: "Checking \(remote.name)…") }
+      if let waiting = sync?.waiting { return String(localized: "\(waiting) · checked \(sync?.checked ?? "")") }
+      return String(localized: "Synced through \(remote.name) · checked \(sync?.checked ?? "")")
     }
     return String(localized: "On this device only")
   }
@@ -270,7 +289,7 @@ private struct FolderInspector: View {
     if session == nil {
       ActionBar {
         if folder.isEncrypted { Button("Decrypt…") { app.sheet = .decrypt(folder.id) } }
-        Button("Share…") { app.sheet = .share(folder.id) }
+        if !folder.record.isShared { Button("Share…") { app.sheet = .share(folder.id) } }
       }
     }
   }
@@ -285,7 +304,7 @@ struct RemoteCard: View {
     if let remote = folder.record.remoteID.flatMap(app.vault.remote(id:)) {
       let kind = LocationKind(remote.kind)
       let facts = app.folders.sync.activity(for: folder.id)?.remoteFacts ?? []
-      KitSection(remote.name, meta: [kind.title, remote.kind == .s3 ? (remote.endpoint.contains("r2.") ? "Cloudflare R2" : "S3") : "", remote.kind == .s3 ? remote.bucket : (folder.record.remotePath ?? remote.path)], systemImage: kind.systemImage, hue: .indigo) {
+      KitSection(remote.name, meta: [remote.kind == .s3 && remote.endpoint.contains("r2.") ? "Cloudflare R2" : kind.title, remote.kind == .s3 ? remote.bucket : (folder.record.remotePath ?? remote.path)], systemImage: kind.systemImage, hue: .indigo) {
         if facts.isEmpty || facts.first?.0 == "Checked" {
           InspectorRow("Here", value: mode(folder.record, app.vault.deviceID), copyable: false)
           ForEach(app.otherDevices.filter { folder.record.storages[$0.id] != nil }) { device in
@@ -293,6 +312,15 @@ struct RemoteCard: View {
           }
         }
         ForEach(facts, id: \.0) { fact in InspectorRow(fact.0, value: fact.1, copyable: false) }
+      } accessory: {
+        Button("Sync Now") { Task { await app.folders.sync.sync(folder.id) } }.buttonStyle(.kit).controlSize(.small)
+      }
+    } else if !folder.record.isShared {
+      KitSection("Remote", meta: String(localized: "only on this \(ThisDevice.word)"), systemImage: "externaldrive.badge.icloud", hue: .indigo) {
+        Text("Sync it through a remote for your other devices and the people you share it with.")
+          .kitFont(.caption).padding(.horizontal, 8).padding(.vertical, 4)
+      } accessory: {
+        Button("Sync…") { app.sheet = .syncFolder(folder.id) }.buttonStyle(.kit).controlSize(.small)
       }
     }
   }
@@ -309,8 +337,27 @@ struct MembersCard: View {
   @Environment(AppModel.self) private var app
 
   var body: some View {
+    if folder.record.isShared { sharedWithYou } else { yours }
+  }
+
+  /// A folder someone shared with the user: its owner signs the member list, so only they and the user show.
+  private var sharedWithYou: some View {
+    let owner = folder.record.ownerSigningKey.flatMap { key in app.sharing.people.first { $0.record.signingKey == key } }
+    let mode = folder.record.mode(for: app.vault.deviceID) == .readOnly ? String(localized: "Only receives here") : String(localized: "Sends edits here")
+    return KitSection(
+      "Members", meta: String(localized: "shared by \(owner?.name ?? String(localized: "someone"))"), systemImage: "person.2", hue: .purple
+    ) {
+      PersonRow(
+        name: owner?.name ?? String(localized: "Someone"),
+        detail: [String(localized: "Owner"), owner?.record.verified.map { String(localized: "verified \(RelativeTime.day($0))") } ?? String(localized: "not verified")].joined(separator: " · "),
+        verified: owner?.status == .verified)
+      PersonRow(name: app.ownerName, detail: mode)
+    }
+  }
+
+  private var yours: some View {
     let members = app.sharing.people.filter { $0.record.roles[folder.id] != nil }
-    KitSection(
+    return KitSection(
       "Members", meta: members.isEmpty ? [String(localized: "only you")] : [String(localized: "\(members.count + 1) people"), String(localized: "signed by you")],
       systemImage: "person.2", hue: .purple
     ) {

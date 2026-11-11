@@ -173,6 +173,9 @@ private struct FoldersSection: View {
         Button("New Encrypted Folder…", systemImage: "plus") { app.sheet = .newItem(.folder) }
           .buttonStyle(.kitPlain)
           .padding(.vertical, 4)
+        Button("Sync a Folder…", systemImage: "arrow.triangle.2.circlepath") { app.sheet = .syncFolder(nil) }
+          .buttonStyle(.kitPlain)
+          .padding(.vertical, 4)
       }
     } icon: {
       LiveIcon(hue: decrypted.isEmpty ? .teal : .orange, status: folders.headerStatus, size: 24) {
@@ -251,6 +254,7 @@ struct NewMenu: View {
     Button("New Document…", systemImage: "doc.viewfinder") { app.newDocument() }
     Divider()
     Button("New Encrypted Folder…", systemImage: "lock.rectangle.stack") { app.sheet = .newItem(.folder) }
+    Button("Sync a Folder…", systemImage: "arrow.triangle.2.circlepath") { app.sheet = .syncFolder(nil) }
     Button("Add Remote…", systemImage: "externaldrive.badge.icloud") { app.sheet = .addRemote }
   }
 }

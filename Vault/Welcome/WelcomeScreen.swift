@@ -61,7 +61,7 @@ struct WelcomeScreen: View {
         WelcomeAction("New Encrypted Folder…", detail: firstEncryptLine, systemImage: "lock.rectangle.stack") {
           app.sheet = .newItem(.folder)
         }
-        WelcomeAction("Sync a Folder…", detail: "Through iCloud, S3, SFTP or SMB", systemImage: "arrow.triangle.2.circlepath") {
+        WelcomeAction("Sync a Folder…", detail: "Through S3 storage you choose, like your Hub's", systemImage: "arrow.triangle.2.circlepath") {
           app.sheet = .addRemote
         }
         if idiom != .phone {

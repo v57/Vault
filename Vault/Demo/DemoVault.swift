@@ -4,8 +4,9 @@ import VaultFiles
 import VaultKit
 
 /// The demo vault (`--demo`): a store in a temporary folder with in-memory keys, secrets and identity, seeded with
-/// the design's data. Folders are real encrypted folders on disk, decrypted for real; only what VaultKit doesn't do
-/// yet (folder sync, remote backends, the recovery key) comes from sample data. Never the user's vault.
+/// the design's data. Folders are real encrypted folders on disk, decrypted for real; folder sync's activity, the
+/// remotes' listings and the recovery key come from sample data. Never the user's vault (`--sandbox` is an empty one
+/// with the live engines).
 enum DemoVault {
   /// The device the demo runs on: the Studio Mac, or an iPhone (with the Studio Mac as one of the others).
   @MainActor static var thisDevice: String { KitDevice.name == "iPhone" ? "iphone" : studioDevice }
@@ -27,10 +28,11 @@ enum DemoVault {
       try seed(store: store, air: air, pad: pad, keys: keys, root: root)
       try DemoDocuments.seed(store)
       let vault = Vault(store: store)
-      let folders = FolderLibrary(vault: vault, keys: keys, sync: DemoFolderSync(vault: vault), decryptedRoot: root.appendingPathComponent("Decrypted"))
-      let remotes = RemoteLibrary(vault: vault, backends: remoteBackends(vault), offline: Set(vault.remotes.filter { $0.name == "nas" }.map(\.id)), home: root.appendingPathComponent("Folders"))
+      let demoSync = DemoFolderSync(vault: vault)
+      let folders = FolderLibrary(vault: vault, keys: keys, sync: demoSync, decryptedRoot: root.appendingPathComponent("Decrypted"))
+      let remotes = RemoteLibrary(vault: vault, backends: remoteBackends(vault), offline: Set(vault.remotes.filter { $0.name == "nas" }.map(\.id)), home: root.appendingPathComponent("Folders"), isDemo: true)
       let sharing = PeopleLibrary(
-        vault: vault, deliversFolderKeys: true,
+        vault: vault, folderSync: demoSync,
         sharedItems: Dictionary(uniqueKeysWithValues: vault.logins.filter { $0.title == "Figma" }.map { ($0.id, "Maya") }))
       let model = AppModel(
         vault: vault, isDemo: true, folders: folders, remotes: remotes, sharing: sharing, recovery: DemoRecovery(),

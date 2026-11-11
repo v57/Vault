@@ -77,6 +77,7 @@ final class FolderLibrary {
       self.decryptedRoot = decryptedRoot ?? URL.documentsDirectory
     #endif
     recoverLeftovers()
+    sync.attach(self)
     timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
       Task { @MainActor in self?.heartbeat() }
     }
@@ -175,6 +176,57 @@ final class FolderLibrary {
     record.setStorage(.encrypted, for: vault.deviceID)
     vault.save(record)
     return record
+  }
+
+  // MARK: Syncing through a remote
+
+  /// Syncs an existing folder on this device through `remoteID`: the files stay plain where they are, the remote
+  /// gets the encrypted copy and a member list with the user as its owner.
+  @discardableResult
+  func createSynced(name: String, at url: URL, remoteID: String) async throws -> VaultFolder {
+    var record = VaultFolder(name: name, encrypted: false)
+    record.remoteID = remoteID
+    record.remotePath = record.id
+    record.setPath(url.path, for: vault.deviceID)
+    record.setStorage(.plain, for: vault.deviceID)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    try turnOn(remoteID)
+    vault.save(record)
+    do {
+      try await sync.start(record.id)
+    } catch {
+      // Nothing on the remote names it yet: take the record back so the user can try again.
+      if let saved = folder(record.id)?.record { vault.delete(saved) }
+      throw error
+    }
+    return record
+  }
+
+  /// Syncs a folder of the vault through `remoteID`: an encrypted folder made here, or one this device doesn't
+  /// keep yet (`url` gives it a place; a folder shared with the user is read-only here unless they choose).
+  func connect(_ id: String, remoteID: String?, at url: URL?, mode: VaultFolder.Mode? = nil) async throws {
+    guard var record = folder(id)?.record else { return }
+    if let remoteID {
+      record.remoteID = remoteID
+      if record.remotePath == nil { record.remotePath = record.id }
+      try turnOn(remoteID)
+    }
+    if let url, record.path(for: vault.deviceID) == nil {
+      try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+      record.setPath(url.path, for: vault.deviceID)
+      record.setStorage(.plain, for: vault.deviceID)
+    }
+    if let mode { record.setMode(mode, for: vault.deviceID) }
+    vault.save(record)
+    invalidate()
+    try await sync.start(id)
+  }
+
+  /// A remote the user picked for a folder is one they turned on.
+  private func turnOn(_ remoteID: String) throws {
+    guard var remote = vault.remote(id: remoteID), !remote.enabled else { return }
+    remote.enabled = true
+    vault.save(remote)
   }
 
   /// Sets this device's mode for a folder (read-write or read-only) or how it is kept on disk.
@@ -280,13 +332,16 @@ final class FolderLibrary {
     }
   }
 
-  /// Syncs every folder that has a remote. Until the folder sync engine is wired in, it only refreshes what's shown.
+  /// Syncs every folder that has a remote and a place on this device.
   func syncAll() async {
+    await sync.syncAll()
     invalidate()
   }
 
+  /// Sync Now, and the app coming back to the front: every folder's remote, without waiting.
   func checkRemotes() {
     invalidate()
+    Task { await sync.syncAll() }
   }
 
   /// Drops the cached listings so the next draw reads the folders again.

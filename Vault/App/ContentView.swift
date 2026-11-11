@@ -61,8 +61,10 @@ struct ContentView: View {
     .task(id: app.vault.documents.filter(\.needsReading).map(\.id)) { await app.readSharedDocuments() }
     .onChange(of: scenePhase) { _, phase in
       // Leaving the screen: ask for a background turn to check remotes (iPhone and iPad; nothing on the Mac).
-      if phase == .background, !app.isDemo { AppModel.scheduleBackgroundRefresh() }
-      if phase == .active, !app.isDemo { AppModel.moveSecrets() }
+      if phase == .background, !app.isDemo, !AppModel.isSandbox { AppModel.scheduleBackgroundRefresh() }
+      if phase == .active, !app.isDemo, !AppModel.isSandbox { AppModel.moveSecrets() }
+      // Back in front: check the remotes synced folders use.
+      if phase == .active, !app.isDemo { app.folders.checkRemotes() }
     }
     // The menu commands act on the focused window's account.
     .focusedSceneValue(\.appModel, app)
@@ -177,6 +179,7 @@ struct SheetContent: View {
     case .editHost(let id): EditHostSheet(hostID: id)
     case .editLogin(let id): EditLoginSheet(loginID: id)
     case .addRemote: AddRemoteSheet()
+    case .syncFolder(let id): SyncFolderSheet(folderID: id)
     case .decrypt(let id): DecryptSheet(folderID: id)
     case .share(let id): ShareSheet(folderID: id)
     case .invite: InviteSheet()

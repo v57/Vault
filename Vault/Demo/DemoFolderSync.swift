@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import VaultKit
 
-/// Sample sync activity for the demo folders, until folder sync over plain storage exists: Photos 2026 receiving
+/// Sample sync activity for the demo folders (the live engine is `LiveFolderSync`): Photos 2026 receiving
 /// from studio-mac on a read-only Mac with two edits kept here and one text conflict; Taxes 2026 sending one file.
 @MainActor
 @Observable
@@ -31,15 +31,15 @@ final class DemoFolderSync: FolderSyncEngine {
       activity.receivingBytes = "212 of 480 MB"
       activity.source = "studio-mac"
       activity.changedHere = [
-        .init(name: "IMG_2214.heic", detail: "Lisbon · edited in Photos at 10:12 AM"),
-        .init(name: "Album.json", detail: "Lisbon · edited at 9:40 AM"),
+        .init(name: "IMG_2214.heic", detail: "Lisbon · edited in Photos at 10:12 AM", path: "IMG_2214.heic"),
+        .init(name: "Album.json", detail: "Lisbon · edited at 9:40 AM", path: "Album.json"),
       ].filter { !kept.contains($0.name) && !reverted.contains($0.name) }
       if !kept.contains("Selects.txt"), !reverted.contains("Selects.txt") {
         activity.conflicts = [
           .init(
             name: "Selects.txt", meta: ["changed here and on MacBook Air", "your edit is kept until you choose"],
             mine: "IMG_2201 cover\nIMG_2214 tram, cropped\nIMG_2230 night", mineRef: "\(DemoVault.thisDevice == "iphone" ? "This iPhone" : "Studio Mac") · 10:12 AM",
-            theirs: "IMG_2201 cover\nIMG_2214 tram\nIMG_2251 river", theirsRef: "Jonas · MacBook Air · 10:40 AM")
+            theirs: "IMG_2201 cover\nIMG_2214 tram\nIMG_2251 river", theirsRef: "Jonas · MacBook Air · 10:40 AM", path: "Selects.txt")
         ]
       }
       activity.receivedToday = [

@@ -53,6 +53,8 @@ enum AppSheet: Identifiable, Hashable {
   /// Edit Login for the login with this id.
   case editLogin(String)
   case addRemote
+  /// Sync a Folder: a folder on this device (nil) or the vault's folder with this id, through a remote.
+  case syncFolder(String?)
   case decrypt(String)
   case share(String)
   case invite
@@ -162,6 +164,8 @@ final class AppModel {
     let model: AppModel
     if LaunchOptions.flag("--demo") {
       model = DemoVault.make()
+    } else if let sandbox = sandboxDirectory {
+      model = sandboxModel(sandbox)
     } else {
       let vault = Vault.shared
       // iCloud sync is on, unless the user turned it off in Settings ▸ Privacy: turning iCloud on for the Mac was the
@@ -173,10 +177,12 @@ final class AppModel {
         // `--add-hub <ws address>`: adds a Hub and connects this device to it, for device tests without typing
         if let address = LaunchOptions.value("--add-hub") { _ = try? hubs.add(url: address) }
       #endif
+      let sync = LiveFolderSync(vault: vault)
       model = AppModel(
-        vault: vault, isDemo: false, folders: FolderLibrary(vault: vault, sync: NoFolderSync()),
-        remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault), recovery: LiveRecovery(vault: vault),
-        hubs: LiveHubs(directory: hubs))
+        vault: vault, isDemo: false, folders: FolderLibrary(vault: vault, sync: sync),
+        remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault, folderSync: sync),
+        recovery: LiveRecovery(vault: vault), hubs: LiveHubs(directory: hubs))
+      sync.deviceName = { [weak model] in model?.knownDeviceName($0) }
       moveSecrets()
     }
     model.applyLaunchOptions()
@@ -195,6 +201,46 @@ final class AppModel {
       }
     #endif
     return model
+  }
+
+  /// `--sandbox <folder>` (Debug): an empty vault of its own in that folder, with keys, secrets and the identity in
+  /// memory, live folder sync and remotes, no iCloud and no Hub. Two of them (a Mac and a simulator) test sharing a
+  /// folder through a throwaway remote without touching the user's vault, keychain or iCloud. `--sandbox-device`
+  /// names this device (default `sandbox-<name>`). Its keys go with the process, so each launch starts over: the store
+  /// and sync state the last one left are removed (the synced files under `Folders` stay).
+  static var sandboxDirectory: URL? {
+    #if DEBUG
+      LaunchOptions.value("--sandbox").map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+    #else
+      nil
+    #endif
+  }
+
+  static var isSandbox: Bool { sandboxDirectory != nil }
+
+  private static func sandboxModel(_ directory: URL) -> AppModel {
+    VaultSecrets.useInMemoryStore()
+    VaultPersonalIdentity.useInMemoryStore()
+    let keys = MemoryKeyProvider()
+    let device = LaunchOptions.value("--sandbox-device") ?? "sandbox-" + KitDevice.name.lowercased().filter { $0.isLetter || $0.isNumber }
+    for leftover in ["store", "FolderSync", "Decrypted"] {
+      try? FileManager.default.removeItem(at: directory.appendingPathComponent(leftover))
+    }
+    do {
+      let store = try VaultStore(directory: directory.appendingPathComponent("store"), keys: keys, deviceID: device, notifier: nil)
+      let vault = Vault(store: store)
+      let sync = LiveFolderSync(vault: vault, stateDirectory: directory.appendingPathComponent("FolderSync"))
+      let model = AppModel(
+        vault: vault, isDemo: false,
+        folders: FolderLibrary(vault: vault, keys: keys, sync: sync, decryptedRoot: directory.appendingPathComponent("Decrypted")),
+        remotes: RemoteLibrary(vault: vault, home: directory.appendingPathComponent("Folders")),
+        sharing: PeopleLibrary(vault: vault, folderSync: sync), recovery: UnavailableRecovery(),
+        hubs: LiveHubs(directory: HubDirectory(vault: vault)))
+      sync.deviceName = { [weak model] in model?.knownDeviceName($0) }
+      return model
+    } catch {
+      fatalError("The sandbox vault couldn't be made: \(error)")
+    }
   }
 
   /// Moves what only Vault should read into its own keychain group (`VaultSecretMove`), then, with a recovery kit on, seals
@@ -228,11 +274,13 @@ final class AppModel {
     let personal = models[VaultAccount.personal.id]
     let hubs = HubDirectory(vault: vault)
     hubs.start()
+    let sync = LiveFolderSync(vault: vault)
     let model = AppModel(
       vault: vault, deviceVault: personal?.vault ?? Vaults.shared.personal, isDemo: false,
-      folders: FolderLibrary(vault: vault, sync: NoFolderSync()),
-      remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault),
+      folders: FolderLibrary(vault: vault, sync: sync),
+      remotes: RemoteLibrary(vault: vault), sharing: PeopleLibrary(vault: vault, folderSync: sync),
       recovery: personal?.recovery ?? LiveRecovery(vault: Vaults.shared.personal), hubs: LiveHubs(directory: hubs))
+    sync.deviceName = { [weak model] in model?.knownDeviceName($0) }
     model.applyLaunchOptions()
     models[vault.accountID] = model
     return model
@@ -271,6 +319,7 @@ final class AppModel {
     case "new-login": sheet = .newItem(.login)
     case "edit-host": if let id = selectedHost { sheet = .editHost(id) }
     case "add-remote": sheet = .addRemote
+    case "sync-folder": sheet = .syncFolder(nil)
     case "decrypt": if case .folder(let id) = selection { sheet = .decrypt(id) }
     case "share": if case .folder(let id) = selection { sheet = .share(id) }
     case "scan": sheet = .scanInvite
@@ -366,8 +415,11 @@ final class AppModel {
   var otherDevices: [VaultDeviceKey] { deviceVault.deviceKeys.filter { $0.id != vault.deviceID } }
 
   /// The name of the device that wrote a change.
-  func deviceName(_ id: String) -> String {
-    deviceVault.deviceKeys.first { $0.id == id }?.deviceName ?? (id == vault.deviceID ? KitDevice.name : String(localized: "Another device"))
+  func deviceName(_ id: String) -> String { knownDeviceName(id) ?? String(localized: "Another device") }
+
+  /// The name of one of the user's devices, nil for anyone else's.
+  func knownDeviceName(_ id: String) -> String? {
+    deviceVault.deviceKeys.first { $0.id == id }?.deviceName ?? (id == vault.deviceID ? KitDevice.name : nil)
   }
 
   /// "iCloud · 3 devices", the sidebar's status.
