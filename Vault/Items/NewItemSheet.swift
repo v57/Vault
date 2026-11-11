@@ -351,7 +351,7 @@ private struct LinkPicker: View {
 }
 
 /// The sheet's footer as the form's last line: status, Cancel, Save. On iPhone the status takes its own row when the
-/// buttons need the width (`KitSheetFooterRow`), so "Add Document" stays whole.
+/// buttons need the width (`KitSheetFooterRow`), so "Add Document" stays whole, and the sheet pins it over the form.
 struct SheetFooterButtons: View {
   var saveTitle: String
   var canSave: Bool
@@ -368,6 +368,8 @@ struct SheetFooterButtons: View {
     }
     .padding(6)
     .kitSurface(.card)
+    // On iPhone the sheet keeps it over the form, above the keyboard (V-041)
+    .kitSheetFooter()
   }
 }
 

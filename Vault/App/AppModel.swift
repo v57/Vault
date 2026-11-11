@@ -317,6 +317,7 @@ final class AppModel {
     }
     switch LaunchOptions.value("--sheet") {
     case "new-login": sheet = .newItem(.login)
+    case "new-note": sheet = .newItem(.note)
     case "edit-host": if let id = selectedHost { sheet = .editHost(id) }
     case "add-remote": sheet = .addRemote
     case "sync-folder": sheet = .syncFolder(nil)
