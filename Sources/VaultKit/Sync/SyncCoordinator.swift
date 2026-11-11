@@ -114,6 +114,10 @@ public final class SyncCoordinator: @unchecked Sendable {
     case .zoneMissing:
       return .createZoneThenResend
     case .retryLater:
+      // This app tries again, but holds nothing meanwhile: its next try takes the lease again unless another app has
+      // sent the row. An app whose sends keep failing (or that's suspended between tries) would otherwise renew its lease
+      // on every try and keep the device's other apps from ever sending the write (V-039).
+      try? store.releaseLease(id: id)
       return .retryLater
     case .permanent:
       try? store.releaseLease(id: id)

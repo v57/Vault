@@ -218,6 +218,59 @@ struct SyncTests {
     #expect(try working.store.pendingCount() == 0)
   }
 
+  /// V-039: an app whose sends fail and are tried again later doesn't keep the device's other apps from sending.
+  @Test func anAppWhoseSendsFailLetsAnotherAppSend() throws {
+    let directory = temporaryDirectory()
+    let failing = try FakeApp(directory: directory, keys: keys, device: "phone", name: "hub")
+    let vault = try FakeApp(directory: directory, keys: keys, device: "phone", name: "vault")
+    failing.store.sendsOwnWrites = false
+    try failing.store.save(id: "n", kind: "note", changes: ["title": "ZZ", "text": "x"])
+    // The failing app leases the write, builds the record, and CloudKit says try later.
+    #expect(failing.sync.idsToSend() == ["n"])
+    _ = try #require(failing.sync.record(for: "n"))
+    #expect(failing.sync.failed(id: "n", .retryLater) == .retryLater)
+    // Long before the lease would have run out, the other app sends it.
+    vault.push(cloud)
+    #expect(cloud.records["n"] != nil)
+    #expect(try vault.store.pendingCount() == 0)
+    // The failing app's retry finds nothing left to send.
+    #expect(failing.sync.record(for: "n") == nil)
+  }
+
+  /// V-039: after the V-035/V-036/V-037 changes (device keys noting `lastSeen` and `model`), two devices still exchange
+  /// their notes, hosts and device keys through the cloud in both directions, with nothing left in either outbox.
+  @Test func twoDevicesExchangeRecordsBothWays() throws {
+    VaultSecrets.useInMemoryStore()
+    let phone = try device("iphone")
+    let pad = try device("ipad")
+    for (app, name) in [(phone, "iPhone"), (pad, "iPad")] {
+      try app.store.save(
+        VaultDeviceKey(
+          id: app.store.deviceID, deviceName: name, publicKey: DeviceSeenTests.key, platform: "iOS", model: name,
+          updated: Date(timeIntervalSince1970: 1_790_000_000)))
+      #expect(try app.store.markDeviceSeen(model: name))
+    }
+    phone.sync(cloud)
+    pad.sync(cloud)
+    try phone.store.save(id: "phone-note", kind: "note", changes: ["title": "ZZ 3b sync iPhone", "text": "a"])
+    try phone.store.save(id: "phone-host", kind: "host", changes: ["name": "ZZ3b", "port": 22])
+    try pad.store.save(id: "pad-note", kind: "note", changes: ["title": "ZZ 3b sync iPad", "text": "b"])
+    phone.sync(cloud)
+    pad.sync(cloud)
+    phone.sync(cloud)
+    for app in [phone, pad] {
+      #expect(try app.store.item(id: "phone-note")?.values["title"] == "ZZ 3b sync iPhone")
+      #expect(try app.store.item(id: "phone-host")?.values["name"] == "ZZ3b")
+      #expect(try app.store.item(id: "pad-note")?.values["title"] == "ZZ 3b sync iPad")
+      #expect(try app.store.pendingCount() == 0)
+      for other in ["iphone", "ipad"] {
+        let key = try #require(try app.store.record(VaultDeviceKey.self, id: other))
+        #expect(key.lastSeen != nil)
+        #expect(key.model == (other == "iphone" ? "iPhone" : "iPad"))
+      }
+    }
+  }
+
   @Test func aRecordOnItsWayIsntBuiltTwice() throws {
     let mac = try device("mac")
     try mac.store.save(id: "h", kind: "host", changes: ["name": "a"])

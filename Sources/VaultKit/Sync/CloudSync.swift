@@ -276,6 +276,8 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     self.engine = engine
     isFreshEngine = saved == nil
     lock.unlock()
+    Self.log.notice(
+      "Engine started (\(saved == nil ? "from nothing" : "saved state", privacy: .public), subscription \(subscriptionID ?? "none", privacy: .public))")
 
     accountsToken = zones.accounts.observe { [weak self] event in
       switch event {
@@ -345,6 +347,12 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     Task {
       do {
         try await engine.fetchChanges()
+        // The fetch worked: an app whose sync failed before takes its outbox again, so what waited goes up in this
+        // pass instead of at the next timer or activation (V-039).
+        if isHealthy == false {
+          isHealthy = true
+          queueOutbox()
+        }
         try await engine.sendChanges()
         isHealthy = true
         noteSynced()
@@ -365,10 +373,17 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   /// Leases what's waiting in every zone's outbox and hands it to the engine (not while this app's sync fails).
   /// Accounts that arrived since are attached first.
   private func queueOutbox() {
-    guard isHealthy != false, currentEngine != nil else { return }
+    guard isHealthy != false, currentEngine != nil else {
+      if isHealthy == false { Self.log.notice("Outbox: not leased, this app's sync is failing") }
+      return
+    }
     for zone in zones.activeZones() {
       attach(zone)
-      if let coordinator = zones.coordinator(forZone: zone) { queue(coordinator.idsToSend(), in: zone) }
+      if let coordinator = zones.coordinator(forZone: zone) {
+        let ids = coordinator.idsToSend()
+        if !ids.isEmpty { Self.log.notice("Outbox: \(ids.count) to send in \(zone, privacy: .public)") }
+        queue(ids, in: zone)
+      }
     }
     queueZoneDeletions()
   }
@@ -443,6 +458,8 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         deleted[deletion.recordID.zoneID.zoneName, default: []].append(deletion.recordID.recordName)
       }
       for zone in Set(modified.keys).union(deleted.keys).union(unread.keys).sorted() {
+        Self.log.notice(
+          "Fetched in \(zone, privacy: .public): \(modified[zone]?.count ?? 0) records, \(deleted[zone]?.count ?? 0) deletions, \(unread[zone]?.count ?? 0) unread")
         switch zones.route(zone) {
         case .zone(let coordinator):
           queue(coordinator.fetched(modified: modified[zone] ?? [], deleted: deleted[zone] ?? [], unread: unread[zone] ?? []), in: zone)
@@ -477,6 +494,9 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       for failure in changes.failedZoneSaves { record(failure.error) }
 
     case .sentRecordZoneChanges(let changes):
+      let failures = changes.failedRecordSaves.map { "\($0.error.code.rawValue)" }.joined(separator: ",")
+      Self.log.notice(
+        "Sent: \(changes.savedRecords.count) saved, \(changes.deletedRecordIDs.count) deleted, \(changes.failedRecordSaves.count) failed [\(failures, privacy: .public)]")
       if !changes.savedRecords.isEmpty {
         isHealthy = true
         noteSynced()
@@ -507,6 +527,9 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         if action == .retryLater || (action == .done && failure.error.code != .serverRecordChanged) {
           record(failure.error)
         }
+        // CloudKit won't take this app's writes at all: it stops leasing the device's outbox, so an app whose sync
+        // works sends them (V-039).
+        if Self.refusesThisApp(failure.error) { isHealthy = false }
       }
       onChange()
 
@@ -522,16 +545,21 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     guard !VaultICloud.isOff else { return nil }
     let pending = syncEngine.state.pendingRecordZoneChanges.filter { context.options.scope.contains($0) }
     guard !pending.isEmpty else { return nil }
-    return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { [zones] recordID in
+    let skipped = OSAllocatedUnfairLock(initialState: 0)
+    let batch = await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { [zones] recordID in
       // Nil when another app holds the lease or nothing is waiting, or the zone's account is gone: the engine drops it.
       guard let coordinator = zones.coordinator(forZone: recordID.zoneID.zoneName),
         let outgoing = coordinator.record(for: recordID.recordName)
       else {
         syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+        skipped.withLock { $0 += 1 }
         return nil
       }
       return Self.makeRecord(outgoing, id: recordID)
     }
+    Self.log.notice(
+      "Send: \(batch?.recordsToSave.count ?? 0) records, \(batch?.recordIDsToDelete.count ?? 0) deletions, \(skipped.withLock { $0 }) not this app's to send")
+    return batch
   }
 
   // MARK: Records
@@ -629,6 +657,14 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     coder.requiresSecureCoding = true
     defer { coder.finishDecoding() }
     return CKRecord(coder: coder)
+  }
+
+  /// Errors that say CloudKit refuses this app (its container, entitlement or account), not this one record.
+  static func refusesThisApp(_ error: CKError) -> Bool {
+    switch error.code {
+    case .permissionFailure, .badContainer, .missingEntitlement, .notAuthenticated, .managedAccountRestricted: true
+    default: false
+    }
   }
 
   static func failure(_ error: CKError) -> SyncFailure {
