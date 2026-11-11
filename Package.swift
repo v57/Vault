@@ -70,16 +70,20 @@ for target in package.targets where target.name == "VaultKit" {
 for target in package.targets where ["VaultFiles", "VaultSync", "VaultHub", "VaultStoreCrashHelper"].contains(target.name) {
   target.dependencies.append(.product(name: "CryptoKit", package: "SwiftUI"))
 }
+// Foundation's APIs swift-corelibs-foundation lacks (`String(localized:)`, …): imported everywhere, as Foundation
+// brings them on Apple platforms.
+for target in package.targets where target.type == .regular || target.type == .executable {
+  target.dependencies.append(.product(name: "SwiftUIPortability", package: "SwiftUI"))
+  target.swiftSettings = (target.swiftSettings ?? []) + [
+    .unsafeFlags(["-Xfrontend", "-import-module", "-Xfrontend", "SwiftUIPortability"])
+  ]
+}
 #if os(Linux)
 // Linux: keychain items in the freedesktop Secret Service (SwiftUI's SecretService, on libsecret), note ids in
 // extended attributes (CVaultLinux: <sys/xattr.h>, which Glibc's module leaves out) and folder watching on inotify.
 package.targets.append(.target(name: "CVaultLinux"))
 for target in package.targets where target.name == "VaultKit" {
   target.dependencies += ["CVaultLinux", .product(name: "SecretService", package: "SwiftUI")]
-}
-// FolderWatcher on inotify (SwiftUIPortability's DirectoryWatcher).
-for target in package.targets where target.name == "VaultFiles" {
-  target.dependencies.append(.product(name: "SwiftUIPortability", package: "SwiftUI"))
 }
 #endif
 #endif
