@@ -42,10 +42,18 @@ struct SidebarView: View {
     .kitLazyLoading(false)
   }
 
+  /// Redrawn when "synced just now" would read differently ("1 min ago", "2 min ago"…), not only when something else
+  /// changes (V-042)
   private var itemsSection: some View {
+    TimelineView(RelativeTimeSchedule(app.lastSync)) { context in
+      itemsSection(now: context.date)
+    }
+  }
+
+  private func itemsSection(now: Date) -> some View {
     let vault = app.vault
     return KitSection(
-      "Items", meta: [String(localized: "\(app.itemCount) items"), app.syncedLine], systemImage: "key.horizontal",
+      "Items", meta: [String(localized: "\(app.itemCount) items"), app.syncedLine(now: now)], systemImage: "key.horizontal",
       status: app.vault.sync?.isRunning == true ? .idle : .idle
     ) {
       SidebarRow(value: SidebarItem.logins, "Logins", systemImage: "key") { Count(vault.logins.count) }

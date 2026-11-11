@@ -438,10 +438,12 @@ final class AppModel {
     keepsSecretsInICloud ? String(localized: "iCloud Keychain") : String(localized: "this \(ThisDevice.word)’s keychain")
   }
 
-  var syncedLine: String {
+  /// "synced 3 min ago" at `now`: a view showing it redraws on `RelativeTimeSchedule(lastSync)`, or it keeps the text
+  /// of its last draw (V-042)
+  func syncedLine(now: Date = .now) -> String {
     if !keepsSecretsInICloud { return String(localized: "on this \(ThisDevice.word)") }
     guard let lastSync else { return isDemo ? String(localized: "synced 1 min ago") : String(localized: "not synced yet") }
-    return String(localized: "synced \(RelativeTime.short(lastSync))")
+    return String(localized: "synced \(RelativeTime.short(lastSync, now: now))")
   }
 }
 

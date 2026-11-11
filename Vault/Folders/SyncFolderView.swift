@@ -1,6 +1,7 @@
 import ComponentKit
 import SwiftUI
 import VaultKit
+import VaultUI
 
 /// Board 06: a synced folder at work. Conflicts first (your edit is kept until you choose), then the edits kept
 /// here on a read-only device, what's arriving and what arrived today. The inspector sets this device's mode and
@@ -232,7 +233,10 @@ private struct RecordsCard: View {
              iCloud && !hubs.isEmpty ? String(localized: "this \(ThisDevice.word) bridges them") : ""],
       systemImage: "arrow.triangle.2.circlepath", hue: .blue
     ) {
-      InspectorRow("iCloud", value: iCloud ? app.syncedLine.prefix(1).uppercased() + app.syncedLine.dropFirst() : String(localized: "Off"), copyable: false)
+      TimelineView(RelativeTimeSchedule(app.lastSync)) { context in
+        let synced = app.syncedLine(now: context.date)
+        InspectorRow("iCloud", value: iCloud ? synced.prefix(1).uppercased() + synced.dropFirst() : String(localized: "Off"), copyable: false)
+      }
       ForEach(hubs) { hub in
         InspectorRow(
           "\(hub.name)",
