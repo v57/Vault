@@ -29,6 +29,9 @@ public final class NotesMirror: @unchecked Sendable {
   private let queue = DispatchQueue(label: "dev.v57.vault.notes-mirror")
   private let lock = NSLock()
   private var index: Index
+  /// The records of the pass running, and whether a write may wait for the end of it (`PlaceTaken`).
+  private var passRecords: [String: VaultItem] = [:]
+  private var defersTakenPlaces = false
   private var pending: DispatchWorkItem?
   private var observer: VaultChangeObserver?
   private var presenter: MirrorPresenter?
@@ -74,6 +77,9 @@ public final class NotesMirror: @unchecked Sendable {
     /// Records whose path would leave the notes folder (`safeURL(for:)`): nothing of them was written.
     public var refused = 0
   }
+
+  /// A record's place is held by another note's file that this pass moves or removes: written after the others.
+  private struct PlaceTaken: Error {}
 
   /// A record's path that doesn't stay inside the notes folder.
   public struct UnsafePath: LocalizedError, Equatable {
@@ -182,7 +188,26 @@ public final class NotesMirror: @unchecked Sendable {
       }
     }
 
+    // A note written where another note's file still is, when that file moves or goes in this pass (renamed on
+    // another device, two notes of the same name), waits for the rest: the name is free then, rather than taken as
+    // "Name 3" (M-014).
+    passRecords = records
+    defersTakenPlaces = true
+    var deferred: [String] = []
     for id in Set(byID.keys).union(index.entries.keys).union(records.keys) {
+      do {
+        try reconcile(id: id, file: byID[id], record: records[id], entry: index.entries[id], report: &report)
+      } catch is PlaceTaken {
+        deferred.append(id)
+      } catch let error as UnsafePath {
+        report.refused += 1
+        lock.withLock { self.error = error.localizedDescription }
+      } catch {
+        lock.withLock { self.error = error.localizedDescription }
+      }
+    }
+    defersTakenPlaces = false
+    for id in deferred {
       do {
         try reconcile(id: id, file: byID[id], record: records[id], entry: index.entries[id], report: &report)
       } catch let error as UnsafePath {
@@ -192,6 +217,7 @@ public final class NotesMirror: @unchecked Sendable {
         lock.withLock { self.error = error.localizedDescription }
       }
     }
+    passRecords = [:]
     saveIndex()
     return report
   }
@@ -304,12 +330,14 @@ public final class NotesMirror: @unchecked Sendable {
     if keepLocalPath { (note.folder, note.name, note.encrypted) = Self.location(of: file.path) }
     try store.save(note)
     guard let saved = try store.item(id: id) else { return }
-    try write(saved, over: file)
+    // Saved already: written now, not after the pass (a second merge would run on the saved text).
+    try write(saved, over: file, mayWait: false)
   }
 
   // MARK: - Vault → file
 
-  private func write(_ record: VaultItem, over file: LocalFile?) throws {
+  /// Writes a record to its file, moving the file when the record's path changed.
+  private func write(_ record: VaultItem, over file: LocalFile?, mayWait: Bool = true) throws {
     let data: Data
     let path: String
     var text: String?
@@ -326,9 +354,11 @@ public final class NotesMirror: @unchecked Sendable {
     // The path comes from a synced record, which whoever can write records chooses.
     guard var target = safeURL(for: path) else { throw UnsafePath(path: path) }
     let fileManager = FileManager.default
-    // The place is taken by another file: the next free name.
+    // The place is taken by another file: once it moves away, if it does in this pass; else the next free name, which
+    // may be this note's own file (the second of two notes of one name keeps "Name 2").
     if fileManager.fileExists(atPath: target.path), Self.id(of: target) != record.id, file?.url != target {
-      target = Self.availableURL(for: target)
+      if mayWait, defersTakenPlaces, leaves(target) { throw PlaceTaken() }
+      target = Self.availableURL(for: target, keeping: file?.url)
     }
     try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
     if let file, file.url.path != target.path {
@@ -339,6 +369,20 @@ public final class NotesMirror: @unchecked Sendable {
     if let text { bases.setBase(text, for: baseKey(record.id)) }
     index.entries[record.id] = Entry(
       path: relativePath(of: target), hash: Self.hash(data), clock: record.fields.latestClock.description)
+  }
+
+  /// Whether the file at `url` belongs to a note this pass moves elsewhere or removes (deleted on another device).
+  private func leaves(_ url: URL) -> Bool {
+    let path = relativePath(of: url)
+    guard let holder = Self.id(of: url) ?? index.entries.first(where: { $0.value.path == path })?.key else { return false }
+    guard let record = passRecords[holder] else { return index.entries[holder] != nil }
+    return Self.path(of: record) != path
+  }
+
+  /// A record's path in the folder.
+  static func path(of record: VaultItem) -> String {
+    record.kind == VaultNote.kind
+      ? VaultNote(id: record.id, values: record.values).path : VaultNoteFile(id: record.id, values: record.values).path
   }
 
   /// Where a record's relative path lands in the folder, or nil when it would land anywhere else. A synced record's path
@@ -556,12 +600,17 @@ public final class NotesMirror: @unchecked Sendable {
   }
   #endif
 
-  static func availableURL(for url: URL) -> URL {
+  /// The first of `url`, "Name 2", "Name 3"… that's free, or is `keeping` (the note's own file).
+  static func availableURL(for url: URL, keeping own: URL? = nil) -> URL {
     let base = url.deletingPathExtension().lastPathComponent
     let ext = url.pathExtension
     var number = 2
     var candidate = url
-    while FileManager.default.fileExists(atPath: candidate.path) {
+    // The scan's URLs and the record's may spell the same file differently (/private/var and /var).
+    let ownPath = own?.standardizedFileURL.resolvingSymlinksInPath().path
+    while FileManager.default.fileExists(atPath: candidate.path),
+      candidate.standardizedFileURL.resolvingSymlinksInPath().path != ownPath
+    {
       candidate = url.deletingLastPathComponent().appendingPathComponent("\(base) \(number)").appendingPathExtension(ext)
       number += 1
     }

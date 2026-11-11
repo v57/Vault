@@ -292,6 +292,50 @@ struct NotesMirrorTests {
     #expect(try read("Kept.md", in: other) == "kept")
     #expect(try notes(store).count == 1)
   }
+
+  /// M-014: two notes of one name ("Twin.md", "Twin 2.md"); on another device the first is renamed and the second
+  /// edited. The second takes the freed name in the same pass, whichever note the pass reaches first.
+  @Test func aRenamedNoteFreesItsNameInOnePass() throws {
+    for _ in 0..<8 {
+      // New ids each time, so the pass meets the two notes in either order.
+      let (ida, idb) = (UUID().uuidString, UUID().uuidString)
+      let (mirror, store, folder) = try make()
+      try store.save(VaultNote(id: ida, name: "Twin", encrypted: false, text: "first"))
+      mirror.reconcileNow()
+      try store.save(VaultNote(id: idb, name: "Twin", encrypted: false, text: "second"))
+      mirror.reconcileNow()
+      #expect(NotesMirror.id(of: folder.appendingPathComponent("Twin.md")) == ida)
+      #expect(NotesMirror.id(of: folder.appendingPathComponent("Twin 2.md")) == idb)
+
+      var a = try #require(try store.record(VaultNote.self, id: ida))
+      a.name = "Renamed"
+      try store.save(a)
+      var b = try #require(try store.record(VaultNote.self, id: idb))
+      b.text = "second, edited"
+      try store.save(b)
+      mirror.reconcileNow()
+      let files = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+      #expect(files == ["Renamed.md", "Twin.md"])
+      #expect(try read("Twin.md", in: folder) == "second, edited")
+      #expect(NotesMirror.id(of: folder.appendingPathComponent("Twin.md")) == idb)
+
+      // Edited again while the name is held: the note keeps its own "Twin 2", not "Twin 3".
+      try store.save(VaultNote(id: "c", name: "Solo", encrypted: false, text: "x"))
+      mirror.reconcileNow()
+      var c = try #require(try store.record(VaultNote.self, id: "c"))
+      c.name = "Twin"
+      try store.save(c)
+      mirror.reconcileNow()
+      #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted() == ["Renamed.md", "Twin 2.md", "Twin.md"])
+      c = try #require(try store.record(VaultNote.self, id: "c"))
+      c.text = "y"
+      try store.save(c)
+      mirror.reconcileNow()
+      let all = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+      #expect(all == ["Renamed.md", "Twin 2.md", "Twin.md"], "\(String(describing: mirror.lastError))")
+      #expect(try read("Twin 2.md", in: folder) == "y")
+    }
+  }
 }
 
 struct NoteTextSyncTests {
