@@ -38,6 +38,22 @@ final class FakeCloud: @unchecked Sendable {
     log.append((sequence, id, true))
   }
 
+  /// Records downloaded with their payloads (`records(_:)`), for tests that count what a fetch downloads.
+  private(set) var downloads = 0
+
+  /// What changed since a token without the payloads: ids and change tags, as a listing with no desired keys gives.
+  func listing(since token: Int) -> (changed: [(id: String, changeTag: String?)], deleted: [String], token: Int) {
+    let all = changes(since: token)
+    return (all.modified.map { ($0.id, $0.changeTag) }, all.deleted, all.token)
+  }
+
+  /// The records with these ids, payloads and all; ids deleted since are left out.
+  func records(_ ids: [String]) -> [RemoteRecord] {
+    let found = ids.compactMap { records[$0] }
+    downloads += found.count
+    return found
+  }
+
   func changes(since token: Int) -> (modified: [RemoteRecord], deleted: [String], token: Int) {
     let entries = log.filter { $0.sequence > token }
     let ids = Set(entries.map(\.id))
@@ -82,6 +98,17 @@ final class FakeApp {
     _ = sync.fetched(modified: changes.modified, deleted: changes.deleted)
     // This app's token started at zero, so what it has now is everything.
     sync.fetchCompleted()
+  }
+
+  /// Sync Now's explicit fetch (`CloudSync.fetchEveryZone`), with its own token: lists what changed and downloads only
+  /// what the store doesn't hold at that change tag. `pull` stands for the engine's fetch, which needs a push.
+  private var explicitToken = 0
+
+  func fetchNow(_ cloud: FakeCloud) {
+    let listing = cloud.listing(since: explicitToken)
+    let modified = cloud.records(sync.idsToFetch(listing.changed))
+    _ = sync.fetched(modified: modified, deleted: listing.deleted)
+    explicitToken = listing.token
   }
 
   func sync(_ cloud: FakeCloud) {

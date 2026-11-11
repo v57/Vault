@@ -67,7 +67,7 @@ public final class Vault {
   /// The store's revision this vault last read. Observable: a view that reads the store beyond these lists (notes,
   /// which decrypt on each read) follows every change, a save here as much as one that synced in.
   public private(set) var revision: Int64 = -1
-  /// When iCloud last fetched or sent changes, as this app's engine saw it: nil until it has, and while sync is off.
+  /// When this app last fetched from iCloud (`CloudSync.lastSynced`): nil until a fetch completed, and while sync is off.
   /// Only Personal's is set (its engine carries every account): read it through `personalVault`.
   public private(set) var lastSynced: Date?
 

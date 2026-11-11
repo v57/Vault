@@ -271,6 +271,61 @@ struct SyncTests {
     }
   }
 
+  /// V-040: with no push, the engine's fetch brings nothing; Sync Now's explicit fetch brings the other device's changes,
+  /// edits and deletions, and downloads each change once.
+  @Test func syncNowFetchesWithoutAPush() throws {
+    let phone = try device("iphone")
+    let pad = try device("ipad")
+    try phone.store.save(id: "note", kind: "note", changes: ["title": "ZZ sent from the iPhone", "text": "a"])
+    try phone.store.save(id: "host", kind: "host", changes: ["name": "ZZ host"])
+    phone.push(cloud)
+    pad.fetchNow(cloud)
+    #expect(try pad.store.item(id: "note")?.values["title"] == "ZZ sent from the iPhone")
+    #expect(try pad.store.item(id: "host")?.values["name"] == "ZZ host")
+    #expect(cloud.downloads == 2)
+    // Nothing changed: the listing is empty and nothing is downloaded.
+    pad.fetchNow(cloud)
+    #expect(cloud.downloads == 2)
+    // An edit and a deletion: only the edited record comes down.
+    try phone.store.save(id: "note", kind: "note", changes: ["title": "ZZ edited"])
+    phone.push(cloud)
+    cloud.delete("host")
+    pad.fetchNow(cloud)
+    #expect(try pad.store.item(id: "note")?.values["title"] == "ZZ edited")
+    #expect(try pad.store.item(id: "host") == nil)
+    #expect(cloud.downloads == 3)
+  }
+
+  /// V-040: what the engine or another app on the device already fetched isn't downloaded again by Sync Now, and an
+  /// edit waiting here merges with what Sync Now brings.
+  @Test func syncNowDownloadsOnlyWhatTheDeviceLacks() throws {
+    let directory = temporaryDirectory()
+    let phone = try device("iphone")
+    let markdown = try FakeApp(directory: directory, keys: keys, device: "ipad", name: "markdown")
+    let vault = try FakeApp(directory: directory, keys: keys, device: "ipad", name: "vault")
+    try phone.store.save(id: "a", kind: "note", changes: ["title": "A", "text": "1"])
+    try phone.store.save(id: "b", kind: "note", changes: ["title": "B", "text": "2"])
+    phone.push(cloud)
+    // Markdown's engine got a push (or launched) and fetched both.
+    markdown.pull(cloud)
+    let before = cloud.downloads
+    vault.fetchNow(cloud)
+    #expect(cloud.downloads == before)
+    // An edit on each device to different fields of one note: Sync Now brings the iPhone's, the iPad's goes up after.
+    try phone.store.save(id: "a", kind: "note", changes: ["title": "A from the iPhone"])
+    phone.push(cloud)
+    try vault.store.save(id: "a", kind: "note", changes: ["text": "1 from the iPad"])
+    vault.fetchNow(cloud)
+    #expect(cloud.downloads == before + 1)
+    vault.push(cloud)
+    phone.pull(cloud)
+    for store in [phone.store, vault.store] {
+      #expect(try store.item(id: "a")?.values["title"] == "A from the iPhone")
+      #expect(try store.item(id: "a")?.values["text"] == "1 from the iPad")
+      #expect(try store.pendingCount() == 0)
+    }
+  }
+
   @Test func aRecordOnItsWayIsntBuiltTwice() throws {
     let mac = try device("mac")
     try mac.store.save(id: "h", kind: "host", changes: ["name": "a"])

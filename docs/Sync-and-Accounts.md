@@ -12,7 +12,7 @@ syncs through your iCloud:
 
 When two devices change the same item, each field keeps the later change. Edits to different fields both survive.
 
-The sidebar's status shows where your vault syncs. **Items** says when it last synced.
+The sidebar's status shows where your vault syncs. **Items** says when it last got your other devices' changes.
 
 To sync with devices that have no iCloud (Linux, Windows, Android), connect them through your own [Hub](Hub.md).
 

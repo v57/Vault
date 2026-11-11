@@ -164,7 +164,10 @@ folder name, so the same checkout added on two Macs is one record. If two ids fo
 **Sync without a helper.** Every app runs its own `CKSyncEngine` against the `Vault` zone of the private database.
 A write puts the item in the outbox and leases it to the app that wrote it, which sends it. If that app quits
 first, the lease runs out and any other app sends it. Every app fetches, and the store skips records it already
-has, so a change is sent once and applied once. A conflict merges the server's copy and sends the merge on top.
+has, so a change is sent once and applied once. A conflict merges the server's copy and sends the merge on top. The
+engine fetches only what a push or its launch marked changed, and iOS apps get no pushes, so Sync Now and coming to the
+front also list each zone's changes since the app's own token (ids and change tags only) and download what the store
+doesn't hold at that tag. The Items line's "synced" is the last fetch that completed, never a send.
 
 **Accounts.** One person can work for several organizations, each with its own teams, hosts and keys. Each account
 (`VaultAccount`: name, color, role) keeps its records apart, never as a tag on them: passwords, projects, hosts, configs

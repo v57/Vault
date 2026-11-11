@@ -36,6 +36,10 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
 
   private var accountsToken: UUID?
   private var engine: CKSyncEngine?
+  /// The private database the engine syncs with, for the explicit fetch.
+  private var database: CKDatabase?
+  /// An explicit fetch is under way: another `syncNow` leaves it to that one.
+  private var isFetching = false
   private var observers: [NSObjectProtocol] = []
   private var outboxTimer: Timer?
   private static let log = Logger(subsystem: "dev.v57.vault", category: "sync")
@@ -43,7 +47,8 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
   /// The last problem, for a status line.
   public private(set) var lastError: String?
 
-  /// When this engine last finished a fetch or sent records: nil until it has.
+  /// When this app last fetched from iCloud: an explicit fetch (`syncNow`) that reached every zone, or the engine
+  /// fetching a zone. Nil until one has: a send, or a fetch the engine skipped, doesn't count (V-040).
   public var lastSynced: Date? { lock.withLock { synced } }
   private var synced: Date?
 
@@ -129,6 +134,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     let engine: CKSyncEngine? = lock.withLock {
       defer {
         self.engine = nil
+        database = nil
         wasStarted = false
       }
       return self.engine
@@ -274,6 +280,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     configuration.subscriptionID = subscriptionID
     let engine = CKSyncEngine(configuration)
     self.engine = engine
+    database = container.privateCloudDatabase
     isFreshEngine = saved == nil
     lock.unlock()
     Self.log.notice(
@@ -333,8 +340,12 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     if !zoneIDs.isEmpty { engine.state.add(pendingDatabaseChanges: zoneIDs.map { .deleteZone($0) }) }
   }
 
-  /// Sends now, and fetches what pushes reported (the app came to the front). Changes from other devices
-  /// arrive by push (the app's own subscription) within a minute or so, and at launch.
+  /// Fetches every zone and sends now: Sync Now, ⌘R, the app coming to the front, background refresh. Changes from
+  /// other devices also arrive by push (the app's own subscription) where the app gets pushes, and at launch.
+  ///
+  /// The engine's `fetchChanges()` only fetches zones a push or the engine's launch marked changed, and iOS apps get
+  /// no pushes without the remote-notification background mode, so on its own it fetched nothing on iPhone and iPad
+  /// while the app stayed in front (V-040). `fetchEveryZone` asks the server itself.
   public func syncNow() {
     guard let engine = currentEngine else {
       if store.isWaitingToMigrate { _ = try? store.catchUp() }
@@ -344,9 +355,19 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       return
     }
     queueOutbox()
+    let database = lock.withLock { self.database }
     Task {
       do {
         try await engine.fetchChanges()
+        do {
+          if let database, try await fetchEveryZone(from: database) {
+            noteSynced()
+            onChange()
+          }
+        } catch let error as CKError where !Self.refusesThisApp(error) {
+          // The network or a busy server: the next Sync Now or activation tries again, and the send still goes.
+          record(error)
+        }
         // The fetch worked: an app whose sync failed before takes its outbox again, so what waited goes up in this
         // pass instead of at the next timer or activation (V-039).
         if isHealthy == false {
@@ -355,12 +376,103 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         }
         try await engine.sendChanges()
         isHealthy = true
-        noteSynced()
         onChange()
       } catch {
         record(error)
         isHealthy = false
       }
+    }
+  }
+
+  /// Fetches what changed in every zone since this app's last explicit fetch, past the engine (which skips zones no push
+  /// marked changed): lists the changed records' ids and change tags, downloads only those the store doesn't hold at that
+  /// tag (`SyncCoordinator.idsToFetch`: what the engine or another app here fetched isn't downloaded again), and applies
+  /// them as the engine's fetches are. Each zone keeps its own change token, in its store's engine state, so a reset of
+  /// the store's server state starts it again. Returns false when another explicit fetch was under way.
+  private func fetchEveryZone(from database: CKDatabase) async throws -> Bool {
+    let isMine = lock.withLock {
+      defer { isFetching = true }
+      return !isFetching
+    }
+    guard isMine else { return false }
+    defer { lock.withLock { isFetching = false } }
+    var fetched: Set<String> = []
+    // An account whose record arrived in Personal's zone opens its store, and its zone is fetched in the same pass.
+    while true {
+      let zonesLeft = zones.activeZones().filter { !fetched.contains($0) }
+      if zonesLeft.isEmpty { break }
+      for zone in zonesLeft {
+        fetched.insert(zone)
+        try await fetchZone(zone, from: database)
+      }
+    }
+    return true
+  }
+
+  private func fetchZone(_ zone: String, from database: CKDatabase) async throws {
+    guard case .zone(let coordinator) = zones.route(zone) else { return }
+    let zoneID = CKRecordZone.ID(zoneName: zone)
+    let tokenName = name + ".fetch." + zone
+    var token = (try? coordinator.store.engineState(tokenName)).flatMap {
+      try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: $0)
+    }
+    var listed: [(id: String, changeTag: String?)] = []
+    var deleted: [String] = []
+    var moreComing = true
+    while moreComing {
+      let changes: (
+        modificationResultsByID: [CKRecord.ID: Result<CKDatabase.RecordZoneChange.Modification, Error>],
+        deletions: [CKDatabase.RecordZoneChange.Deletion], changeToken: CKServerChangeToken, moreComing: Bool
+      )
+      do {
+        // Only the system fields: what the store already has isn't downloaded.
+        changes = try await database.recordZoneChanges(inZoneWith: zoneID, since: token, desiredKeys: [])
+      } catch let error as CKError where error.code == .changeTokenExpired && token != nil {
+        Self.log.notice("Fetch now in \(zone, privacy: .public): token expired, listing the zone from the start")
+        token = nil
+        listed = []
+        deleted = []
+        continue
+      } catch let error as CKError where error.code == .zoneNotFound || error.code == .userDeletedZone {
+        // Not on the server yet, or deleted: the engine makes it or follows the deletion.
+        return
+      }
+      for (id, result) in changes.modificationResultsByID {
+        if case .success(let modification) = result { listed.append((id.recordName, modification.record.recordChangeTag)) }
+      }
+      deleted += changes.deletions.map(\.recordID.recordName)
+      token = changes.changeToken
+      moreComing = changes.moreComing
+    }
+    let toDownload = coordinator.idsToFetch(listed)
+    var modified: [RemoteRecord] = []
+    var unread: [UnreadRecord] = []
+    var start = 0
+    while start < toDownload.count {
+      let chunk = toDownload[start..<min(start + 200, toDownload.count)]
+      start += chunk.count
+      for (_, result) in try await database.records(for: chunk.map { recordID($0, in: zone) }) {
+        switch result {
+        case .success(let record):
+          switch Self.fetched(record) {
+          case .record(let record): modified.append(record)
+          case .unread(let record): unread.append(record)
+          }
+        case .failure(let error as CKError) where error.code == .unknownItem:
+          // Deleted since the listing: the next listing says so.
+          continue
+        case .failure(let error):
+          throw error
+        }
+      }
+    }
+    Self.log.notice(
+      "Fetch now in \(zone, privacy: .public): \(listed.count) changed, \(modified.count + unread.count) downloaded, \(deleted.count) deletions")
+    if !modified.isEmpty || !deleted.isEmpty || !unread.isEmpty {
+      queue(coordinator.fetched(modified: modified, deleted: deleted, unread: unread), in: zone)
+    }
+    if let token, let data = try? NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true) {
+      try? coordinator.store.setEngineState(data, for: tokenName)
     }
   }
 
@@ -477,14 +589,15 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       onChange()
 
     case .didFetchChanges:
-      // A fetch that brought nothing new still says the vault is current.
-      noteSynced()
+      // Not a sign that anything was fetched: the engine says so also when it skipped every zone (V-040).
       onChange()
 
     case .didFetchRecordZoneChanges(let fetch):
       // After this zone's last batch, the engine's events coming in order. One with an error isn't complete.
       guard fetch.error == nil else { break }
       zones.zoneFetched(fetch.zoneID.zoneName, fromNothing: lock.withLock { isFreshEngine })
+      // The engine did fetch this zone, even when nothing in it changed.
+      noteSynced()
 
     case .sentDatabaseChanges(let changes):
       for saved in changes.savedZones {
@@ -497,10 +610,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
       let failures = changes.failedRecordSaves.map { "\($0.error.code.rawValue)" }.joined(separator: ",")
       Self.log.notice(
         "Sent: \(changes.savedRecords.count) saved, \(changes.deletedRecordIDs.count) deleted, \(changes.failedRecordSaves.count) failed [\(failures, privacy: .public)]")
-      if !changes.savedRecords.isEmpty {
-        isHealthy = true
-        noteSynced()
-      }
+      if !changes.savedRecords.isEmpty { isHealthy = true }
       for saved in changes.savedRecords {
         Self.removeAssetFile(of: saved)
         let zone = saved.recordID.zoneID.zoneName

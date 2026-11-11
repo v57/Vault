@@ -134,6 +134,14 @@ public final class SyncCoordinator: @unchecked Sendable {
     if !isHolding { store.fetchCompleted() }
   }
 
+  /// What an explicit fetch downloads (`CloudSync.syncNow`, V-040): of the records a listing found changed since the
+  /// app's last explicit fetch (ids and change tags, no payloads), those the store doesn't already hold at that tag.
+  /// Whatever the sync engine or another app on the device fetched already isn't downloaded again.
+  public func idsToFetch(_ listed: [(id: String, changeTag: String?)]) -> [String] {
+    let known = (try? store.changeTags(ids: listed.map(\.id))) ?? [:]
+    return listed.filter { $0.changeTag == nil || known[$0.id] != $0.changeTag }.map(\.id)
+  }
+
   /// Records fetched from the server. `unread`: records that came without a payload this device could get at.
   public func fetched(modified: [RemoteRecord], deleted: [String], unread: [UnreadRecord] = []) -> [String] {
     store.withLock {

@@ -835,6 +835,26 @@ public final class VaultStore: @unchecked Sendable {
     }
   }
 
+  /// The change tag of the server's copy of each item, as this store last saw it (fetched or sent by any app on the
+  /// device). Items it holds no tag for are left out.
+  public func changeTags(ids: [String]) throws -> [String: String] {
+    try withLock {
+      var tags: [String: String] = [:]
+      var start = 0
+      while start < ids.count {
+        let chunk = Array(ids[start..<min(start + 500, ids.count)])
+        start += chunk.count
+        let marks = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+        for row in try database.query(
+          "SELECT id, change_tag FROM items WHERE change_tag IS NOT NULL AND id IN (\(marks))", chunk.map { .text($0) })
+        {
+          if let id = row[0].text, let tag = row[1].text { tags[id] = tag }
+        }
+      }
+      return tags
+    }
+  }
+
   // MARK: Internals
 
   struct Row {

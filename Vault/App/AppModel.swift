@@ -125,7 +125,7 @@ final class AppModel {
   var documentImport = DocumentImport()
   /// Shared documents being read now (`readSharedDocuments`), so two passes don't read one twice.
   var readingDocuments: Set<String> = []
-  /// When iCloud last fetched or sent changes (`Vault.lastSynced`: Personal's engine carries every account); the demo
+  /// When iCloud last fetched (`Vault.lastSynced`: Personal's engine carries every account), never only a send; the demo
   /// sets its own.
   var lastSync: Date? {
     get { demoSync ?? vault.personalVault.lastSynced }
