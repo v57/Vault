@@ -37,8 +37,9 @@ Create, check, replace or turn off your recovery key, or recover with one. See
 
 ## AutoFill
 
-Describes Vault's AutoFill extension. You turn AutoFill on in the system settings: see
-[Logins and AutoFill](Logins-and-AutoFill.md#autofill).
+**AutoFill passwords and codes** says whether the system offers Vault in password fields, **On** or **Off**.
+**Turn On…** (or **Settings…** once it's on) opens the system's AutoFill & Passwords settings, where you turn Vault on.
+See [Logins and AutoFill](Logins-and-AutoFill.md#autofill).
 
 ## Hub
 

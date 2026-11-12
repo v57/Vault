@@ -13,7 +13,8 @@ iCloud is off.
 
 ## Cards
 
-Open **Cards**. Each row shows the card's brand, the last four digits and the expiry.
+Open **Cards**. Each row shows the card's brand (Visa, Mastercard, American Express or Discover when Vault recognised
+it from the number, or the brand you typed), the last four digits and the expiry.
 
 - Select a card to see its **Holder**, **Number**, **Expires** and **Security code**. The number and the code are
   hidden: **Show** reveals and **Copy** copies them, after the app lock.
@@ -50,5 +51,6 @@ on each device and its remote URL. Projects are read-only in Vault.
 
 ## Deleting
 
-Vault doesn't delete logins, cards, notes, SSH hosts or database connections yet. Delete a note in Markdown, a host in
-Shell and a connection in Database. Documents have their own **Delete…** (see [Documents](Documents.md#delete-a-document)).
+Logins and documents have their own **Delete…** (see [Logins and AutoFill](Logins-and-AutoFill.md#delete-a-login) and
+[Documents](Documents.md#delete-a-document)). Vault doesn't delete cards, notes, SSH hosts or database connections yet.
+Delete a note in Markdown, a host in Shell and a connection in Database.

@@ -21,6 +21,11 @@ Nothing connects to a Hub until you add one. Each device decides for itself whet
 
 The device connects while a v57 app is open. The Hub shows as **waiting for approval**, with a safety code.
 
+Vault doesn't connect to your Hubs at launch. It connects once you open a screen that shows them (**Hub**,
+**Devices & People**, or **Settings ▸ Hub** or **Sync**) or change one, and stays connected until you quit. Until then
+a Hub reads as connecting. So on iPhone and iPad, the system's Local Network question doesn't come up before you open
+one of them.
+
 hub.v57.dev is a public playground for trying Hub out, with no accounts, guarantees or retention. Vault warns you if
 you type it. Don't use it for real data.
 

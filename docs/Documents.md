@@ -20,7 +20,8 @@ Each card shows the first page, whose document it is, the date it ends and a bad
   one person.
 - **Search:** finds names, field values, tags and words on the pages themselves.
 - **On iPad and the Mac**, switch between **Cards** and **List**. In List, select several documents to set their
-  collection, whose they are, or tags for all of them at once.
+  collection, whose they are, or tags for all of them at once, or right-click them to **Move to** a collection or
+  delete them together.
 
 The first time you open Documents, Vault adds the default collections, Identity among them.
 
@@ -39,9 +40,14 @@ The **Add Document** sheet opens and reads the pages. Then:
 
 1. Check the pages. Drag a page's corners to crop it, pick **Color**, **Grey** or **Document**, or use **Remove Page**.
    The **+** in the strip adds more pages.
-2. Check the kind under **Looks like**. Vault suggests one; a passport's machine-readable zone fills in its fields and
-   checks them. Pick another kind from the menu if the suggestion is wrong.
-3. Fill in or correct the **Title** and the fields. A number such as a passport number goes in a hidden field.
+2. Check the kind under **Looks like**. Vault suggests one. On a passport's data page, Vault reads the
+   machine-readable zone and fills in the holder, nationality, number, date of birth, issue and expiry, checking each
+   against its check digits; a date whose check digit fails is left empty. The printed labels (Surname, Given names,
+   Nationality, Passport No., in English, French and German) fill in what the zone lacks. Pick another kind from the
+   menu if the suggestion is wrong.
+3. Fill in or correct the **Title** and the fields. A number such as a passport number goes in a hidden field. An
+   empty date field shows its format (YYYY-MM-DD). Vault leaves a date empty rather than suggest one that can't be
+   right, such as a birth or an issue in the future, or an expiry before the issue.
 4. Pick the **Collection** and **Whose** it is. **Add Person** adds someone new.
 5. Add **Tags**, set **Remind me** (how many months before it ends) and add **Notes**.
 6. Click **Add Document**.
@@ -53,10 +59,23 @@ valid, its pages, copies you shared, linked items and notes.
 
 Open it to see its pages large (**Open** on iPad and Mac, a tap on iPhone):
 
-- **Zoom** and **Fit**, **Rotate**, and the page strip to move between pages.
+- **Zoom** and **Fit**, **Rotate**, **Full Screen**, and the page strip to move between pages.
 - On a passport page, Vault marks the machine-readable zone and says whether its check digits match.
 - **Find on pages** (iPad and Mac) highlights the matching lines.
 - **Back** or Esc returns to the library.
+
+### Full screen
+
+Tap a page (double-click on the Mac), or click **Full Screen**, to see the pages alone on black. Pinch or double-tap
+to zoom and drag to move around. **‹** and **›**, the ← and → keys or a swipe go to the other pages. **Close**, Esc or
+a swipe down closes it. PDF pages open the same way.
+
+## Quick actions
+
+Touch and hold a document's card, or right-click a card or a row in List, for its quick actions: **Open**,
+**Share a Copy…**, **Copy Number** (and any other hidden field), **Edit…**, **Duplicate**, **Move to** the Inbox or a
+collection, and **Delete…**. A hidden field is copied after the app lock and cleared from the clipboard later. The same
+actions are in **More** in the document's details.
 
 ## Reminders
 
@@ -68,13 +87,15 @@ Reminders show in Vault's Coming Up. Vault doesn't send notifications.
 
 ## Edit, duplicate and add pages
 
-- **Edit** (or **More ▸ Edit…**) opens the document's values. Change them and click **Save**.
+- **Edit…** (beside **Share a Copy…**, or in the quick actions) opens the document's values. Change them and click
+  **Save**.
 - **More ▸ Duplicate** makes a copy and opens it for editing, for example for next year's policy.
 - The **+** in an open document's page strip adds pages.
 
 ## Delete a document
 
-Choose **More ▸ Delete…**, then **Delete**. Its pages are deleted on all your devices. This can't be undone.
+Click **Delete Document…** under the document's actions (on iPhone, at the bottom of its Details), or choose
+**Delete…** in its quick actions, then **Delete**. Its pages are deleted on all your devices. This can't be undone.
 
 ## Share a redacted copy
 

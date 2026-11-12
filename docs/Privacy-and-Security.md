@@ -61,12 +61,15 @@ Vault contacts no server on its own. It connects only for these, and only when t
 
 | What | When |
 |---|---|
-| Your iCloud (CloudKit and iCloud Keychain) | While **Use iCloud** is on: at launch, each time Vault comes to the front, on **Sync Now**, and when another device changes something. Turn it off in **Settings ▸ Privacy**. |
-| Your Hubs | Only after you add one, while a v57 app is open, and only from devices where **Connect from this device** is on. Your vault goes through a Hub only if you turn on **Sync vault through it**. |
+| Your iCloud (CloudKit and iCloud Keychain) | While **Use iCloud** is on: at launch, each time Vault comes to the front, on **Sync Now**, when another device changes something and, on iPhone and iPad, when the system runs Vault's background refresh. A few times a day this device's record also notes its model and when it last ran a v57 app, sealed like every record. Turn it off in **Settings ▸ Privacy**. |
+| Your Hubs | Only after you add one, and only from devices where **Connect from this device** is on. Never at launch: Vault connects once you open **Hub**, **Devices & People** or **Settings ▸ Hub** or **Sync**, and stays connected until you quit. Your vault goes through a Hub only if you turn on **Sync vault through it**. |
 | GitHub Releases (Mac) | When you choose **Check for Updates…** or **Check Now**, or once you turn on **Check for updates automatically**. |
 | Your servers over SSH | When you click **Take Out** in Lost Device. Vault signs in with this device's key, to servers where you accepted the lost device's key. |
 | Your remotes (S3) | For a [synced folder](Folder-Sync.md): when Vault opens or comes to the front, on **Sync Now**, every few minutes while it's open (**Settings ▸ Sync ▸ Check remotes**) and, on iPhone and iPad, when the system runs Vault's background refresh. Also **Test** in Add Remote and browsing a remote under **Locations**. Only remotes that are on and that a folder uses; they only ever get ciphertext. |
 | Your browser | When you tap a login's website, or **Open…** in Lost Device (your Apple Account's device page). Your browser opens the page, not Vault. |
+
+On the Mac, **Settings ▸ Remote** checks every two seconds while it's open whether Remote Login answers on the Mac
+itself; nothing leaves the Mac.
 
 Nothing else: no analytics, no crash reports, no website icons. Documents, QR codes and setup keys are read on the
 device. AutoFill reads your logins from the device and sends nothing.

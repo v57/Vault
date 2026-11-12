@@ -15,8 +15,10 @@ The first card is this device:
 
 ## Your other devices
 
-**Your other devices** lists each device that runs a v57 app on your Apple Account, with its platform, key fingerprint,
-when it was last seen, and whether it's up to date. Touch and hold (or right-click) a device for **Rename…** and
+**Your other devices** lists each device that runs a v57 app on your Apple Account, with its system (macOS, iOS or
+iPadOS, as the device says itself), key fingerprint, when it was last seen, and whether it's up to date. **Seen** is
+when the device last ran a v57 app with sync on; each device notes it at launch and after syncing, a few times a day at
+most. Touch and hold (or right-click) a device for **Rename…** and
 **Lost Device…**.
 
 **Settings ▸ Devices** on iPhone and iPad (and **Settings ▸ Remote** on the Mac) lists the same devices with how many

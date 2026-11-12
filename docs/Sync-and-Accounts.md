@@ -60,15 +60,15 @@ With more than one account, an account picker shows at the top of the sidebar.
 ### Switch accounts
 
 - Pick an account in the sidebar's picker. Every list then shows only that account's records.
-- Press ⌃⌘1 to ⌃⌘9 to switch to the first nine accounts.
+- With a keyboard (the Mac, or an iPad with one connected), press ⌃⌘1 to ⌃⌘9 to switch to the first nine accounts.
 - On iPad and the Mac, **Open in a New Window** in the picker opens an account in a window of its own. Each window keeps
   its account.
-- The picker also has **New Account…**. On iPad and the Mac it has **Manage Accounts…**, which opens Settings ▸
-  Accounts.
+- The picker also has **New Account…** and **Manage Accounts…**, which opens Settings ▸ Accounts (on iPhone, it opens
+  Settings, where you tap **Accounts**).
 
 ### Edit or delete an account
 
-In **Settings ▸ Accounts**, an account's **Edit…** renames it or changes its colour. **Delete…** deletes its
+In **Settings ▸ Accounts**, an account's **Edit…** (on iPhone, under its name) renames it or changes its colour. **Delete…** deletes its
 projects, hosts, passwords and settings on every device. Personal keeps everything. Windows showing the account go back
 to Personal.
 

@@ -12,7 +12,8 @@ and your own Hubs.
 - **iPhone and iPad:** iOS and iPadOS 17.4 or later. Updates come through the App Store.
 
 The Mac, iPhone and iPad apps have the same features, with a few differences noted on each page. On iPhone, lists push
-a page when you tap an item. On iPad and the Mac, the selected item shows in an inspector beside the list.
+a page when you tap an item. On iPad and the Mac, the selected item shows in an inspector beside the list, or under it
+where the window is too narrow, such as an iPad in portrait with the sidebar showing.
 
 There's no Vault app for Linux or Windows. The other v57 apps there keep their own vault and can sync it through a Hub.
 

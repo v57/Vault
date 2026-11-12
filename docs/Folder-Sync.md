@@ -20,7 +20,8 @@ member list signed by you. Vault has no server of its own in between.
 A remote you add is on: Vault reaches it only for folders that sync through it, or when you browse it under
 **Locations**. Its inspector's **Vault may reach it** switch turns it off; nothing contacts it then.
 
-SFTP, SMB, iCloud and FTP remotes can be saved, but Vault doesn't connect to them yet.
+SFTP, SMB, iCloud and FTP remotes can be saved, but Vault doesn't connect to them yet. An SFTP remote picks one of
+your [SSH hosts](SSH-Hosts.md) from a menu; without hosts, Add Remote says to add one first.
 
 **On your Hub:** a Hub's storage speaks S3. Use its endpoint, its bucket (`hub` for hub-s3-local) and the keys it
 gave you.

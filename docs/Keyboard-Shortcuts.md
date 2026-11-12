@@ -28,3 +28,5 @@ On the Mac these are in the File menu, with **Sync a Folder…** and **Add Remot
 | Return | The sheet's main button: Save, Create, Connect, Add Document |
 | Esc | Cancel the sheet |
 | Esc | Back to the library from an open document |
+| ← → | The previous or next page, with a document's pages full screen |
+| Esc | Close a document's full-screen pages |

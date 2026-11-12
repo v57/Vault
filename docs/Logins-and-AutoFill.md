@@ -53,12 +53,19 @@ else since.
 Select the login and click **Edit**. The **Edit Login** sheet opens with its values. The saved password stays hidden
 until you click **Show**, which asks the app lock first. Change what you need and click **Save**.
 
+## Delete a login
+
+Choose **More ▸ Delete…** in the login's inspector (iPad and Mac) or the **…** menu on its page (iPhone), then
+**Delete**. The login is deleted with its password, one-time code and passkeys on all your devices. This can't be
+undone.
+
 ## Add a one-time code
 
 When a site sets up two-factor authentication, it shows a QR code or a setup key. In New Login or Edit Login:
 
-- **Scan Code** (iPhone and iPad) opens the camera in the sheet. Point it at the QR code. The first time, the system
-  asks to let Vault use the camera.
+- **Scan Code** (iPhone and iPad) opens the camera: over the whole screen on iPhone, with **Cancel** at the top, and
+  in the sheet on iPad. Point it at the QR code. Once it reads a setup key the camera closes; a QR code that isn't a
+  setup key gets a note, and the camera keeps looking. The first time, the system asks to let Vault use the camera.
 - **Scan Screen** (Mac) finds the QR code on your screen.
 - **Paste Key** reads a copied setup key or `otpauth://` link. If the clipboard holds none, Vault says "The pasteboard
   has no setup key."
@@ -81,7 +88,11 @@ Vault fills passwords, one-time codes and passkeys in Safari and other apps. Tur
 - **On iPhone and iPad:** Settings ▸ General ▸ AutoFill & Passwords, then turn on Vault.
 - **On the Mac:** System Settings ▸ General ▸ AutoFill & Passwords, then turn on Vault.
 
-Open Vault once after that, so it can tell the system which logins it has.
+**Settings ▸ AutoFill** in Vault says whether the system offers Vault in password fields. While it's off,
+**Turn On…** opens the system's AutoFill & Passwords settings; once it's on, **Settings…** opens them. The pane reads
+the state again when you come back to Vault.
+
+Open Vault once after turning it on, so it can tell the system which logins it has.
 
 ### Fill a password
 

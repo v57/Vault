@@ -49,11 +49,16 @@ attributes) are internal targets, not products. The user guide is in [docs/](doc
 | Entitlement | Value |
 |---|---|
 | `com.apple.security.application-groups` | `$(TeamIdentifierPrefix)dev.v57` (macOS), `group.dev.v57` (iOS) |
-| `keychain-access-groups` | `$(AppIdentifierPrefix)dev.v57.shared` in Vault, its AutoFill extension and every app that connects (Shell, Database, Markdown, Git, Code, Dev, Remote, Community); `$(AppIdentifierPrefix)dev.v57.records` in every app but the AutoFill extension (Get, Player and Hub list it instead of `dev.v57.shared`); `$(AppIdentifierPrefix)dev.v57.secrets` in Vault and its AutoFill extension only; `$(AppIdentifierPrefix)dev.v57.device` in Vault and the Hub app only. Shell, Get and Player also list their own group (`$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)`) |
+| `keychain-access-groups` | `$(AppIdentifierPrefix)dev.v57.shared` in Vault, its AutoFill extension and every app that connects (Shell, Database, Markdown, Git, Code, Dev, Remote, Community); `$(AppIdentifierPrefix)dev.v57.records` in every app (Get, Player and Hub list it instead of `dev.v57.shared`), not in Vault's extensions; `$(AppIdentifierPrefix)dev.v57.secrets` in Vault and its AutoFill extension only; `$(AppIdentifierPrefix)dev.v57.device` in Vault and the Hub app only. Shell, Get and Player also list their own group (`$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)`). Vault's Share extension lists none: it seals what's shared to Vault's drop key and leaves it in the app group |
 | `com.apple.developer.icloud-container-identifiers` | `iCloud.dev.v57` |
 | `com.apple.developer.icloud-services` | `CloudKit` |
 | `com.apple.developer.icloud-container-environment` | `Production`, in debug builds too |
 | `com.apple.developer.aps-environment` (`aps-environment` on iOS) | `development` / `production`, for sync pushes |
+| `com.apple.developer.authentication-services.autofill-credential-provider` | Vault and its AutoFill extension |
+| `com.apple.security.app-sandbox` | Vault's AutoFill and Share extensions on the Mac; the Mac app itself isn't sandboxed |
+
+The Vault app and its extensions need macOS 14.4 and iOS/iPadOS 17.4 (the project's deployment targets); the package
+itself builds for macOS 14 and iOS 17.
 
 What the groups hold (`VaultConfiguration`): `dev.v57.shared` the vault keys, connection passwords, the SSH identity and
 the GitHub token; `dev.v57.records` a copy of the vault keys and this device's id for apps that read records but hold no
