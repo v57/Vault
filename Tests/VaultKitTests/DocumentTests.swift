@@ -440,3 +440,155 @@ struct DocumentReaderTests {
     #expect(suggestion.fields["issued"] == nil)
   }
 }
+
+/// Passport data pages as the device's text recognizer (Vision) reads them: rendered ICAO 9303 specimen pages
+/// (ANNA MARIA ERIKSSON of Utopia, no real person's data) read on a Mac, plus OCR's usual slips (V-050: a scanned
+/// passport was taken for a passport, and none of its fields were filled).
+struct PassportScanTests {
+  let now = DocumentDay.date(from: "2026-11-12")!
+
+  /// What Vision read on a rendered data page: each label and each value a line of its own, a row of labels before
+  /// its row of values, two-digit years, and the zone's number line without its last `<<<<<10` (the reason nothing
+  /// was found: the zone was looked for by its lines' lengths).
+  static let visionPage = [
+    "UTOPIA", "PASSPORT / PASSEPORT", "Type / Type", "Code / Code", "Passport No. / N° du passeport", "P", "UTO",
+    "L898902C3", "Surname / Nom", "ERIKSSON", "Given names / Prénoms", "ANNA MARIA", "Nationality / Nationalité",
+    "UTOPIAN", "Date of birth / Date de naissance", "Personal No. / N° personnel", "12 AUG/AOÛT 74", "ZE 184226 B",
+    "Sex / Sexe", "Place of birth / Lieu de naissance", "F", "ZENITH", "Date of issue / Date de délivrance",
+    "Authority / Autorité", "16 APR/AVR 07", "PASSPORT OFFICE", "Date of expiry / Date d'expiration",
+    "Holder's signature / Signature du titulaire", "15 APR/AVR 12",
+    "P<UTOERIKSSON<<ANNA<MARIA<<<<< < < <<<<<", "L898902C36UT07408122F1204159ZE184226E",
+  ]
+
+  static let expected = [
+    "name": "Anna Maria Eriksson", "country": "Utopian", "number": "L898902C3", "birthDate": "1974-08-12",
+    "issued": "2007-04-16", "expires": "2012-04-15",
+  ]
+
+  @Test func visionReadDataPageFillsEveryField() throws {
+    let suggestion = DocumentReader.suggest(pages: [Self.visionPage], now: now)
+    #expect(suggestion.kind == "passport")
+    let zone = try #require(suggestion.zone)
+    #expect(zone.format == .td3)
+    #expect(zone.isValid)
+    #expect(zone.nationality == "UTO")  // read as UT0
+    #expect(zone.sex == "F")
+    #expect(suggestion.fields == Self.expected)
+  }
+
+  /// A page photographed a little turned: the right column's labels come first in their rows, and the number line
+  /// stops even earlier.
+  @Test func columnsReadOutOfOrder() {
+    let lines = [
+      "UTOPIA", "PASSPORT / PASSEPORT", "Passport No. / N° du passeport", "Type / Type", "Code / Code", "P", "UTO",
+      "L898902C3", "Surname / Nom", "ERIKSSON", "Given names / Prénoms", "ANNA MARIA", "Nationality / Nationalité",
+      "UTOPIAN", "Personal No. / N° personnel", "Date of birth / Date de naissance", "ZE 184226 B", "12 AUG/AOÛT 74",
+      "Sex / Sexe", "Place of birth / Lieu de naissance", "F", "ZENITH", "Authority / Autorité",
+      "Date of issue / Date de délivrance", "PASSPORT OFFICE", "16 APR/AVR 07",
+      "Holder's signature / Signature du titulaire", "Date of expiry / Date d'expiration", "15 APR/AVR 12",
+      "P<UTOERIKSSON< <ANNA<MARIA< <<< < < < << < <<", "L898902C36UT07408122F1204159ZE18422",
+    ]
+    #expect(DocumentReader.suggest(pages: [lines], now: now).fields == Self.expected)
+  }
+
+  /// Without a zone (cut off, or a page that has none) the printed labels fill the fields.
+  @Test func labelsAloneFillEveryField() {
+    let suggestion = DocumentReader.suggest(pages: [Array(Self.visionPage.dropLast(2))], now: now)
+    #expect(suggestion.zone == nil)
+    #expect(suggestion.kind == "passport")
+    #expect(suggestion.fields == Self.expected)
+  }
+
+  /// The zone's slips: « for fillers, ‹ for one, O for 0 in the number and dates, 0 for O in the country, spaces,
+  /// fillers read as K's, and no line length right.
+  @Test func noisyZones() throws {
+    let readings: [[String]] = [
+      ["P«UTOERIKSSON«ANNA‹MARIA«««««", "L8989O2C36UT074O8122F12O4159ZE184226B«10"],
+      ["P<UTOERIKSSON<<ANNA<MARIA<<KKKKK<<", "L898902C3 6 UTO 740812 2 F 120415 9 ZE184226B"],
+      ["P<UT0ERIKSSON<<ANNA<MARIA", "L898902C36UTO7408122F1204159"],
+      ["PASSPORT", "L898902C36UTO7408122F1204159ZE184226B<<<<<10"],
+    ]
+    for lines in readings {
+      let zone = try #require(MachineReadableZone(text: lines, now: now), "\(lines)")
+      #expect(zone.number == "L898902C3", "\(lines)")
+      #expect(zone.numberMatchesCheck)
+      #expect(zone.nationality == "UTO")
+      #expect(zone.birthDate == "1974-08-12")
+      #expect(zone.expires == "2012-04-15")
+      #expect(zone.isValid, "\(lines)")
+      if lines[0].hasPrefix("P<") || lines[0].hasPrefix("P«") {
+        #expect(zone.issuer == "UTO")
+        #expect(zone.fullName == "Anna Maria Eriksson", "\(lines)")
+      }
+    }
+    // The names line missing: the number line still says it's a passport's.
+    let alone = DocumentReader.suggest(pages: [readings[3]], now: now)
+    #expect(alone.kind == "passport")
+    #expect(alone.fields["number"] == "L898902C3")
+    #expect(alone.fields["expires"] == "2012-04-15")
+  }
+
+  /// A date whose check digit fails is left out rather than guessed; the zone is still found by the other one.
+  @Test func dateWithAWrongCheckDigitIsLeftOut() throws {
+    let zone = try #require(MachineReadableZone(text: [
+      "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<", "L898902C36UTO7408172F1204159ZE184226B<<<<<10",
+    ], now: now))
+    #expect(zone.birthDate == nil)
+    #expect(zone.expires == "2012-04-15")
+    #expect(!zone.isValid)
+  }
+
+  /// A German-style page: three-language labels, the printed name with its umlaut kept over the zone's MUELLER,
+  /// "D" as Germany, dates as 12.08.1964, a TD3 zone read whole.
+  @Test func germanStylePage() throws {
+    let lines = [
+      "REISEPASS / PASSPORT / PASSEPORT", "Name/Surname/Nom", "MÜLLER", "Vornamen/Given names/Prénoms", "ERIKA",
+      "Staatsangehörigkeit/Nationality/Nationalité", "DEUTSCH", "Geburtstag/Date of birth/Date de naissance",
+      "12.08.1964", "Gültig bis/Date of expiry/Date d'expiration", "28.02.2032",
+      "P<D<<MUELLER<<ERIKA<<<<<<<<<<<<<<<<<<<<<<<<<", "C01X00T478D<<6408125F3202285<<<<<<<<<<<<<<02",
+    ]
+    let suggestion = DocumentReader.suggest(pages: [lines], now: now)
+    let zone = try #require(suggestion.zone)
+    #expect(zone.isValid)
+    #expect(zone.issuer == "D")
+    #expect(suggestion.fields == [
+      "name": "Erika Müller", "country": "Germany", "number": "C01X00T47", "birthDate": "1964-08-12",
+      "expires": "2032-02-28",
+    ])
+  }
+
+  /// Two-digit years: a birth in the future is last century's; other days are this century's.
+  @Test func twoDigitYears() {
+    let lines = [
+      "Date of birth / Date de naissance", "12 AUG/AOÛT 74", "Date of issue / Date de délivrance", "16 APR/AVR 22",
+      "Date of expiry / Date d'expiration", "15 APR/AVR 32",
+    ]
+    #expect(DocumentReader.date(after: ["date of birth"], in: lines, key: "birthDate", now: now) == "1974-08-12")
+    #expect(DocumentReader.date(after: ["date of issue"], in: lines, key: "issued", now: now) == "2022-04-16")
+    #expect(DocumentReader.date(after: ["date of expiry"], in: lines, key: "expires", now: now) == "2032-04-15")
+    #expect(DocumentReader.firstDate(in: "12 08 1974") == "1974-08-12")
+    #expect(DocumentReader.firstDate(in: "15 APR / AVR 32") == "2032-04-15")
+    #expect(DocumentReader.firstDate(in: "12 AGO/AUG 2030") == "2030-08-12")
+    #expect(DocumentReader.firstDate(in: "ZE 184226 B") == nil)
+  }
+
+  /// Share a Copy covers the zone's lines: the number line counts even read without its fillers.
+  @Test func zoneLines() {
+    #expect(MachineReadableZone.isZoneLine("L898902C36UT07408122F1204159ZE184226E"))
+    #expect(MachineReadableZone.isZoneLine("P<UTOERIKSSON<<ANNA<MARIA<<<<< < < <<<<<"))
+    #expect(!MachineReadableZone.isZoneLine("Date of birth 12.08.1974"))
+    #expect(!MachineReadableZone.isZoneLine("Invoice 2026-0412 for 3 items, total 1204.15 EUR"))
+  }
+
+  /// An ID card's TD1 zone with its last filler run and check digit cut off.
+  @Test func idCardZoneReadShort() throws {
+    let zone = try #require(MachineReadableZone(text: [
+      "I<UTOD231458907<<<<<<<<<<<<<<<", "7408122F1204159UTO", "ERIKSSON<<ANNA<MARIA<<<<<<<<<<",
+    ], now: now))
+    #expect(zone.format == .td1)
+    #expect(zone.number == "D23145890")
+    #expect(zone.nationality == "UTO")
+    #expect(zone.fullName == "Anna Maria Eriksson")
+    #expect(zone.isValid)
+  }
+}

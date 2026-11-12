@@ -127,13 +127,9 @@ extension Vault {
 }
 
 extension PageTextLine {
-  /// A line of a machine-readable zone: long, with fillers; a passport's name line may come back short, as OCR often
-  /// stops reading the fillers after the names.
-  var looksLikeZone: Bool {
-    let text = self.text.replacingOccurrences(of: " ", with: "")
-    let fillers = text.filter { "<«‹".contains($0) }.count
-    return fillers >= 3 && (text.count >= 28 || (text.hasPrefix("P") && text.count >= 12 && text.contains("<<")))
-  }
+  /// A line of a machine-readable zone: long, with fillers (a passport's name line may come back short, as OCR often
+  /// stops reading the fillers after the names), or its number line read without them.
+  var looksLikeZone: Bool { MachineReadableZone.isZoneLine(text) }
 }
 
 // MARK: - Pages on their way in
