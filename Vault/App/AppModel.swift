@@ -310,7 +310,7 @@ final class AppModel {
     if let name = LaunchOptions.value("--person") {
       selectedPerson = sharing.people.first { $0.name == name }?.id
     }
-    // `--document <title>` selects it, `--open-document` opens it large.
+    // `--document <title>` selects it, `--open-document` opens it large (`--full-screen`: its pages on black).
     if let title = LaunchOptions.value("--document") {
       selectedDocument = vault.documents.first { $0.displayName(kinds: vault.documentKinds) == title }?.id
       if LaunchOptions.flag("--open-document") { openDocument = selectedDocument }
@@ -329,6 +329,7 @@ final class AppModel {
     case "share-preview": if isDemo { sheet = .sharePreview }
     case "add-document": sheet = .addDocument
     case "share-copy": if let id = selectedDocument { sheet = .shareCopy(id) }
+    case "edit-document": if let id = selectedDocument { sheet = .editDocument(id) }
     default: break
     }
     // `--import <path>` (demo only): the file as if it was opened in Vault.

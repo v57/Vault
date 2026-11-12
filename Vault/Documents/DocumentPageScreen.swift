@@ -50,6 +50,8 @@ struct DocumentPageScreen: View {
   @State private var search = ""
   /// iPhone: the inspector (fields, Reminder, Duplicate, Delete) pushed over the pages.
   @State private var showsDetails = false
+  /// The pages full screen on black (V-045).
+  @State private var showsFullScreen = false
 
   var body: some View {
     let vault = app.vault
@@ -68,9 +70,19 @@ struct DocumentPageScreen: View {
             }
             .buttonStyle(.kit)
             Spacer()
+            // Round, icon-only: a kit button style sets its own label style, so `.iconOnly` showed the titles.
             Button("Rotate", systemImage: "rotate.right") { withAnimation(.kit) { rotation += 1 } }
-              .buttonStyle(.kit).labelStyle(.iconOnly)
+              .buttonStyle(.kitRound)
+            Button("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right") { showsFullScreen = true }
+              .buttonStyle(.kitRound)
+              .disabled(pages.isEmpty)
           }
+          // A tap on the page (a double click on the Mac, where a click is for scrolling it) opens it full screen.
+          .onTapGesture(count: idiom.isTouch ? 1 : 2) { if !pages.isEmpty { showsFullScreen = true } }
+          .kitFullScreenPages(
+            isPresented: $showsFullScreen,
+            pages: pages.map { KitPage(id: $0.id, label: $0.label, imageData: $0.image, aspectRatio: $0.aspectRatio) },
+            selection: Binding(get: { page ?? pages.first?.id }, set: { page = $0; rotation = 0; zoom = 1 }))
           KitPageStrip(
             pages: pages.map { KitPage(id: $0.id, label: $0.label, imageData: $0.image, aspectRatio: $0.aspectRatio) },
             selection: Binding(get: { page ?? pages.first?.id }, set: { page = $0; rotation = 0; zoom = 1 })
@@ -126,6 +138,7 @@ struct DocumentPageScreen: View {
     let loaded = await Task.detached(priority: .userInitiated) { DocumentPages.load(files, kind: kind) }.value
     pages = loaded
     if page == nil || !loaded.contains(where: { $0.id == page }) { page = loaded.first?.id }
+    if !loaded.isEmpty, LaunchOptions.flag("--full-screen") { showsFullScreen = true }
   }
 
   /// Reads the page's lines (once per page) for the marks.
