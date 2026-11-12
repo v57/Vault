@@ -92,9 +92,7 @@ struct AddDocumentSheet: View {
           LabeledField("Reminder") {
             let months = remindMonths ?? documentKind.remindMonths ?? 0
             let stepper = KitStepper(value: Binding(get: { max(1, months) }, set: { remindMonths = $0 }), in: 1...24) {
-              $0 == 1
-                ? String(localized: "1 month before \(field.label.lowercased())")
-                : String(localized: "\($0) months before \(field.label.lowercased())")
+              String(localized: "\($0) months before \(field.label.lowercased())")
             }
             .disabled(months == 0)
             let toggle = Toggle("Remind", isOn: Binding(get: { months > 0 }, set: { remindMonths = $0 ? (documentKind.remindMonths ?? 3) : 0 }))

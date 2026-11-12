@@ -243,7 +243,6 @@ final class RemoteLibrary: RemoteService {
       let place = draft.bucket.isEmpty ? draft.name : draft.bucket
       switch entries.count {
       case 0: return .success(String(localized: "Reached \(place) · empty"))
-      case 1: return .success(String(localized: "Reached \(place) · 1 item"))
       default: return .success(String(localized: "Reached \(place) · \(entries.count) items"))
       }
     } catch {

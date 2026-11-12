@@ -264,7 +264,7 @@ struct DocumentInspector: View {
     }
     if !document.copies.isEmpty {
       KitSection("Copies Shared", meta: [
-          document.copies.count == 1 ? String(localized: "1 copy") : String(localized: "\(document.copies.count) copies"),
+          String(localized: "\(document.copies.count) copies"),
           String(localized: "each carries its watermark"),
         ], systemImage: "seal", hue: .purple) {
         ForEach(document.copies.sorted { $0.value.date > $1.value.date }, id: \.key) { _, copy in
@@ -330,8 +330,7 @@ struct DocumentInspector: View {
     if days < 90 { return (String(localized: "\(field.label) in \(DocumentDates.left(date))"), .orange) }
     let years = days / 365
     let text =
-      years == 1 ? String(localized: "Valid for 1 year")
-      : years > 1 ? String(localized: "Valid for \(years) years") : String(localized: "Valid for \(days / 30) months")
+      years >= 1 ? String(localized: "Valid for \(years) years") : String(localized: "Valid for \(days / 30) months")
     return (text, .green)
   }
 
@@ -420,10 +419,10 @@ private struct ReminderSection: View {
       value: Binding(get: { max(1, months) }, set: { set($0) }), in: 1...24,
       format: { months in
         if field.key == "expires" {
-          return months == 1 ? String(localized: "1 month before it expires") : String(localized: "\(months) months before it expires")
+          return String(localized: "\(months) months before it expires")
         }
         let label = field.label.lowercased()
-        return months == 1 ? String(localized: "1 month before it \(label)") : String(localized: "\(months) months before it \(label)")
+        return String(localized: "\(months) months before it \(label)")
       }
     )
     .disabled(months == 0)

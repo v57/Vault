@@ -390,7 +390,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
       sorted(tree.roots), picked: rowContent != nil || (layout == .inline && !opensElsewhere) ? picked?.id : nil,
       sort: sorted)
     var section = KitSection(
-      title, meta: [count == 1 ? String(localized: "1 project") : String(localized: "\(count) projects")] + meta, systemImage: "square.stack.3d.up",
+      title, meta: [String(localized: "\(count) projects")] + meta, systemImage: "square.stack.3d.up",
       hue: .indigo, isExpanded: isExpanded
     ) {
       KitOutline(items, children: \.children, collapsed: $collapsedGroups.animation(.kit)) { item in
@@ -408,7 +408,7 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     return section
     .kitPreloadAvatars(tree.projects().compactMap { $0.icon ?? icon?($0) }, size: rowIconSize)
     .kitConfirmation(
-      count == 1 ? "Remove 1 project from the list?" : "Remove all \(count) projects from the list?",
+      "Remove all \(count) projects from the list?",
       isPresented: $confirmsRemoveAll,
       message: "They stay in the other apps, and on disk. Opening one brings it back.",
       systemImage: "minus.circle", confirm: "Remove All"
@@ -540,8 +540,6 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     let subtitle: LocalizedStringKey =
       if let note = group.note, !note.isEmpty {
         "\(note)"
-      } else if count == 1 {
-        "1 project"
       } else {
         "\(count) projects"
       }

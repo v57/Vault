@@ -182,7 +182,7 @@ private struct FolderBrowser: View {
       if session.activity.phase == .sealing, let file = session.activity.file {
         return String(localized: "Sealing \(file) · \(Bytes.text(session.activity.fileBytes)) of \(Bytes.text(session.activity.fileSize))")
       }
-      return session.sealedEdits == 0 ? String(localized: "Watching for edits to seal back") : session.sealedEdits == 1 ? String(localized: "1 edit sealed back") : String(localized: "\(session.sealedEdits) edits sealed back")
+      return session.sealedEdits == 0 ? String(localized: "Watching for edits to seal back") : String(localized: "\(session.sealedEdits) edits sealed back")
     }
     if let remote = folder.record.remoteID.flatMap(app.vault.remote(id:)) {
       let sync = app.folders.sync.activity(for: folder.id)

@@ -20,7 +20,7 @@ struct DocumentsSettingsPane: View {
       ForEach(Array(collections.enumerated()), id: \.element.id) { index, collection in
         let count = vault.documents.filter { $0.collection == collection.id }.count
         FormRow(
-          "\(collection.name)", help: count == 1 ? "1 document" : "\(count) documents",
+          "\(collection.name)", help: "\(count) documents",
           systemImage: DocumentSymbol.image(collection.symbol), hue: Hue(colorName: collection.color)
         ) {
           RowActions(
@@ -51,7 +51,7 @@ struct DocumentsSettingsPane: View {
     FormCard("People", footer: "Whose a document is. Not the people you share with: a child can have a passport here without a device or keys.") {
       ForEach(Array(vault.holders.enumerated()), id: \.element.id) { index, person in
         let count = vault.documents.filter { $0.holder == person.id }.count
-        FormRow("\(person.name)", help: count == 1 ? "1 document" : "\(count) documents", systemImage: "person.fill", hue: Hue(colorName: person.color)) {
+        FormRow("\(person.name)", help: "\(count) documents", systemImage: "person.fill", hue: Hue(colorName: person.color)) {
           RowActions(
             canMoveUp: index > 0, canMoveDown: index < vault.holders.count - 1, canDelete: true,
             edit: { editing = .holder(person) }, move: { moveHolder(person, by: $0) }, delete: { deleting = .holder(person) })

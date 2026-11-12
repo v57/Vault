@@ -321,7 +321,7 @@ private struct ComingUpSection: View {
           HStack(spacing: 10) {
             RowTile(systemImage: "tray", hue: .gray)
             VStack(alignment: .leading, spacing: 1) {
-              Text(inbox.count == 1 ? "1 scan in Inbox" : "\(inbox.count) scans in Inbox").lineLimit(1)
+              Text("\(inbox.count) scans in Inbox").lineLimit(1)
               Text(inbox.prefix(3).map { $0.displayName(kinds: vault.documentKinds) }.joined(separator: ", "))
                 .kitFont(.caption).lineLimit(1)
             }

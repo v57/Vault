@@ -91,7 +91,7 @@ extension VaultDocument {
     case .date: return DocumentDay.date(from: value).map(DocumentDates.long) ?? value
     case .months:
       let months = Self.monthCount(value) ?? 0
-      return months == 1 ? String(localized: "1 month") : String(localized: "\(months) months")
+      return String(localized: "\(months) months")
     default: return value
     }
   }

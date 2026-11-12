@@ -97,13 +97,7 @@ public struct VaultAccountsSettings: View {
     let vault = opened[account.id]
     let projects = vault?.projects.count ?? 0
     let hosts = vault?.hosts.count ?? 0
-    let help: LocalizedStringKey =
-      switch (projects, hosts) {
-      case (1, 1): "1 project · 1 host"
-      case (1, _): "1 project · \(hosts) hosts"
-      case (_, 1): "\(projects) projects · 1 host"
-      default: "\(projects) projects · \(String(localized: "\(hosts) hosts"))"
-      }
+    let help: LocalizedStringKey = "\(projects) projects · \(String(localized: "\(hosts) hosts"))"
     let systemImage = account.isPersonal ? "person.crop.circle" : "building.2"
     if idiom == .phone, !account.isPersonal {
       FormRow("\(account.name)", help: help, systemImage: systemImage, hue: account.hue)

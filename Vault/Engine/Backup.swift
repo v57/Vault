@@ -64,7 +64,7 @@ final class LiveRecovery: RecoveryService {
     AppModel.moveSecrets()
     var parts = [result.restoredKeys.count.vaultKeysLabel, String(localized: "\(result.restoredSecrets.count) passwords and secrets")]
     if result.identityRestored { parts.append(String(localized: "your identity")) }
-    if !result.refusedKeys.isEmpty { parts.append(result.refusedKeys.count == 1 ? String(localized: "1 key refused") : String(localized: "\(result.refusedKeys.count) keys refused")) }
+    if !result.refusedKeys.isEmpty { parts.append(String(localized: "\(result.refusedKeys.count) keys refused")) }
     return String(localized: "Brought back \(ListFormatter.localizedString(byJoining: parts)).")
   }
 

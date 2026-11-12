@@ -191,7 +191,7 @@ private struct FoldersSection: View {
       }
     } meta: {
       if let first = decrypted.first, let session = folders.session(for: first.id) {
-        MetaLine(decrypted.count == 1 ? String(localized: "1 decrypted") : String(localized: "\(decrypted.count) decrypted"), String(localized: "\(session.minutesLeft) min left"))
+        MetaLine(String(localized: "\(decrypted.count) decrypted"), String(localized: "\(session.minutesLeft) min left"))
       } else if let activity = folders.folders.compactMap({ app.folders.sync.activity(for: $0.id) }).first(where: { $0.isReceiving }) {
         MetaLine(activity.folderName, activity.progressLine)
       } else {

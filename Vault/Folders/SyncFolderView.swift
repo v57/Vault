@@ -138,7 +138,7 @@ struct SyncFolderView: View {
     .kitToolbar(folder.name, title: {
       KitTitle(
         folder.name,
-        meta: [activity.isReceiving ? String(localized: "Receiving \(activity.progressLine)") : String(localized: "Synced"), edits > 0 && idiom != .phone ? (edits == 1 ? String(localized: "1 edit kept here") : String(localized: "\(edits) edits kept here")) : "",
+        meta: [activity.isReceiving ? String(localized: "Receiving \(activity.progressLine)") : String(localized: "Synced"), edits > 0 && idiom != .phone ? String(localized: "\(edits) edits kept here") : "",
                activity.conflicts.isEmpty ? "" : String(localized: "\(activity.conflicts.count) conflict")],
         systemImage: "arrow.triangle.2.circlepath",
         status: activity.isReceiving ? .working(progress: Double(activity.receivingDone) / Double(activity.receivingTotal)) : .idle)

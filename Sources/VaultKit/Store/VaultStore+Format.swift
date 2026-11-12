@@ -30,8 +30,9 @@ public struct VaultFormatStatus: Sendable, Equatable {
     if isWaiting { return "Waiting for this device’s keys to finish updating this vault. Everything here stays readable." }
     switch fromOldDevices {
     case 0: return nil
-    case 1: return "1 record came from a device that hasn’t updated yet. It will merge once that device updates."
-    default: return "\(fromOldDevices) records came from a device that hasn’t updated yet. They will merge once it updates."
+    default:
+      return String(
+        localized: "\(fromOldDevices) records came from a device that hasn’t updated yet. They will merge once it updates.")
     }
   }
 }

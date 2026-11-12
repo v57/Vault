@@ -329,8 +329,6 @@ private struct HubDevicesRow: View {
         firstWaiting.map { String(localized: "\($0) waits to join") }
       } else if waiting == 0 {
         nil
-      } else if waiting == 1 {
-        String(localized: "1 waits to join")
       } else {
         String(localized: "\(waiting) wait to join")
       }
@@ -371,7 +369,7 @@ extension PersonItem {
   /// "shares 2 things", "shares 1 thing".
   static func sharesLine(_ person: PersonItem) -> String {
     let count = person.record.roles.count
-    return count == 1 ? String(localized: "shares 1 thing") : String(localized: "shares \(count) things")
+    return String(localized: "shares \(count) things")
   }
 }
 

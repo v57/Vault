@@ -53,7 +53,7 @@ enum LostDeviceActions {
     guard status == 0, let lines = VaultAuthorizedKeys.sweptLines(from: collected.text) else {
       throw SweepError(host: host.displayName)
     }
-    return lines == 0 ? String(localized: "It wasn’t there.") : lines == 1 ? String(localized: "Took out 1 line.") : String(localized: "Took out \(lines) lines.")
+    return lines == 0 ? String(localized: "It wasn’t there.") : String(localized: "Took out \(lines) lines.")
   }
 
   /// This device's key or the saved password, and only a host key the user already accepted: a sweep doesn't stop to

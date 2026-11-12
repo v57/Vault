@@ -139,7 +139,7 @@ public struct VaultDevicesSettings<Control: View>: View {
     return [
       device.id == vault.deviceID ? String(localized: "This \(KitDevice.name)") : nil,
       device.platform == "custom" ? nil : device.systemName,
-      projects == 0 ? nil : projects == 1 ? String(localized: "1 project") : String(localized: "\(projects) projects"),
+      projects == 0 ? nil : String(localized: "\(projects) projects"),
     ].compactMap { $0 }.joined(separator: " · ")
   }
 }

@@ -76,7 +76,7 @@ struct HubView: View {
     guard !hubs.isEmpty else { return [String(localized: "off"), String(localized: "bring your own")] }
     let devices = hubs.flatMap(\.members)
     return [
-      hubs.count == 1 ? String(localized: "1 Hub") : String(localized: "\(hubs.count) Hubs"), devices.count.devicesLabel,
+      String(localized: "\(hubs.count) Hubs"), devices.count.devicesLabel,
       String(localized: "\(devices.filter(\.isOnline).count) online"),
     ]
   }
@@ -316,8 +316,8 @@ struct HubDeviceInspector: View {
     }
     if !device.tools.isEmpty || !device.services.isEmpty {
       KitSection("Offers", meta: [
-        device.tools.count == 1 ? String(localized: "1 tool") : String(localized: "\(device.tools.count) tools"),
-        device.services.count == 1 ? String(localized: "1 service") : String(localized: "\(device.services.count) services"),
+        String(localized: "\(device.tools.count) tools"),
+        String(localized: "\(device.services.count) services"),
       ], systemImage: "hammer", hue: .gray) {
         ForEach(device.tools.sorted(by: { $0.key < $1.key }), id: \.key) { name, value in
           InspectorRow(name.capitalized, value: value, copyable: false)

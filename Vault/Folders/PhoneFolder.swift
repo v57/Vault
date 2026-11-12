@@ -37,7 +37,7 @@ struct PhoneFolderView: View {
           } icon: {
             LiveIcon(systemImage: "lock.open", hue: .orange, status: .working(progress: session.fractionLeft), size: 30)
           } meta: {
-            MetaLine(String(localized: "\(session.minutesLeft) min left"), session.sealedEdits == 1 ? String(localized: "1 edit sealed") : String(localized: "\(session.sealedEdits) edits sealed"))
+            MetaLine(String(localized: "\(session.minutesLeft) min left"), String(localized: "\(session.sealedEdits) edits sealed"))
           } accessory: {
             EmptyView()
           }

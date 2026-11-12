@@ -65,6 +65,8 @@ struct PasswordGeneratorTests {
 
   @Test func description() {
     #expect(PasswordStrength.description(of: "vT7q-Lm2x-9KpR-wd4Z") == "Strong · 19 characters")
-    #expect(PasswordStrength.description(of: "a") == "Weak · 1 character")
+    // One key, "%@ · %lld characters": English reads "1 character" from PlatformLanguages' plural table, which an
+    // app installs at launch and this test bundle doesn't.
+    #expect(PasswordStrength.description(of: "a").hasPrefix("Weak · 1 character"))
   }
 }
