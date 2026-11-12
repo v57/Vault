@@ -88,7 +88,9 @@ extension Binding where Value == String? {
   }
 }
 
-/// The toolbar's search capsule (a filled field at the bar's end).
+/// The toolbar's search capsule (a filled field at the bar's end). The bar's tools keep their size (a search never
+/// folds into "…"), so on iPad it is 200pt, not 260: in the iPad mini's portrait detail column beside the sidebar
+/// the Logins title had no room left and showed as "…".
 struct ToolbarSearch: View {
   @Binding var text: String
   var prompt: LocalizedStringKey
@@ -96,7 +98,7 @@ struct ToolbarSearch: View {
 
   var body: some View {
     KitSearchField(text: $text, prompt: prompt)
-      .frame(width: idiom.isTouch ? 260 : 240)
+      .frame(width: idiom.isTouch ? 200 : 240)
   }
 }
 
