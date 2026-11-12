@@ -411,6 +411,7 @@ struct DocumentCard: View {
   @Binding var pushed: String?
   @Environment(AppModel.self) private var app
   @Environment(\.kitIdiom) private var idiom
+  @State private var deleting: [String] = []
 
   var body: some View {
     let vault = app.vault
@@ -434,8 +435,18 @@ struct DocumentCard: View {
       app.selectedDocument = document.id
       if idiom == .phone { pushed = document.id }
     } open: {
-      if idiom == .phone { pushed = document.id } else { app.openDocument = document.id }
+      open()
     }
+    // Quick actions on a long press or a secondary click (V-047).
+    .kitContextMenu {
+      DocumentMenuItems(document: document, open: open) { deleting = [document.id] }
+    }
+    .documentDeletion($deleting, app: app)
+  }
+
+  private func open() {
+    app.selectedDocument = document.id
+    if idiom == .phone { pushed = document.id } else { app.openDocument = document.id }
   }
 
   /// "Aiko · until 2032", "Haus&Hof · both".
@@ -460,6 +471,7 @@ private struct DocumentTable: View {
   let documents: [VaultDocument]
   @Binding var selection: Set<String>
   @Environment(AppModel.self) private var app
+  @State private var deleting: [String] = []
 
   var body: some View {
     let vault = app.vault
@@ -480,6 +492,31 @@ private struct DocumentTable: View {
       },
       KitGridColumn("Pages", width: 60, alignment: .trailing) { "\(max(1, $0.fileIDs.count))" },
     ], selection: $selection)
+    .rowContextMenu { ids in
+      let chosen = vault.documents.filter { ids.contains($0.id) }
+      if chosen.count == 1, let document = chosen.first {
+        DocumentMenuItems(document: document, open: { app.openDocument = document.id }) { deleting = [document.id] }
+      } else if !chosen.isEmpty {
+        KitSubmenu("Move to", systemImage: "folder") {
+          Button("Inbox", systemImage: "tray") { move(chosen, to: "") }
+          ForEach(vault.documentCollections) { collection in
+            Button(collection.name, systemImage: DocumentSymbol.image(collection.symbol)) { move(chosen, to: collection.id) }
+          }
+        }
+        Divider()
+        Button("Delete \(chosen.count) Documents…", systemImage: "trash", role: .destructive) { deleting = chosen.map(\.id) }
+      }
+    }
+    .documentDeletion($deleting, app: app)
+  }
+
+  private func move(_ documents: [VaultDocument], to collection: String) {
+    app.vault.perform { store in
+      for var document in documents where document.collection != collection {
+        document.collection = collection
+        try store.save(document)
+      }
+    }
   }
 }
 
