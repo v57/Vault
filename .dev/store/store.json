@@ -1,0 +1,11 @@
+{
+  "baseLocale" : "en-US",
+  "bundleID" : "dev.v57.vault",
+  "destinations" : [
+    "appstore",
+    "github"
+  ],
+  "locales" : [
+
+  ]
+}
