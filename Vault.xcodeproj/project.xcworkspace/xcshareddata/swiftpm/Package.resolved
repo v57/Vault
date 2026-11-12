@@ -7,7 +7,7 @@
       "location" : "https://github.com/v57/ChannelSwift.git",
       "state" : {
         "branch" : "main",
-        "revision" : "184bc846275ffee4318ec5c5e3ba03b7504b548d"
+        "revision" : "cbc8f108e6d0de1e7cf866a4a9dff099e1868f37"
       }
     },
     {
@@ -16,7 +16,7 @@
       "location" : "https://github.com/v57/Component.git",
       "state" : {
         "branch" : "main",
-        "revision" : "a1066eebe9f7e0f43c2801871e5a2f650c53f7b4"
+        "revision" : "8d3427fad4c5f5592da0423c718c638ed1d2d2c7"
       }
     },
     {
@@ -25,7 +25,7 @@
       "location" : "https://github.com/v57/Dev.git",
       "state" : {
         "branch" : "main",
-        "revision" : "1abf436fc27ab13997cbd253cff0eefa3aec33a6"
+        "revision" : "ac38cad51b1381df2336b26b2179f074c590d3d3"
       }
     },
     {
@@ -34,7 +34,7 @@
       "location" : "https://github.com/v57/HubService.git",
       "state" : {
         "branch" : "main",
-        "revision" : "85dd596a5c379743afe0ee761b3b4554ce9394a4"
+        "revision" : "4cb8f0aa9e9554c509e8320830cd15cca57c604a"
       }
     },
     {
@@ -43,7 +43,7 @@
       "location" : "https://github.com/v57/Platform.git",
       "state" : {
         "branch" : "main",
-        "revision" : "5da0561b61c3384fdaef210c0b4ee6b67e343ac1"
+        "revision" : "00113a68bf6713ea23a688a69c4e3cfaa31c6586"
       }
     },
     {
@@ -52,7 +52,7 @@
       "location" : "https://github.com/v57/SSH.git",
       "state" : {
         "branch" : "main",
-        "revision" : "2ff62b5337c1634aa13a6a368f6314a106efda11"
+        "revision" : "3a0e44b9197d8a1bb028e039a72815d68f213c02"
       }
     },
     {
@@ -61,7 +61,7 @@
       "location" : "https://github.com/v57/UpdateKit.git",
       "state" : {
         "branch" : "main",
-        "revision" : "aaf8dddc9c83574031a7fba4e987c331714e83c4"
+        "revision" : "13ae36142ba3f01fbbc089c0025b1e6a3659cc09"
       }
     }
   ],
