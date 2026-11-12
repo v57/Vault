@@ -219,7 +219,10 @@ private struct LoginForm: View {
               if KitQRReader.canScanScreen {
                 Button("Scan Screen") { scanScreen() }
               } else if idiom == .phone {
-                Button { withKitAnimation { scansCamera.toggle() } } label: { Image(systemName: "qrcode.viewfinder") }
+                Button {
+                  codeError = nil
+                  scansCamera = true
+                } label: { Image(systemName: "qrcode.viewfinder") }
                   .accessibilityLabel("Scan Code")
               } else {
                 Button("Scan Code") { withKitAnimation { scansCamera.toggle() } }
@@ -232,21 +235,45 @@ private struct LoginForm: View {
         }
       }
     }
-    if scansCamera, code == nil {
-      KitQRScanner { text in
-        if let parsed = OneTimeCode(text) {
-          code = parsed
-          codeError = nil
+    // iPhone: the camera fills the screen, as the invite scanner does (FolderSheets); inline it opened under the
+    // pinned Cancel/Save footer (V-043).
+    #if os(iOS)
+      .fullScreenCover(isPresented: Binding(get: { scansCamera && code == nil && idiom == .phone }, set: { if !$0 { scansCamera = false } })) {
+        OneTimeCodeScanScreen(message: codeError, onScan: scanned, onClose: {
           scansCamera = false
-        }
+          codeError = nil
+        })
+          .componentKit(accent: .vaultAccent)
       }
-      .frame(height: 220)
+    #endif
+    // iPad: the camera in the form, scrolled into view when it opens.
+    if scansCamera, code == nil, idiom != .phone {
+      ScrollViewReader { proxy in
+        KitQRScanner { text in scanned(text) }
+          .frame(height: 220)
+          .id(Self.scannerID)
+          .onAppear { withKitAnimation { proxy.scrollTo(Self.scannerID, anchor: .center) } }
+      }
     }
     LabeledField("Link to") {
       LinkPicker(selection: $links)
     }
     if let error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text) }
     SheetFooterButtons(saveTitle: String(localized: "Save"), canSave: !title.isEmpty || !website.isEmpty, status: idiom == .phone ? String(localized: "Fills through AutoFill") : String(localized: "Fills in Safari and apps through AutoFill"), onSave: save)
+  }
+
+  private static let scannerID = "one-time-code-scanner"
+
+  /// A code the camera read: a setup key fills the one-time code and closes the scanner; anything else says so and
+  /// keeps looking.
+  private func scanned(_ text: String) {
+    if let parsed = OneTimeCode(text) {
+      code = parsed
+      codeError = nil
+      scansCamera = false
+    } else {
+      codeError = String(localized: "That QR code isn’t a setup key. Point at the one the site shows.")
+    }
   }
 
   private func strengthHue(_ strength: PasswordStrength) -> Hue {
@@ -311,6 +338,47 @@ private struct LoginForm: View {
       onSave()
     } catch {
       self.error = error.localizedDescription
+    }
+  }
+}
+
+/// iPhone: the one-time code's scanner over the whole screen, laid out as the invite scanner is (FolderSheets'
+/// `ScanInviteSheet`): the camera behind, a title card with Cancel on top and what to point at below. A setup key
+/// closes it (`onScan` clears the binding).
+private struct OneTimeCodeScanScreen: View {
+  var message: String?
+  var onScan: (String) -> Void
+  var onClose: () -> Void
+
+  var body: some View {
+    ZStack {
+      KitQRScanner { text in onScan(text) }.ignoresSafeArea()
+      VStack {
+        HStack(spacing: 12) {
+          Tile(systemImage: "qrcode.viewfinder", size: 34)
+          VStack(alignment: .leading, spacing: 1) {
+            Text("Scan a Setup Code").kitFont(.title3)
+            Text("Looking for a code").kitFont(.caption)
+          }
+          Spacer()
+          Button("Cancel") { onClose() }.buttonStyle(.kit).controlSize(.small)
+        }
+        .padding(12)
+        .kitSurface(.floating)
+        Spacer()
+        HStack(spacing: 12) {
+          Tile(systemImage: "clock", hue: .green, size: 34)
+          Text(message ?? String(localized: "Point at the QR code the site shows when you turn on two-factor sign-in."))
+            .kitFont(.caption)
+            .foregroundStyle(message == nil ? AnyShapeStyle(.primary) : AnyShapeStyle(Hue.red.text))
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .kitSurface(.floating)
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 12)
     }
   }
 }
