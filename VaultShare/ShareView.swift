@@ -18,6 +18,13 @@ final class ShareModel {
 /// Vault reads their pages the next time it opens, on this device. A share sheet, not a form: nothing to fill in.
 struct ShareView: View {
   @Bindable var model: ShareModel
+  /// The extension's own screen: on iPhone and iPad the system shows it as a full sheet, so it fills it (the pages
+  /// larger, the buttons at its foot) instead of a short card in the middle of a blank sheet. The app's preview of it
+  /// sits in a kit sheet and doesn't.
+  var fillsSheet = false
+  @Environment(\.kitIdiom) private var idiom
+
+  private var fills: Bool { fillsSheet && idiom.isTouch }
 
   var body: some View {
     let pages = model.files.reduce(0) { $0 + $1.pageCount }
@@ -38,12 +45,12 @@ struct ShareView: View {
               KitPagePreview(
                 data: file.thumbnail, aspectRatio: file.width > 0 && file.height > 0 ? CGFloat(file.width) / CGFloat(file.height) : 0.707,
                 pages: file.pageCount)
-                .frame(height: 110)
-              Text(file.name).kitFont(.caption).lineLimit(1).frame(maxWidth: 120)
+                .frame(height: fills ? 220 : 110)
+              Text(file.name).kitFont(.caption).lineLimit(1).frame(maxWidth: fills ? 180 : 120)
             }
           }
           if model.isLoading {
-            ProgressView().controlSize(.small).frame(width: 80, height: 110)
+            ProgressView().controlSize(.small).frame(width: 80, height: fills ? 220 : 110)
           }
         }
         .padding(.vertical, 2)
@@ -55,6 +62,7 @@ struct ShareView: View {
       if let problem = model.problem {
         Text(problem).kitFont(.caption).foregroundStyle(Hue.orange.text)
       }
+      if fills { Spacer(minLength: 0) }
       HStack(spacing: 8) {
         Spacer()
         Button("Cancel") { model.cancel() }.buttonStyle(.kit).keyboardShortcut(.cancelAction)
@@ -64,7 +72,7 @@ struct ShareView: View {
       }
     }
     .padding(18)
-    .frame(minWidth: 380, maxWidth: 520)
-    .background(.kitPanel)
+    .frame(minWidth: fills ? nil : 380, maxWidth: fills ? .infinity : 520, maxHeight: fills ? .infinity : nil, alignment: .top)
+    .background { Rectangle().fill(.kitPanel).ignoresSafeArea() }
   }
 }

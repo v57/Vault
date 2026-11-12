@@ -29,7 +29,7 @@ final class ShareViewController: PlatformViewController {
       self?.extensionContext?.cancelRequest(withError: NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError))
     }
     model.add = { [weak self] in self?.add() }
-    let host = HostingController(rootView: AnyView(ShareView(model: model).componentKit(accent: Color(.sRGB, red: 0, green: 0.478, blue: 1))))
+    let host = HostingController(rootView: AnyView(ShareView(model: model, fillsSheet: true).componentKit(accent: Color(.sRGB, red: 0, green: 0.478, blue: 1))))
     addChild(host)
     host.view.frame = view.bounds
     #if os(macOS)
