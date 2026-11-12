@@ -195,7 +195,7 @@ struct DocumentInspector: View {
   var isOpen = false
   @Environment(AppModel.self) private var app
   @State private var files: [FileSummary] = []
-  @State private var confirmsDelete = false
+  @State private var deleting: [String] = []
   @State private var showsMore = false
 
   struct FileSummary: Identifiable, Hashable {
@@ -301,27 +301,24 @@ struct DocumentInspector: View {
       if !isOpen { Button("Open", systemImage: "eye") { app.openDocument = document.id } }
       Button("Share a Copy…", systemImage: "square.and.arrow.up") { app.sheet = .shareCopy(document.id) }
         .disabled(document.fileIDs.isEmpty)
+      Button("Edit…", systemImage: "pencil") { app.sheet = .editDocument(document.id) }
       Button("More", systemImage: "ellipsis") { showsMore = true }
         .labelStyle(.iconOnly)
         .kitMenu(isPresented: $showsMore) {
-          Button("Edit…", systemImage: "pencil") { app.sheet = .editDocument(document.id) }
-          Button("Duplicate", systemImage: "plus.square.on.square") { duplicate() }
-            .kitMenuDetail("The next resume, or next year's policy")
-          Divider()
-          Button("Delete…", systemImage: "trash", role: .destructive) { confirmsDelete = true }
+          DocumentMenuItems(document: document) { deleting = [document.id] }
         }
     }
     .buttonStyle(.kit)
     .padding(.horizontal, 6)
-    .kitConfirmation(
-      "Delete “\(document.displayName(kinds: app.vault.documentKinds))”?", isPresented: $confirmsDelete,
-      message: "Its pages are deleted on all your devices. This can’t be undone.", systemImage: "trash", confirm: "Delete"
-    ) {
-      let id = document.id
-      app.openDocument = nil
-      app.selectedDocument = nil
-      app.vault.perform { try $0.deleteDocument(id: id) }
+    // Delete in sight under the actions (V-046), red, and still asked about first.
+    Button(role: .destructive) {
+      deleting = [document.id]
+    } label: {
+      Label("Delete Document…", systemImage: "trash").frame(maxWidth: .infinity)
     }
+    .buttonStyle(.kit)
+    .padding(.horizontal, 6)
+    .documentDeletion($deleting, app: app)
     .task(id: document.fileIDs) { loadFiles() }
   }
 
@@ -342,15 +339,6 @@ struct DocumentInspector: View {
     guard let store = app.vault.store else { return }
     files = ((try? store.files(of: document)) ?? []).map {
       FileSummary(id: $0.id, name: $0.name, pages: $0.pageCount, isPDF: $0.isPDF, created: $0.created)
-    }
-  }
-
-  private func duplicate() {
-    var copy: VaultDocument?
-    app.vault.perform { copy = try $0.duplicateDocument(id: document.id) }
-    if let copy {
-      app.selectedDocument = copy.id
-      app.sheet = .editDocument(copy.id)
     }
   }
 
