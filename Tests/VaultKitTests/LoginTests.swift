@@ -124,6 +124,10 @@ struct LoginTests {
     #expect(VaultCard.brand(forNumber: "2223000048400011") == "mastercard")
     #expect(VaultCard.brand(forNumber: "6011111111111117") == "discover")
     #expect(VaultCard.brand(forNumber: "9999") == nil)
+    #expect(read.brandName == "Visa")
+    #expect(VaultCard.brandName("amex") == "American Express")
+    #expect(VaultCard.brandName("mastercard") == "Mastercard")
+    #expect(VaultCard.brandName("Maestro") == "Maestro")
     try store.deleteCard(id: card.id)
     #expect(VaultSecrets.secret(VaultCard.numberSecret(card.id)) == nil)
   }

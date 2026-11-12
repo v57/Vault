@@ -164,6 +164,21 @@ public struct VaultCard: VaultRecord, Hashable {
   public static func numberSecret(_ id: String) -> String { "card.number.\(id)" }
   public static func codeSecret(_ id: String) -> String { "card.code.\(id)" }
 
+  /// The brand as people write it ("Visa", "Mastercard", "American Express", "Discover"): `brand` holds the id the
+  /// number's digits gave ("visa"), or what the user typed, shown as it is.
+  public var brandName: String { Self.brandName(brand) }
+
+  /// The proper name of a brand id `brand(forNumber:)` gives; anything else as it is.
+  public static func brandName(_ brand: String) -> String {
+    switch brand.lowercased() {
+    case "visa": "Visa"
+    case "mastercard": "Mastercard"
+    case "amex": "American Express"
+    case "discover": "Discover"
+    default: brand
+    }
+  }
+
   /// The brand a card number's first digits name, nil when unknown.
   public static func brand(forNumber number: String) -> String? {
     let digits = number.filter(\.isNumber)
