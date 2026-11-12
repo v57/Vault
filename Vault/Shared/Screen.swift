@@ -5,6 +5,8 @@ import VaultKit
 /// A screen's two panes: the list on the window ground and the inspector beside it on the panel ground, split by a
 /// divider that keeps its width per screen. Without an inspector the list takes the whole width. On iPhone, with no
 /// room beside the list, `pushed` pushes the inspector's cards as a page of their own (a row tapped, a Details tool).
+/// Where the inspector doesn't fit beside the list (an iPad in portrait with the sidebar showing, a narrow window), it
+/// goes under it, the divider then keeping its height.
 struct ListAndInspector<Main: View, Inspector: View>: View {
   var name: String
   var pushed: Binding<Bool>
@@ -24,9 +26,31 @@ struct ListAndInspector<Main: View, Inspector: View>: View {
       main.kitPane(.content)
         .navigationDestination(isPresented: pushed) { PushedInspector { inspector } }
     } else {
+      // The width offered, not the width taken: side by side, the split asked for more than the detail column had
+      // (420 + 300 in about 560 on an iPad Air in portrait with the sidebar) and ran the inspector off the edge.
+      GeometryReader { proxy in
+        split(beside: proxy.size.width >= Self.mainMinWidth + Self.inspectorWidths.lowerBound)
+          .frame(width: proxy.size.width, height: proxy.size.height)
+      }
+    }
+  }
+
+  private static var mainMinWidth: CGFloat { 420 }
+  private static var inspectorWidths: ClosedRange<CGFloat> { 300...520 }
+
+  @ViewBuilder private func split(beside: Bool) -> some View {
+    if beside {
       ResizableSplit(
-        "vault.\(name).inspector", pane: .trailing, width: idiom.isTouch ? 380 : 400, range: 300...520,
-        mainMinWidth: 420
+        "vault.\(name).inspector", pane: .trailing, width: idiom.isTouch ? 380 : 400, range: Self.inspectorWidths,
+        mainMinWidth: Self.mainMinWidth
+      ) {
+        main.kitPane(.content)
+      } pane: {
+        KitInspector(width: nil) { inspector }
+      }
+    } else {
+      ResizableSplit(
+        "vault.\(name).inspectorHeight", pane: .bottom, height: 420, range: 200...720, mainMinHeight: 280
       ) {
         main.kitPane(.content)
       } pane: {
