@@ -68,7 +68,7 @@ private struct FolderBrowser: View {
       }
       .paneStatusBar(systemImage: session == nil ? "arrow.triangle.2.circlepath" : "lock.open", hue: session == nil ? .green : .teal, status: statusBarStatus) {
         Text(statusLine)
-        Text("\(totals.items) items · \(Bytes.text(totals.bytes))").foregroundStyle(.kitSecondary)
+        Text("\(totals.items.itemsLabel) · \(Bytes.text(totals.bytes))").foregroundStyle(.kitSecondary)
       }
     } inspector: {
       FolderInspector(folder: folder, totals: totals)
@@ -182,7 +182,7 @@ private struct FolderBrowser: View {
       if session.activity.phase == .sealing, let file = session.activity.file {
         return String(localized: "Sealing \(file) · \(Bytes.text(session.activity.fileBytes)) of \(Bytes.text(session.activity.fileSize))")
       }
-      return session.sealedEdits == 0 ? String(localized: "Watching for edits to seal back") : String(localized: "\(session.sealedEdits) edits sealed back")
+      return session.sealedEdits == 0 ? String(localized: "Watching for edits to seal back") : session.sealedEdits == 1 ? String(localized: "1 edit sealed back") : String(localized: "\(session.sealedEdits) edits sealed back")
     }
     if let remote = folder.record.remoteID.flatMap(app.vault.remote(id:)) {
       let sync = app.folders.sync.activity(for: folder.id)
@@ -201,7 +201,7 @@ private struct FolderBrowser: View {
     return [
       KitGridColumn("Name", width: idiom.isTouch ? 260 : 300) { KitFileCell($0.name, isFolder: $0.isDirectory) },
       KitGridColumn("Size", width: 90, alignment: .trailing) { entry in
-        entry.isDirectory ? String(localized: "\(folders.itemCount(id, path: entry.path)) items") : Bytes.text(entry.size)
+        entry.isDirectory ? folders.itemCount(id, path: entry.path).itemsLabel : Bytes.text(entry.size)
       },
       KitGridColumn("Modified", width: 150) { entry in entry.modified.map(RelativeTime.dayTime) ?? "—" },
       KitGridColumn(session == nil ? "Sync" : "Sealed", width: 110) { entry in
@@ -242,7 +242,7 @@ private struct FolderInspector: View {
     let session = app.folders.session(for: folder.id)
     InspectorHeader(
       folder.name,
-      meta: [folder.isEncrypted ? String(localized: "Encrypted folder") : String(localized: "Synced folder"), folder.sharedWith == nil ? "" : String(localized: "shared"), String(localized: "\(totals.items) items"), Bytes.text(totals.bytes)],
+      meta: [folder.isEncrypted ? String(localized: "Encrypted folder") : String(localized: "Synced folder"), folder.sharedWith == nil ? "" : String(localized: "shared"), totals.items.itemsLabel, Bytes.text(totals.bytes)],
       systemImage: "lock.rectangle.stack", hue: .teal) {}
     if let session {
       KitSection(Text("Decrypted until \(session.lockDate.formatted(date: .omitted, time: .shortened))")) {
@@ -253,7 +253,7 @@ private struct FolderInspector: View {
         #if os(macOS)
           InspectorRow("Time Machine", value: String(localized: "Excluded"), copyable: false)
         #endif
-        InspectorRow("Sealed back", value: session.activity.phase == .sealing ? String(localized: "\(session.sealedEdits) edits · 1 sealing") : String(localized: "\(session.sealedEdits) edits"), copyable: false)
+        InspectorRow("Sealed back", value: session.activity.phase == .sealing ? String(localized: "\(session.sealedEdits.editsLabel) · 1 sealing") : session.sealedEdits.editsLabel, copyable: false)
         HStack(spacing: 6) {
           Button("+30 min", systemImage: "timer") { app.folders.extend(folder.id) }.buttonStyle(.kit)
           Button("Show in \(KitDesktop.fileManagerName)") { KitDesktop.reveal([session.copyURL]) }.buttonStyle(.kit)
@@ -358,10 +358,10 @@ struct MembersCard: View {
   private var yours: some View {
     let members = app.sharing.people.filter { $0.record.roles[folder.id] != nil }
     return KitSection(
-      "Members", meta: members.isEmpty ? [String(localized: "only you")] : [String(localized: "\(members.count + 1) people"), String(localized: "signed by you")],
+      "Members", meta: members.isEmpty ? [String(localized: "only you")] : [(members.count + 1).peopleLabel, String(localized: "signed by you")],
       systemImage: "person.2", hue: .purple
     ) {
-      PersonRow(name: app.ownerName, detail: members.isEmpty ? String(localized: "Owner · \(app.devices.count) devices") : String(localized: "Owner"))
+      PersonRow(name: app.ownerName, detail: members.isEmpty ? String(localized: "Owner · \(app.devices.count.devicesLabel)") : String(localized: "Owner"))
       ForEach(members) { person in
         PersonRow(
           name: person.name,

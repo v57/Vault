@@ -130,7 +130,7 @@ struct SyncFolderView: View {
       }
       .paneStatusBar(systemImage: "arrow.triangle.2.circlepath", status: activity.isReceiving ? .working(progress: Double(activity.receivingDone) / Double(activity.receivingTotal)) : .done) {
         Text("Receiving \(activity.progressLine) · checked \(activity.source) \(activity.checked)")
-        Text("\(totals.items) items · \(Bytes.text(totals.bytes))").foregroundStyle(.kitSecondary)
+        Text("\(totals.items.itemsLabel) · \(Bytes.text(totals.bytes))").foregroundStyle(.kitSecondary)
       }
     } inspector: {
       SyncInspector(folder: folder)

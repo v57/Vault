@@ -128,7 +128,7 @@ struct AddDocumentSheet: View {
       SheetFooterButtons(
         saveTitle: existing == nil ? String(localized: "Add Document") : String(localized: "Save"),
         canSave: !info.isReading && (existing != nil || !info.pages.isEmpty || !title.isEmpty),
-        status: String(localized: "Encrypted, synced to your \(app.devices.count) devices"), onSave: save)
+        status: app.devices.count == 1 ? String(localized: "Encrypted, synced through iCloud") : String(localized: "Encrypted, synced to your \(app.devices.count) devices"), onSave: save)
     }
     .onAppear(perform: load)
     .onChange(of: info.suggestion) { _, suggestion in apply(suggestion) }
@@ -207,7 +207,7 @@ struct AddDocumentSheet: View {
         }
         .frame(height: idiom == .phone ? 260 : 300)
         let strip = KitPageStrip(
-          pages: pages.map { KitPage(id: $0.id, label: $0.pageCount > 1 ? String(localized: "\($0.pageCount) pages") : $0.name, imageData: $0.preview, aspectRatio: $0.aspectRatio) },
+          pages: pages.map { KitPage(id: $0.id, label: $0.pageCount > 1 ? $0.pageCount.pagesLabel : $0.name, imageData: $0.preview, aspectRatio: $0.aspectRatio) },
           selection: Binding(get: { page ?? pages.first?.id }, set: { page = $0 }), height: 52, add: chooseFiles)
         if idiom == .phone {
           // No room beside the strip on an iPhone: the look and Remove Page go under it.

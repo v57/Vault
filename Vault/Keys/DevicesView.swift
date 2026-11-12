@@ -56,7 +56,7 @@ struct DevicesView: View {
           }
         }
         KitSection(
-          "Your other devices", meta: [String(localized: "\(app.otherDevices.count) devices"), idiom == .phone ? String(localized: "keys through iCloud Keychain") : String(localized: "vault keys arrive through iCloud Keychain")],
+          "Your other devices", meta: [app.otherDevices.count.devicesLabel, idiom == .phone ? String(localized: "keys through iCloud Keychain") : String(localized: "vault keys arrive through iCloud Keychain")],
           systemImage: "laptopcomputer", hue: .gray
         ) {
           ForEach(app.otherDevices) { device in
@@ -132,7 +132,7 @@ struct DevicesView: View {
         EmptyState(systemImage: "person.2", title: "No One Selected", message: "Pick someone to compare your safety code.")
       }
     }
-    .kitToolbar("Devices & People", meta: [String(localized: "\(app.devices.count) devices"), String(localized: "\(people.count) people"), idiom == .phone ? "" : String(localized: "keys in iCloud Keychain")], systemImage: "checkmark.shield", hue: .green) {
+    .kitToolbar("Devices & People", meta: [app.devices.count.devicesLabel, people.count.peopleLabel, idiom == .phone ? "" : String(localized: "keys in iCloud Keychain")], systemImage: "checkmark.shield", hue: .green) {
       if idiom == .phone {
         Button("Invite", systemImage: "person.badge.plus") { app.sheet = .invite }.buttonStyle(.kitRound)
       } else {
@@ -336,7 +336,7 @@ private struct HubDevicesRow: View {
       }
     return [
       idiom == .phone
-        ? String(localized: "\(count) devices") : String(localized: "\(count) devices, Linux, Windows and Android too"),
+        ? count.devicesLabel : String(localized: "\(count) devices, Linux, Windows and Android too"),
       waits,
     ].compactMap { $0 }.joined(separator: " · ")
   }

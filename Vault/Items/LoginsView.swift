@@ -75,13 +75,13 @@ struct LoginsView: View {
         )) {
           let favorites = logins.filter(\.favorite)
           if filter == .all, search.isEmpty, !favorites.isEmpty {
-            KitSection("Favorites", meta: ["\(favorites.count) logins", "pinned on every device"], systemImage: "star", hue: .yellow) {
+            KitSection("Favorites", meta: [favorites.count.loginsLabel, String(localized: "pinned on every device")], systemImage: "star", hue: .yellow) {
               ForEach(favorites) { LoginRow(login: $0, value: "fav:" + $0.id) }
             }
           }
           KitSection(
             filter == .all ? "All Logins" : "\(filter.title)",
-            meta: [String(localized: "\(logins.count) logins"), idiom == .phone ? String(localized: "\(logins.filter(\.hasOneTimeCode).count) with codes") : String(localized: "\(logins.filter(\.hasOneTimeCode).count) with one-time codes"),
+            meta: [logins.count.loginsLabel, idiom == .phone ? String(localized: "\(logins.filter(\.hasOneTimeCode).count) with codes") : String(localized: "\(logins.filter(\.hasOneTimeCode).count) with one-time codes"),
                    sharedCount(logins) > 0 && idiom != .phone ? String(localized: "\(sharedCount(logins)) shared") : ""],
             systemImage: "key.horizontal"
           ) {
@@ -94,7 +94,7 @@ struct LoginsView: View {
       }
       .paneStatusBar(systemImage: "icloud", status: app.isDemo || app.vault.sync?.isRunning == true ? .done : .idle) {
         Text(app.isDemo || app.vault.sync?.isRunning == true ? "Synced through iCloud \(RelativeTime.short(app.lastSync ?? .now.addingTimeInterval(-60)))" : "On this device")
-        Text("\(all.count) logins").foregroundStyle(.kitSecondary)
+        Text(all.count.loginsLabel).foregroundStyle(.kitSecondary)
       }
     } inspector: {
       if let login = all.first(where: { $0.id == app.selectedLogin }) {
@@ -103,7 +103,7 @@ struct LoginsView: View {
         EmptyState(systemImage: "key.horizontal", title: "No Login Selected", message: "Pick a login to see its sign-in.")
       }
     }
-    .kitToolbar("Logins", meta: ["\(all.count) logins", "\(withCodes) with \(idiom == .phone ? "codes" : "one-time codes")"], systemImage: "key.horizontal") {
+    .kitToolbar("Logins", meta: [all.count.loginsLabel, idiom.isTouch ? String(localized: "\(withCodes) with codes") : String(localized: "\(withCodes) with one-time codes")], systemImage: "key.horizontal") {
       if idiom == .phone {
         Button("New Login", systemImage: "plus") { app.sheet = .newItem(.login) }.buttonStyle(.kitRound)
       } else {
@@ -250,7 +250,7 @@ struct LoginInspector: View {
     }
     let links = LinkedItems(app: app).resolve(login.links)
     if !links.isEmpty {
-      KitSection("Linked", meta: ["\(links.count) items", "every v57 app sees the link"], systemImage: "link", hue: .teal) {
+      KitSection("Linked", meta: [links.count.itemsLabel, String(localized: "every v57 app sees the link")], systemImage: "link", hue: .teal) {
         ForEach(links) { link in
           if pushed, link.destination == .hosts, let host = app.vault.host(id: link.id) {
             NavigationLink { HostPage(host: host) } label: {

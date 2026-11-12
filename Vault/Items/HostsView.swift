@@ -47,7 +47,7 @@ struct HostsView: View {
         .padding(.vertical, 6)
         if idiom == .phone {
           KitList(selection: Binding(get: { pushed }, set: { pushed = $0 })) {
-            KitSection("Hosts", meta: [String(localized: "\(hosts.count) hosts"), String(localized: "shared with Shell and Database")], systemImage: "server.rack") {
+            KitSection("Hosts", meta: [hosts.count.hostsLabel, String(localized: "shared with Shell and Database")], systemImage: "server.rack") {
               ForEach(hosts) { host in
                 SidebarRow(value: host.id, host.displayName, subtitle: "\(host.user)@\(host.hostname)", systemImage: "server.rack") {
                   if host.isViaHub { Chip("Via Hub", hue: .purple).controlSize(.small) } else { HostAuthChip(auth: host.auth) }
@@ -61,7 +61,7 @@ struct HostsView: View {
         }
       }
       .paneStatusBar(systemImage: "icloud", status: .done) {
-        Text("\(all.count) hosts")
+        Text(all.count.hostsLabel)
         Text("\(all.filter { $0.auth == .deviceKey }.count) sign in with this device’s key").foregroundStyle(.kitSecondary)
         let viaHub = all.filter { $0.hub != nil }
         if !viaHub.isEmpty {
@@ -77,7 +77,7 @@ struct HostsView: View {
         EmptyState(systemImage: "server.rack", title: "No Host Selected", message: "Pick a host to see how it signs in.")
       }
     }
-    .kitToolbar("SSH Hosts", meta: [String(localized: "\(all.count) hosts"), String(localized: "shared with Shell and Database")], systemImage: "server.rack") {
+    .kitToolbar("SSH Hosts", meta: [all.count.hostsLabel, String(localized: "shared with Shell and Database")], systemImage: "server.rack") {
       if idiom == .phone {
         Button("New Host", systemImage: "plus") { app.sheet = .newItem(.host) }.buttonStyle(.kitRound)
       } else {
@@ -217,7 +217,7 @@ struct HostInspector: View {
     let databases = vault.databases.filter { $0.sshHostID == host.id }
     let logins = vault.logins.filter { $0.links.contains(host.id) }
     if !databases.isEmpty || !logins.isEmpty {
-      KitSection("Linked", meta: String(localized: "\(databases.count + logins.count) items"), systemImage: "link", hue: .teal) {
+      KitSection("Linked", meta: (databases.count + logins.count).itemsLabel, systemImage: "link", hue: .teal) {
         ForEach(databases) { database in
           LinkRow(title: database.name, subtitle: String(localized: "\(DatabaseEngine.name(database.engine)) through this host"), systemImage: "cylinder") {
             app.selectedDatabase = database.id

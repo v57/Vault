@@ -76,7 +76,7 @@ struct HubView: View {
     guard !hubs.isEmpty else { return [String(localized: "off"), String(localized: "bring your own")] }
     let devices = hubs.flatMap(\.members)
     return [
-      hubs.count == 1 ? String(localized: "1 Hub") : String(localized: "\(hubs.count) Hubs"), String(localized: "\(devices.count) devices"),
+      hubs.count == 1 ? String(localized: "1 Hub") : String(localized: "\(hubs.count) Hubs"), devices.count.devicesLabel,
       String(localized: "\(devices.filter(\.isOnline).count) online"),
     ]
   }
@@ -105,7 +105,7 @@ private struct HubSection: View {
   var body: some View {
     let live = hub.members
     KitSection(
-      hub.name, meta: [HubStatusText.title(hub.status), String(localized: "\(live.count) devices"), hub.record.isPlayground ? String(localized: "playground") : ""].filter { !$0.isEmpty },
+      hub.name, meta: [HubStatusText.title(hub.status), live.count.devicesLabel, hub.record.isPlayground ? String(localized: "playground") : ""].filter { !$0.isEmpty },
       systemImage: "point.3.connected.trianglepath.dotted", hue: hub.status == .connected ? .purple : .gray
     ) {
       InspectorRow("Connect from this \(ThisDevice.word)", copyText: nil) {

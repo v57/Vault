@@ -279,14 +279,14 @@ final class LiveFolderSync: FolderSyncEngine {
     }
     if !today.isEmpty {
       let devices = ListFormatter.localizedString(byJoining: Array(Set(today.map { sender($0.device) })).sorted())
-      activity.receivedSummary = String(localized: "\(today.count) files · from \(devices)")
+      activity.receivedSummary = String(localized: "\(today.count.filesLabel) · from \(devices)")
     }
     let facts = status.remote
     let minutes = max(1, UserDefaults.standard.object(forKey: "remoteCheckMinutes") as? Int ?? 5)
     activity.remoteFacts = [
       (String(localized: "Here"), hereLine(folder, status)),
       (String(localized: "Chunks"), facts.chunkCount == 0 ? "—" : "\(facts.chunkCount.formatted()) · \(Bytes.text(facts.chunkBytes))"),
-      (String(localized: "Change logs"), facts.changeLogs == 1 ? String(localized: "1 device") : String(localized: "\(facts.changeLogs) devices")),
+      (String(localized: "Change logs"), facts.changeLogs.devicesLabel),
       (String(localized: "Snapshot"), facts.lastSnapshot.map(RelativeTime.dayTime) ?? String(localized: "none yet")),
       (String(localized: "Checks"), String(localized: "on open, every \(minutes) min while open")),
       (String(localized: "The remote holds"), String(localized: "Ciphertext only")),

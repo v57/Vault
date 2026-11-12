@@ -153,8 +153,8 @@ private struct RestoreBackupSheet: View {
       if let contents {
         FormCard {
           FormRow("Made", help: "\(contents.created.formatted(date: .long, time: .shortened)) on \(contents.deviceName.isEmpty ? "a device" : contents.deviceName)", systemImage: "calendar", hue: .gray)
-          FormRow("Records", help: "\(contents.recordCount) in \(contents.accountCount + 1) vaults", systemImage: "tray.full", hue: .blue)
-          FormRow("Secrets and keys", help: "\(contents.secretCount) passwords and secrets, \(contents.keyCount) keys", systemImage: "lock", hue: .orange)
+          FormRow("Records", help: "\(contents.recordCount) in \((contents.accountCount + 1).vaultsLabel)", systemImage: "tray.full", hue: .blue)
+          FormRow("Secrets and keys", help: "\(contents.secretCount) passwords and secrets, \(contents.keyCount.keysLabel)", systemImage: "lock", hue: .orange)
           if contents.leftOut > 0 {
             FormRow("Left out when it was made", help: "\(contents.leftOut) records that device couldn’t open", systemImage: "exclamationmark.triangle", hue: .yellow)
           }
@@ -187,7 +187,7 @@ private struct RestoreBackupSheet: View {
       FormRow("Secrets", help: "\(result.secrets) brought back, \(result.unchangedSecrets) already here, \(result.keptSecrets) newer here kept", systemImage: "lock", hue: .green)
       FormRow("Keys", help: "\(result.keys) brought back, \(result.deviceItems) of this device’s", systemImage: "key.horizontal", hue: .green)
       if result.refusedRecords > 0 || result.secretsLeftOut > 0 || !result.storesLeftOut.isEmpty {
-        FormRow("Left out", help: "\(result.refusedRecords) records refused, \(result.secretsLeftOut) secrets with no place here, \(result.storesLeftOut.count) accounts", systemImage: "exclamationmark.triangle", hue: .yellow)
+        FormRow("Left out", help: "\(result.refusedRecords) records refused, \(result.secretsLeftOut) secrets with no place here, \(result.storesLeftOut.count.accountsLabel)", systemImage: "exclamationmark.triangle", hue: .yellow)
       }
     }
   }

@@ -284,7 +284,7 @@ struct DocumentInspector: View {
     let linked = links()
     if !linked.isEmpty {
       KitSection("Linked", meta: [
-          linked.count == 1 ? String(localized: "1 item") : String(localized: "\(linked.count) items"),
+          linked.count.itemsLabel,
           String(localized: "every v57 app sees the link"),
         ], systemImage: "link", hue: .teal) {
         ForEach(linked, id: \.id) { item in
@@ -390,7 +390,7 @@ private struct ReminderSection: View {
   var body: some View {
     let months = document.remindMonths ?? kind.remindMonths ?? 0
     let date = document.day(field.key)
-    KitSection("Reminder", meta: [String(localized: "on your \(app.devices.count) devices"), String(localized: "nothing leaves them")], systemImage: "bell", hue: .orange) {
+    KitSection("Reminder", meta: [app.devices.count == 1 ? String(localized: "on this \(ThisDevice.word)") : String(localized: "on your \(app.devices.count) devices"), String(localized: "nothing leaves them")], systemImage: "bell", hue: .orange) {
       // On a phone the stepper, the date and the switch don't fit on one line: the date and the switch go under.
       ViewThatFits(in: .horizontal) {
         HStack(spacing: 10) {

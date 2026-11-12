@@ -97,7 +97,7 @@ struct DecryptSheet: View {
       }
       if let error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text) }
     } footer: {
-      SheetStatus("\(totals.items) items · \(Bytes.text(totals.bytes))", systemImage: "lock.rectangle.stack", hue: .teal)
+      SheetStatus("\(totals.items.itemsLabel) · \(Bytes.text(totals.bytes))", systemImage: "lock.rectangle.stack", hue: .teal)
       Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
       Button("Decrypt") { decrypt() }.buttonStyle(.kitPrimary).keyboardShortcut(.defaultAction)
     }
@@ -213,7 +213,7 @@ struct ShareSheet: View {
         }
         if idiom != .phone {
           FormCard {
-            FormRow("\(name) · \(app.folders.totals(folderID).items) items", help: person == nil ? "The folder key is wrapped to their key and added to the signed member list." : "The folder key is wrapped to \(first)’s key and added to the signed member list.", systemImage: "lock.rectangle.stack", hue: .teal)
+            FormRow("\(name) · \(app.folders.totals(folderID).items.itemsLabel)", help: person == nil ? "The folder key is wrapped to their key and added to the signed member list." : "The folder key is wrapped to \(first)’s key and added to the signed member list.", systemImage: "lock.rectangle.stack", hue: .teal)
           }
         }
       }

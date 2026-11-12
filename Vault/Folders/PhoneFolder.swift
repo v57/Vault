@@ -37,14 +37,14 @@ struct PhoneFolderView: View {
           } icon: {
             LiveIcon(systemImage: "lock.open", hue: .orange, status: .working(progress: session.fractionLeft), size: 30)
           } meta: {
-            MetaLine(String(localized: "\(session.minutesLeft) min left"), String(localized: "\(session.sealedEdits) edits sealed"))
+            MetaLine(String(localized: "\(session.minutesLeft) min left"), session.sealedEdits == 1 ? String(localized: "1 edit sealed") : String(localized: "\(session.sealedEdits) edits sealed"))
           } accessory: {
             EmptyView()
           }
         }
         KitSection(
           name,
-          meta: [path.isEmpty ? String(localized: "\(totals.items) items") : String(localized: "\(entries.count) items"), path.isEmpty ? Bytes.text(totals.bytes) : "",
+          meta: [path.isEmpty ? totals.items.itemsLabel : entries.count.itemsLabel, path.isEmpty ? Bytes.text(totals.bytes) : "",
                  folder.sharedWith.map { String(localized: "shared with \($0)") } ?? (folder.isEncrypted ? String(localized: "names encrypted") : "")],
           systemImage: "lock.rectangle.stack", hue: .teal
         ) {
@@ -141,7 +141,7 @@ private struct PhoneFileRow: View {
         .frame(width: 24)
       VStack(alignment: .leading, spacing: 1) {
         Text(entry.name).kitFont(.body).lineLimit(1).truncationMode(.middle)
-        Text([entry.isDirectory ? "\(app.folders.itemCount(folder.id, path: entry.path)) items" : Bytes.text(entry.size),
+        Text([entry.isDirectory ? app.folders.itemCount(folder.id, path: entry.path).itemsLabel : Bytes.text(entry.size),
               entry.modified.map { RelativeTime.day($0).lowercased() == "today" ? "today" : RelativeTime.day($0) } ?? ""]
           .filter { !$0.isEmpty }.joined(separator: " · "))
           .kitFont(.caption)

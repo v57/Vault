@@ -237,7 +237,7 @@ private struct GroupEditSheet: View {
       }
       SheetFooterButtons(
         saveTitle: isNew ? String(localized: "Add") : String(localized: "Save"), canSave: !name.trimmingCharacters(in: .whitespaces).isEmpty,
-        status: String(localized: "Encrypted, synced to your \(app.devices.count) devices"), onSave: save)
+        status: app.devices.count == 1 ? String(localized: "Encrypted, synced through iCloud") : String(localized: "Encrypted, synced to your \(app.devices.count) devices"), onSave: save)
     }
     .onAppear {
       guard !loaded else { return }

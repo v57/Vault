@@ -120,7 +120,7 @@ struct ProjectsView: View {
     } inspector: {
       if let project = vault.projects.first(where: { $0.id == app.selectedProject }) {
         InspectorHeader(project.name, meta: [String(localized: "Project"), project.remoteURL.flatMap { URL(string: $0)?.host } ?? String(localized: "local")], systemImage: "folder", hue: .brown) {}
-        KitSection("Folders", meta: String(localized: "\(project.paths.count) devices"), systemImage: "folder", hue: .brown) {
+        KitSection("Folders", meta: project.paths.count.devicesLabel, systemImage: "folder", hue: .brown) {
           ForEach(project.paths.sorted(by: { $0.key < $1.key }), id: \.key) { device, path in
             InspectorRow(app.deviceName(device)) { Text(Self.tilde(path)).kitFont(.mono).lineLimit(1).truncationMode(.middle) }
           }
@@ -157,7 +157,7 @@ struct CardsView: View {
     let cards = app.vault.cards
     ListAndInspector(name: "cards", pushed: $pushed) {
       KitList(selection: $selected.pushing($pushed, on: idiom)) {
-        KitSection("Cards", meta: String(localized: "\(cards.count) cards"), systemImage: "creditcard", hue: .orange) {
+        KitSection("Cards", meta: cards.count.cardsLabel, systemImage: "creditcard", hue: .orange) {
           ForEach(cards) { card in
             SidebarRow(value: card.id, card.title, subtitle: "\(card.brand) •••• \(card.last4)", systemImage: "creditcard") {
               Text(card.expiry).kitFont(.caption)
@@ -182,7 +182,7 @@ struct CardsView: View {
         }
       }
     }
-    .kitToolbar("Cards", meta: [String(localized: "\(cards.count) cards")], systemImage: "creditcard", hue: .orange) {
+    .kitToolbar("Cards", meta: [cards.count.cardsLabel], systemImage: "creditcard", hue: .orange) {
       ToolGroup { Button("New Card", systemImage: "plus") { app.sheet = .newItem(.card) } }
     }
   }
@@ -199,7 +199,7 @@ struct NotesView: View {
     let notes = app.notes.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     ListAndInspector(name: "notes", pushed: $pushed) {
       KitList(selection: $selected.pushing($pushed, on: idiom)) {
-        KitSection("Notes", meta: [String(localized: "\(notes.count) notes"), String(localized: "\(notes.filter(\.encrypted).count) encrypted")], systemImage: "doc.text", hue: .yellow) {
+        KitSection("Notes", meta: [notes.count.notesLabel, String(localized: "\(notes.filter(\.encrypted).count) encrypted")], systemImage: "doc.text", hue: .yellow) {
           ForEach(notes) { note in
             SidebarRow(value: note.id, "\(note.name)", subtitle: note.folder.isEmpty ? "Notes" : "\(note.folder)", systemImage: "doc.text") {
               if note.encrypted { Image(systemName: "lock").font(.system(size: 10)).foregroundStyle(.kitTertiary) }
@@ -218,6 +218,6 @@ struct NotesView: View {
         EmptyState(systemImage: "doc.text", title: "No Notes", message: "Notes come from Markdown and Shell.")
       }
     }
-    .kitToolbar("Notes", meta: [String(localized: "\(notes.count) notes"), String(localized: "from Markdown and Shell")], systemImage: "doc.text", hue: .yellow) {}
+    .kitToolbar("Notes", meta: [notes.count.notesLabel, String(localized: "from Markdown and Shell")], systemImage: "doc.text", hue: .yellow) {}
   }
 }

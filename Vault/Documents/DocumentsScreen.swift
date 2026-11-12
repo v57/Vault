@@ -310,7 +310,7 @@ private struct ComingUpSection: View {
     let inbox = vault.documents(in: DocumentScope.inbox)
     if !events.isEmpty || (!inbox.isEmpty && scope == DocumentScope.all) {
       KitSection(
-        "Coming Up", meta: [String(localized: "next 90 days"), String(localized: "reminders on your \(app.devices.count) devices")], systemImage: "bell", hue: .orange
+        "Coming Up", meta: [String(localized: "next 90 days"), app.devices.count == 1 ? String(localized: "reminders on this \(ThisDevice.word)") : String(localized: "reminders on your \(app.devices.count) devices")], systemImage: "bell", hue: .orange
       ) {
         ForEach(events) { event in
           if let document = vault.documents.first(where: { $0.id == event.document }) {

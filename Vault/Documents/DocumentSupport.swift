@@ -52,13 +52,6 @@ extension DocumentKind {
   }
 }
 
-// "1 document", "3 documents": a count with its noun, each form its own phrase so it translates.
-extension Int {
-  var documentsLabel: String { self == 1 ? String(localized: "1 document") : String(localized: "\(self) documents") }
-  var pagesLabel: String { self == 1 ? String(localized: "1 page") : String(localized: "\(self) pages") }
-  var filesLabel: String { self == 1 ? String(localized: "1 file") : String(localized: "\(self) files") }
-  var peopleLabel: String { self == 1 ? String(localized: "1 person") : String(localized: "\(self) people") }
-}
 
 /// Days as the screens write them.
 enum DocumentDates {

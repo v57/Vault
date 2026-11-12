@@ -132,7 +132,7 @@ struct AutoFillPicker: View {
             }
           }
         }
-        KitSection(model.suggested.isEmpty ? "Logins" : "Other logins", meta: String(localized: "\(rest.count) logins"), systemImage: "key.horizontal") {
+        KitSection(model.suggested.isEmpty ? "Logins" : "Other logins", meta: rest.count == 1 ? String(localized: "1 login") : String(localized: "\(rest.count) logins"), systemImage: "key.horizontal") {
           ForEach(rest) { row($0) }
         }
       }

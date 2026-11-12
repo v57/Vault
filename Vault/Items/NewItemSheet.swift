@@ -26,6 +26,8 @@ struct NewItemSheet: View {
       meta: !app.keepsSecretsInICloud
         // iCloud off on this device: the keychain's own copy, nowhere else.
         ? String(localized: "Saved in this \(ThisDevice.word)’s keychain; iCloud is off")
+        : app.devices.count == 1
+        ? (idiom == .phone ? String(localized: "Saved in iCloud Keychain") : String(localized: "Saved in iCloud Keychain. Only v57 apps and AutoFill can read it."))
         : idiom == .phone
         ? String(localized: "Saved in iCloud Keychain on your \(app.devices.count) devices")
         : String(localized: "Saved in iCloud Keychain on your \(app.devices.count) devices. Only v57 apps and AutoFill can read it."),

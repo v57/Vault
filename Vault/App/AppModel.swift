@@ -427,7 +427,7 @@ final class AppModel {
   /// "iCloud · 3 devices", the sidebar's status.
   var cloudSummary: String {
     vault.sync?.isRunning == true || isDemo
-      ? String(localized: "iCloud · \(devices.count) devices") : String(localized: "On this \(KitDevice.name)")
+      ? String(localized: "iCloud · \(devices.count.devicesLabel)") : String(localized: "On this \(KitDevice.name)")
   }
 
   /// Whether passwords, cards and codes go to iCloud Keychain: not while iCloud is off on this device, when they stay

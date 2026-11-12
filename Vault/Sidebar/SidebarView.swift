@@ -16,7 +16,7 @@ struct SidebarView: View {
   var body: some View {
     SelectingSidebar(searchText: $search, columnVisibility: idiom.isTouch ? $columnVisibility : nil) {
       // The window's account; nothing while Personal is the only one.
-      VaultAccountPicker(meta: String(localized: "\(app.itemCount) items"))
+      VaultAccountPicker(meta: app.itemCount.itemsLabel)
       itemsSection
       DocumentsSection()
       FoldersSection()
@@ -53,7 +53,7 @@ struct SidebarView: View {
   private func itemsSection(now: Date) -> some View {
     let vault = app.vault
     return KitSection(
-      "Items", meta: [String(localized: "\(app.itemCount) items"), app.syncedLine(now: now)], systemImage: "key.horizontal",
+      "Items", meta: [app.itemCount.itemsLabel, app.syncedLine(now: now)], systemImage: "key.horizontal",
       status: app.vault.sync?.isRunning == true ? .idle : .idle
     ) {
       SidebarRow(value: SidebarItem.logins, "Logins", systemImage: "key") { Count(vault.logins.count) }
@@ -69,7 +69,7 @@ struct SidebarView: View {
 
   private var keysSection: some View {
     KitSection(
-      "Keys", meta: [String(localized: "\(app.devices.count) devices"), String(localized: "\(app.sharing.people.count) people")],
+      "Keys", meta: [app.devices.count.devicesLabel, app.sharing.people.count.peopleLabel],
       systemImage: "checkmark.shield", hue: .green
     ) {
       SidebarRow(value: SidebarItem.devices, "Devices & People", systemImage: "person.2") {
@@ -137,7 +137,7 @@ private struct DocumentsSection: View {
     let inbox = vault.documents(in: DocumentScope.inbox).count
     let renew = vault.documentEvents.filter { $0.remindOn <= .now }.count
     KitSection(
-      "Documents", meta: [String(localized: "\(vault.documents.count) documents")] + (renew > 0 ? [String(localized: "\(renew) to renew")] : []),
+      "Documents", meta: [vault.documents.count.documentsLabel] + (renew > 0 ? [String(localized: "\(renew) to renew")] : []),
       systemImage: "doc.text.image", hue: .blue
     ) {
       SidebarRow(value: SidebarItem.documents(DocumentScope.all), "All Documents", systemImage: "doc.on.doc") {
@@ -195,7 +195,7 @@ private struct FoldersSection: View {
       } else if let activity = folders.folders.compactMap({ app.folders.sync.activity(for: $0.id) }).first(where: { $0.isReceiving }) {
         MetaLine(activity.folderName, activity.progressLine)
       } else {
-        MetaLine([String(localized: "\(folders.folders.count) folders")] + (decrypted.isEmpty ? [] : [String(localized: "\(decrypted.count) decrypted")]))
+        MetaLine([folders.folders.count.foldersLabel] + (decrypted.isEmpty ? [] : [String(localized: "\(decrypted.count) decrypted")]))
       }
     } accessory: {
       Button("New Folder", systemImage: "plus") { app.sheet = .newItem(.folder) }
@@ -229,7 +229,7 @@ private struct LocationsSection: View {
   var body: some View {
     let locations = app.remotes.locations
     KitSection(
-      "Locations", meta: [String(localized: "This \(ThisDevice.word)"), String(localized: "\(locations.count - 1) remotes")],
+      "Locations", meta: [String(localized: "This \(ThisDevice.word)"), (locations.count - 1).remotesLabel],
       systemImage: "globe", hue: .indigo
     ) {
       ForEach(locations) { location in

@@ -157,7 +157,7 @@ struct LocationView: View {
       }
       .paneStatusBar(systemImage: location?.kind.systemImage ?? "globe", status: status) {
         Text(location?.kind == .thisDevice ? "Your home folder" : "Only ciphertext: chunks, change logs, member lists")
-        Text("\(entries.count) items").foregroundStyle(.kitSecondary)
+        Text(entries.count.itemsLabel).foregroundStyle(.kitSecondary)
       }
     } inspector: {
       if let location {
