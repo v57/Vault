@@ -75,6 +75,7 @@
 			membershipExceptions = (
 				CredentialProviderViewController.swift,
 				Info.plist,
+				PrivacyInfo.xcprivacy,
 				"VaultAutoFill-iOS.entitlements",
 				VaultAutoFill.entitlements,
 			);
@@ -85,6 +86,7 @@
 			membershipExceptions = (
 				ShareViewController.swift,
 				Info.plist,
+				PrivacyInfo.xcprivacy,
 				"VaultShare-iOS.entitlements",
 				VaultShare.entitlements,
 			);
