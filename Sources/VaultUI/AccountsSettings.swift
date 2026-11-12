@@ -11,6 +11,7 @@ import VaultKit
 /// ```
 public struct VaultAccountsSettings: View {
   @State private var vaults: Vaults
+  @Environment(\.kitIdiom) private var idiom
   @State private var creating = false
   @State private var editing: VaultAccount?
   @State private var deleting: VaultAccount?
@@ -36,9 +37,10 @@ public struct VaultAccountsSettings: View {
     ForEach(vaults.allAccounts) { account in
       FormCard(
         account.isPersonal ? "Personal" : "\(account.name)",
-        footer: account.isPersonal
+        // The shortcuts only where there's a keyboard to press them on (the Mac, an iPad with one connected).
+        footer: !account.isPersonal ? nil : KitDevice.hasKeyboard
           ? "Always here: the vault every app used before accounts. Each window shows one account; ⌃⌘1…⌃⌘9 switch."
-          : nil
+          : "Always here: the vault every app used before accounts. Each window shows one account."
       ) {
         accountRow(account)
         profileRow(account)
@@ -89,7 +91,9 @@ public struct VaultAccountsSettings: View {
       }
   }
 
-  private func accountRow(_ account: VaultAccount) -> some View {
+  /// The account's name and what it holds, with Edit… and Delete… at its end; on iPhone under it, where beside the
+  /// name they were cut ("Del…").
+  @ViewBuilder private func accountRow(_ account: VaultAccount) -> some View {
     let vault = opened[account.id]
     let projects = vault?.projects.count ?? 0
     let hosts = vault?.hosts.count ?? 0
@@ -100,17 +104,20 @@ public struct VaultAccountsSettings: View {
       case (_, 1): "\(projects) projects · 1 host"
       default: "\(projects) projects · \(hosts) hosts"
       }
-    return FormRow(
-      "\(account.name)", help: help,
-      systemImage: account.isPersonal ? "person.crop.circle" : "building.2", hue: account.hue
-    ) {
-      if !account.isPersonal {
-        HStack(spacing: 6) {
-          Button("Edit…") { editing = account }.buttonStyle(.kit)
-          Button("Delete…", role: .destructive) { deleting = account }.buttonStyle(.kit)
-        }
+    let systemImage = account.isPersonal ? "person.crop.circle" : "building.2"
+    if idiom == .phone, !account.isPersonal {
+      FormRow("\(account.name)", help: help, systemImage: systemImage, hue: account.hue)
+        .detail { accountButtons(account) }
+    } else {
+      FormRow("\(account.name)", help: help, systemImage: systemImage, hue: account.hue) {
+        if !account.isPersonal { HStack(spacing: 6) { accountButtons(account) } }
       }
     }
+  }
+
+  @ViewBuilder private func accountButtons(_ account: VaultAccount) -> some View {
+    Button("Edit…") { editing = account }.buttonStyle(.kit)
+    Button("Delete…", role: .destructive) { deleting = account }.buttonStyle(.kit)
   }
 
   private func profileRow(_ account: VaultAccount) -> some View {
