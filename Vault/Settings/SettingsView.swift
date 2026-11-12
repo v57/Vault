@@ -39,7 +39,7 @@ struct SettingsView: View {
       SettingsPane("Sync", systemImage: "arrow.triangle.2.circlepath", hue: .blue, value: iCloud.isOff ? "Off" : "iCloud") { SyncPane() }
       SettingsPane("Recovery Key", systemImage: "key", hue: .orange, value: app.recovery.isOn ? "On" : "Off") { RecoveryKeyPane() }
       SettingsPane("Backup", systemImage: "externaldrive", hue: .green) { BackupPane() }
-      SettingsPane("AutoFill", systemImage: "rectangle.and.pencil.and.ellipsis", hue: .gray, value: "Off") { AutoFillPane() }
+      SettingsPane("AutoFill", systemImage: "rectangle.and.pencil.and.ellipsis", hue: .gray) { AutoFillPane() }
       SettingsPane("Hub", systemImage: "point.3.connected.trianglepath.dotted", hue: .purple, value: hubValue) { HubPane() }
       SettingsPane("Privacy", systemImage: "hand.raised", hue: .blue) { VaultICloudCard() }
       // The accounts every v57 app shares; not in demo runs, which never open the user's vaults.
@@ -375,17 +375,40 @@ private struct RecoveryWordsSheet: View {
   }
 }
 
+/// Whether the system offers Vault in password fields, and the way to the system's switch: AutoFill is turned on in
+/// the system's settings, never here.
 private struct AutoFillPane: View {
   @Environment(\.kitIdiom) private var idiom
+  @Environment(\.scenePhase) private var scenePhase
+  @State private var isEnabled: Bool?
 
   var body: some View {
     // launchctl is the Mac's; on iPhone and iPad the same promise in their words.
     FormCard(footer: idiom == .mac
       ? "The credential provider is an extension the system starts when a password field asks; it isn’t a helper and isn’t registered with launchctl."
       : "The credential provider is an extension the system starts when a password field asks; nothing of Vault’s runs in the background.") {
-      FormRow("AutoFill passwords and codes", help: "In Safari and apps, through a credential provider extension. Comes in a later version.", systemImage: "rectangle.and.pencil.and.ellipsis", hue: .gray) {
-        Toggle("AutoFill", isOn: .constant(false)).toggleStyle(.kitSwitch).kitLabelsHidden().disabled(true)
+      FormRow(
+        "AutoFill passwords and codes", help: help, systemImage: "rectangle.and.pencil.and.ellipsis",
+        hue: isEnabled == true ? .green : .gray
+      ) {
+        if VaultAutoFill.canOpenSettings {
+          Button(isEnabled == true ? "Settings…" : "Turn On…") { Task { await VaultAutoFill.openSettings() } }
+            .buttonStyle(.kit)
+        }
       }
+    }
+    // Back from the system's settings: the switch may have changed there.
+    .task(id: scenePhase) { if scenePhase == .active { isEnabled = await VaultAutoFill.isEnabled } }
+  }
+
+  private var help: LocalizedStringKey {
+    switch isEnabled {
+    case true?: "On. Safari and apps offer your logins, one-time codes and passkeys in their password fields."
+    case false?:
+      idiom == .mac
+        ? "Off. Turn on Vault in System Settings ▸ General ▸ AutoFill & Passwords to fill logins, codes and passkeys."
+        : "Off. Turn on Vault in Settings ▸ General ▸ AutoFill & Passwords to fill logins, codes and passkeys."
+    case nil: "In Safari and apps, through a credential provider extension."
     }
   }
 }

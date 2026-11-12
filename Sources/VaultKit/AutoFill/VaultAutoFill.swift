@@ -54,6 +54,19 @@ public enum VaultAutoFill {
   }
 
   #if canImport(AuthenticationServices) && (os(macOS) || os(iOS))
+    /// Whether the system offers Vault in password fields: the person turned it on in the system's AutoFill settings.
+    public static var isEnabled: Bool {
+      get async { await ASCredentialIdentityStore.shared.state().isEnabled }
+    }
+
+    /// Whether `openSettings()` can take the person to the system's AutoFill settings.
+    public static let canOpenSettings = true
+
+    /// Opens the system's AutoFill settings (AutoFill & Passwords), where the person turns Vault on.
+    public static func openSettings() async {
+      try? await ASSettingsHelper.openCredentialProviderAppSettings()
+    }
+
     /// Replaces what the system offers in password fields with these logins and passkeys (each by its site and
     /// username; the password or private key stays in the keychain until the person picks one). Does nothing
     /// unless Vault is turned on in the system's AutoFill settings.
@@ -86,5 +99,8 @@ public enum VaultAutoFill {
     /// Elsewhere the platform's own autofill service reads the vault; nothing to publish.
     public static func publish(_ logins: [VaultLogin], passkeys: [VaultPasskey] = []) async {}
     public static func publish(_ passkey: VaultPasskey) async {}
+    public static var isEnabled: Bool { get async { false } }
+    public static let canOpenSettings = false
+    public static func openSettings() async {}
   #endif
 }
