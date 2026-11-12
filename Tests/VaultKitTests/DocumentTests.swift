@@ -390,4 +390,12 @@ struct DocumentReaderTests {
     #expect(DocumentReader.firstDate(in: "31.02.2026") == nil)
     #expect(DocumentReader.firstDate(in: "no date here") == nil)
   }
+
+  /// A scanned line whose lowercase is longer than itself (İ lowercases to i + a combining dot) used to crash reading
+  /// the text after a label, since the label's place in the lowercase was used on the line (seen on a scanned page).
+  @Test func labelsAfterLettersThatGrowWhenLowercased() {
+    let lines = ["İSTANBUL İİİİİİİİ Date", "2026-03-14", "İİİİİİİİİİİİ Total: 12.50"]
+    #expect(DocumentReader.date(after: ["date"], in: lines) != nil)
+    #expect(DocumentReader.value(after: ["total"], in: lines) == "12.50")
+  }
 }

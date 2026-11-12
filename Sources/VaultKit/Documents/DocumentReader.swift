@@ -118,7 +118,10 @@ public enum DocumentReader {
   static func date(after labels: [String], in lines: [String]) -> String? {
     for (index, line) in lines.enumerated() {
       let lower = line.lowercased()
-      guard let label = labels.first(where: lower.contains), let range = lower.range(of: label) else { continue }
+      // Lowercasing can change a line's length (İ, ẞ, ligatures), so the label is found in the line itself.
+      guard let label = labels.first(where: lower.contains),
+        let range = line.range(of: label, options: [.caseInsensitive, .diacriticInsensitive])
+      else { continue }
       let rest = String(line[range.upperBound...])
       if let day = firstDate(in: rest) { return day }
       if index + 1 < lines.count, let day = firstDate(in: lines[index + 1]) { return day }
@@ -131,7 +134,7 @@ public enum DocumentReader {
     for (index, line) in lines.enumerated() {
       let lower = line.lowercased()
       guard let label = labels.first(where: { lower.hasPrefix($0) || lower.contains(" " + $0) || lower.contains($0 + ":") }),
-        let range = lower.range(of: label)
+        let range = line.range(of: label, options: [.caseInsensitive, .diacriticInsensitive])
       else { continue }
       var rest = String(line[range.upperBound...]).trimmingCharacters(in: .whitespaces)
       while rest.first.map({ ":.#".contains($0) }) == true { rest.removeFirst() }
