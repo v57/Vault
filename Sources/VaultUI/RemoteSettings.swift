@@ -313,4 +313,21 @@
       }
     }
   }
+#else
+  import SwiftUI
+  import VaultKit
+
+  /// Settings ▸ Remote off the Mac: the user's devices, to rename or remove. Letting them in over SSH (Remote Login,
+  /// `~/.ssh/authorized_keys`) is the Mac's for now, so the same pane builds in every app on Windows and Linux.
+  public struct VaultRemoteSettings: View {
+    @State private var vaults: Vaults
+
+    public init(vaults: Vaults = .shared) {
+      _vaults = State(initialValue: vaults)
+    }
+
+    public var body: some View {
+      VaultDevicesSettings(vaults: vaults)
+    }
+  }
 #endif
