@@ -172,6 +172,9 @@ struct AddDocumentSheet: View {
           }
         }
       }
+      // Room inside the dashed edge above and below, so Scan… and Choose Files… don't sit on it (V-048).
+      .padding(.vertical, 16)
+      .padding(.horizontal, 12)
       .frame(maxWidth: .infinity, minHeight: existing == nil ? 180 : 110)
       .background {
         RoundedRectangle(cornerRadius: KitMetrics.radiusCard, style: .continuous)
@@ -248,7 +251,8 @@ struct AddDocumentSheet: View {
             TextField("Hidden until shown", text: Binding(get: { secrets[field.key] ?? "" }, set: { secrets[field.key] = $0 }))
               .kitField(mono: true)
           case .date:
-            TextField("2032-03-12", text: binding(field.key))
+            // A format, not a day: a sample date read as a suggestion (a birth in 2032).
+            TextField("YYYY-MM-DD", text: binding(field.key))
               .kitField()
               .onSubmit { normalizeDate(field.key) }
           case .months:
