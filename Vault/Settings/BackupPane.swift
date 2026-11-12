@@ -183,11 +183,11 @@ private struct RestoreBackupSheet: View {
 
   private func summary(_ result: VaultBackupRestoreResult) -> some View {
     FormCard("Restored") {
-      FormRow("Records", help: "\(result.records) brought back, \(result.unchangedRecords) already here", systemImage: "tray.full", hue: .green)
-      FormRow("Secrets", help: "\(result.secrets) brought back, \(result.unchangedSecrets) already here, \(result.keptSecrets) newer here kept", systemImage: "lock", hue: .green)
-      FormRow("Keys", help: "\(result.keys) brought back, \(result.deviceItems) of this device’s", systemImage: "key.horizontal", hue: .green)
+      FormRow("Records", help: "\(result.records) brought back, \(String(localized: "\(result.unchangedRecords) already here"))", systemImage: "tray.full", hue: .green)
+      FormRow("Secrets", help: "\(result.secrets) brought back, \(String(localized: "\(result.unchangedSecrets) already here")), \(String(localized: "\(result.keptSecrets) newer here kept"))", systemImage: "lock", hue: .green)
+      FormRow("Keys", help: "\(result.keys) brought back, \(String(localized: "\(result.deviceItems) of this device’s"))", systemImage: "key.horizontal", hue: .green)
       if result.refusedRecords > 0 || result.secretsLeftOut > 0 || !result.storesLeftOut.isEmpty {
-        FormRow("Left out", help: "\(result.refusedRecords) records refused, \(result.secretsLeftOut) secrets with no place here, \(result.storesLeftOut.count.accountsLabel)", systemImage: "exclamationmark.triangle", hue: .yellow)
+        FormRow("Left out", help: "\(result.refusedRecords) records refused, \(String(localized: "\(result.secretsLeftOut) secrets with no place here")), \(result.storesLeftOut.count.accountsLabel)", systemImage: "exclamationmark.triangle", hue: .yellow)
       }
     }
   }

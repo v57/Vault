@@ -102,7 +102,7 @@ public struct VaultAccountsSettings: View {
       case (1, 1): "1 project · 1 host"
       case (1, _): "1 project · \(hosts) hosts"
       case (_, 1): "\(projects) projects · 1 host"
-      default: "\(projects) projects · \(hosts) hosts"
+      default: "\(projects) projects · \(String(localized: "\(hosts) hosts"))"
       }
     let systemImage = account.isPersonal ? "person.crop.circle" : "building.2"
     if idiom == .phone, !account.isPersonal {
