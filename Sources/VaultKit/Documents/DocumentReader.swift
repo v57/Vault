@@ -21,7 +21,13 @@ public struct DocumentSuggestion: Hashable, Sendable {
 
 public enum DocumentReader {
   /// Reads a document's pages (the text of each, in order).
-  public static func suggest(pages: [[String]]) -> DocumentSuggestion {
+  public static func suggest(pages: [[String]], now: Date = .now) -> DocumentSuggestion {
+    var suggestion = read(pages: pages)
+    suggestion.fields = plausibleDates(suggestion.fields, kind: suggestion.kind, now: now)
+    return suggestion
+  }
+
+  private static func read(pages: [[String]]) -> DocumentSuggestion {
     let lines = pages.flatMap { $0 }
     if let zone = MachineReadableZone(text: lines) { return suggestion(for: zone, lines: lines) }
     let text = lines.joined(separator: "\n").lowercased()
@@ -61,6 +67,25 @@ public enum DocumentReader {
     if let expires = zone.expires { fields["expires"] = expires }
     if let issued = date(after: labelledDates.first { $0.key == "issued" }!.labels, in: lines) { fields["issued"] = issued }
     return DocumentSuggestion(kind: kind, fields: fields.filter { !$0.value.isEmpty }, zone: zone)
+  }
+
+  /// Drops the dates that can't be what their field says, so a misread never fills one: a birth or an issue in the
+  /// future, an issue on or before the birth, an expiry on or before the issue or the birth, and one day given to two
+  /// of these fields (one match read for both). A birth certificate may be issued on the day of the birth.
+  static func plausibleDates(_ fields: [String: String], kind: String, now: Date = .now) -> [String: String] {
+    var fields = fields
+    func day(_ key: String) -> Date? { fields[key].flatMap(DocumentDay.date(from:)) }
+    let today = DocumentDay.date(from: DocumentDay.string(from: now)) ?? now
+    for key in ["birthDate", "issued"] where day(key).map({ $0 > today }) == true { fields[key] = nil }
+    if let birth = day("birthDate"), let issued = day("issued") {
+      if issued < birth || (issued == birth && kind != DocumentKind.birthCertificate.id) { fields["issued"] = nil }
+    }
+    if let expires = day("expires") {
+      // The expiry is the one the reader is surest of (the zone's, or its own label): the other date goes.
+      if let issued = day("issued"), expires <= issued { fields["issued"] = nil }
+      if let birth = day("birthDate"), expires <= birth { fields["birthDate"] = nil }
+    }
+    return fields
   }
 
   // MARK: Kinds
@@ -114,7 +139,9 @@ public enum DocumentReader {
 
   static let policyLabels = ["policy number", "policy no", "versicherungsnummer", "vertragsnummer", "versicherungsschein-nr"]
 
-  /// The first date on the line of a label, or on the line after it.
+  /// The first date on the line of a label, or on the line after it. Where labels stand side by side over a line of
+  /// dates ("Date of issue   Date of expiry" over "12 MAR 2022   11 MAR 2032"), the label takes the date in its own
+  /// column: the second label the second date.
   static func date(after labels: [String], in lines: [String]) -> String? {
     for (index, line) in lines.enumerated() {
       let lower = line.lowercased()
@@ -123,10 +150,48 @@ public enum DocumentReader {
         let range = line.range(of: label, options: [.caseInsensitive, .diacriticInsensitive])
       else { continue }
       let rest = String(line[range.upperBound...])
-      if let day = firstDate(in: rest) { return day }
-      if index + 1 < lines.count, let day = firstDate(in: lines[index + 1]) { return day }
+      // A date before the next label on the line is this label's.
+      let own = otherDateLabel(in: rest).map { String(rest[..<$0]) } ?? rest
+      if let day = firstDate(in: own) { return day }
+      guard index + 1 < lines.count else { continue }
+      let below = dates(in: lines[index + 1])
+      guard !below.isEmpty else { continue }
+      let column = dateColumn(before: range.lowerBound, in: line, label: label)
+      if column < below.count { return below[column] }
+      // Fewer dates below than labels beside each other: which is whose can't be told.
+      if column == 0 { return below[0] }
     }
     return nil
+  }
+
+  /// Every label of a date, in all languages, with its field; longest first, so "date of issue" is found before "date".
+  private static let allDateLabels: [(label: String, key: String)] =
+    (labelledDates.flatMap { field in field.labels.map { ($0, field.key) } } + [("4a.", "issued"), ("4b.", "expires")])
+    .sorted { $0.0.count > $1.0.count }
+
+  /// Where the first label of a date starts in `text`.
+  private static func otherDateLabel(in text: String) -> String.Index? {
+    allDateLabels.compactMap { text.range(of: $0.label, options: [.caseInsensitive, .diacriticInsensitive])?.lowerBound }.min()
+  }
+
+  /// The label's column on its line: how many other fields' date labels come before `end`. A field labelled in two
+  /// languages ("Date of issue / Date de délivrance") is one column, and a label inside a longer one ("date" in
+  /// "date of birth") isn't counted.
+  private static func dateColumn(before end: String.Index, in line: String, label: String) -> Int {
+    let own = allDateLabels.first { $0.label == label }?.key
+    var taken: [Range<String.Index>] = []
+    var keys: Set<String> = []
+    for (other, key) in allDateLabels {
+      var start = line.startIndex
+      while start < end, let found = line.range(of: other, options: [.caseInsensitive, .diacriticInsensitive], range: start..<end) {
+        if !taken.contains(where: { $0.overlaps(found) }) {
+          taken.append(found)
+          if key != own { keys.insert(key) }
+        }
+        start = found.upperBound
+      }
+    }
+    return keys.count
   }
 
   /// The text after a label on its line (or the next line when nothing follows it).
@@ -161,6 +226,11 @@ public enum DocumentReader {
   /// The first date in a piece of text: 12.03.2032, 12/03/2032, 2032-03-12, 12 MAR 2032 (or 12 MAR/MARS 2032),
   /// March 12, 2032. Day before month where it's ambiguous, as on European and ICAO documents.
   public static func firstDate(in text: String) -> String? {
+    dates(in: text).first
+  }
+
+  /// Every date in a piece of text, in the order they come, in the formats `firstDate(in:)` reads.
+  static func dates(in text: String) -> [String] {
     let lower = text.lowercased()
     let patterns: [(String, ([Substring]) -> String?)] = [
       (#"(\d{4})-(\d{1,2})-(\d{1,2})"#, { DocumentDay.string(year: Int($0[0])!, month: Int($0[1])!, day: Int($0[2])!) }),
@@ -173,18 +243,19 @@ public enum DocumentReader {
         months[String(parts[0])].flatMap { DocumentDay.string(year: Int(parts[2])!, month: $0, day: Int(parts[1])!) }
       }),
     ]
-    var best: (offset: Int, day: String)?
+    var found: [(range: NSRange, day: String)] = []
     for (pattern, make) in patterns {
       guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
       let range = NSRange(lower.startIndex..., in: lower)
       for match in regex.matches(in: lower, range: range) {
         let groups = (1..<match.numberOfRanges).compactMap { Range(match.range(at: $0), in: lower).map { lower[$0] } }
         guard groups.count == match.numberOfRanges - 1, let day = make(groups) else { continue }
-        if best == nil || match.range.location < best!.offset { best = (match.range.location, day) }
-        break
+        // One date read by two patterns (12.03.2032 is also 12.03.20) counts once, as the earlier pattern read it.
+        if found.contains(where: { NSIntersectionRange($0.range, match.range).length > 0 }) { continue }
+        found.append((match.range, day))
       }
     }
-    return best?.day
+    return found.sorted { $0.range.location < $1.range.location }.map(\.day)
   }
 
   /// A country's name for its ICAO code ("JPN" → "Japan"), or the code when the system doesn't know it.

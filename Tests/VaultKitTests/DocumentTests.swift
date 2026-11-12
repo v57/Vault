@@ -398,4 +398,45 @@ struct DocumentReaderTests {
     #expect(DocumentReader.date(after: ["date"], in: lines) != nil)
     #expect(DocumentReader.value(after: ["total"], in: lines) == "12.50")
   }
+
+  /// A passport scan suggested its holder's birth and its issue on one day in the future (V-048): dates that can't
+  /// be what their field says are left for the user to fill in.
+  @Test func impossibleDatesAreDropped() {
+    let now = DocumentDay.date(from: "2026-11-12")!
+    func plausible(_ fields: [String: String], kind: String = "passport") -> [String: String] {
+      DocumentReader.plausibleDates(fields, kind: kind, now: now)
+    }
+    #expect(plausible(["birthDate": "2032-03-12"])["birthDate"] == nil)
+    #expect(plausible(["issued": "2027-01-01"])["issued"] == nil)
+    #expect(plausible(["birthDate": "1990-05-24", "issued": "1989-01-01"]) == ["birthDate": "1990-05-24"])
+    #expect(plausible(["birthDate": "2022-03-12", "issued": "2022-03-12"]) == ["birthDate": "2022-03-12"])
+    #expect(plausible(["birthDate": "2022-03-12", "issued": "2022-03-12"], kind: "birthCertificate").count == 2)
+    #expect(plausible(["issued": "2032-03-12", "expires": "2032-03-12"])["issued"] == nil)
+    #expect(plausible(["birthDate": "1990-05-24", "expires": "1990-05-24"])["birthDate"] == nil)
+    let fine = ["birthDate": "1990-05-24", "issued": "2022-03-12", "expires": "2032-03-11"]
+    #expect(plausible(fine) == fine)
+  }
+
+  /// A passport's labels side by side over a line of dates: each label takes the date in its own column, and the
+  /// suggestion never gives one date to two fields.
+  @Test func labelsSideBySideTakeTheirOwnColumn() {
+    let lines = [
+      "PASSPORT", "Date of birth / Date de naissance   Place of birth", "24 MAY 1990   TOKYO",
+      "Date of issue / Date de délivrance   Date of expiry / Date d'expiration", "12 MAR 2022   11 MAR 2032",
+    ]
+    let suggestion = DocumentReader.suggest(pages: [lines], now: DocumentDay.date(from: "2026-11-12")!)
+    #expect(suggestion.kind == "passport")
+    #expect(suggestion.fields["birthDate"] == "1990-05-24")
+    #expect(suggestion.fields["issued"] == "2022-03-12")
+    #expect(suggestion.fields["expires"] == "2032-03-11")
+    #expect(DocumentReader.dates(in: "12 MAR 2022   11.03.2032") == ["2022-03-12", "2032-03-11"])
+  }
+
+  /// One date under two labels: the birth date can't also be the issue date, so only the birth keeps it.
+  @Test func oneDateUnderTwoLabelsFillsOne() {
+    let lines = ["PASSPORT", "Date of birth   Date of issue", "24 MAY 1990"]
+    let suggestion = DocumentReader.suggest(pages: [lines], now: DocumentDay.date(from: "2026-11-12")!)
+    #expect(suggestion.fields["birthDate"] == "1990-05-24")
+    #expect(suggestion.fields["issued"] == nil)
+  }
 }
