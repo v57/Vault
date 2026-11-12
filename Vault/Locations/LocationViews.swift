@@ -35,7 +35,16 @@ struct AddRemoteSheet: View {
           case .s3: LabeledField("Bucket") { TextField("atlas-backups", text: $draft.bucket).kitField(mono: true) }
           case .sftp:
             LabeledField("Host") {
-              KitSegmented(selection: Binding(get: { draft.hostID ?? "" }, set: { draft.hostID = $0 }), options: app.vault.hosts.prefix(4).map { ($0.displayName, $0.id) })
+              // A pop-up of every host: four segments ran past the iPhone's card and cut its last host.
+              if app.vault.hosts.isEmpty {
+                Text("No SSH hosts yet: add one under SSH Hosts.").kitFont(.caption).foregroundStyle(.kitSecondary)
+              } else {
+                KitPicker(
+                  "Host", selection: Binding(get: { draft.hostID ?? "" }, set: { draft.hostID = $0 }),
+                  options: app.vault.hosts.map { ($0.displayName, $0.id) }
+                )
+                .kitPickerMaxWidth(260)
+              }
             }
           default: LabeledField("Path") { TextField("/vault", text: $draft.path).kitField(mono: true) }
           }
@@ -82,7 +91,13 @@ struct AddRemoteSheet: View {
   }
 
   private func kindCard(_ kind: VaultRemote.Kind, _ title: String, _ subtitle: String, _ image: String) -> some View {
-    ChoiceCard(isOn: Binding(get: { draft.kind == kind }, set: { if $0 { draft.kind = kind; test = .idle; testLine = "" } })) {
+    ChoiceCard(isOn: Binding(get: { draft.kind == kind }, set: {
+      guard $0 else { return }
+      draft.kind = kind
+      test = .idle
+      testLine = ""
+      if kind == .sftp, draft.hostID == nil { draft.hostID = app.vault.hosts.first?.id }
+    })) {
       ChoiceCardLabel(title, subtitle: subtitle) { Tile(systemImage: image, hue: .indigo, size: 28) }
     }
     .kindCardHover()
