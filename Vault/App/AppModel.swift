@@ -13,6 +13,8 @@ nonisolated enum SidebarItem: Hashable, Sendable {
   case folder(String)
   case location(String)
   case devices, hub, recoveryKey
+  /// The SSH agent (the Mac only): lends a Secure Enclave key to ssh and git for a while.
+  case sshAgent
   /// Settings, pushed from the root list's bar on iPhone and iPad (the Mac has its Settings window).
   case settings
 
@@ -28,6 +30,7 @@ nonisolated enum SidebarItem: Hashable, Sendable {
     case "devices": self = .devices
     case "hub": self = .hub
     case "recovery-key": self = .recoveryKey
+    case "ssh-agent": self = .sshAgent
     case "settings": self = .settings
     case "documents": self = .documents(DocumentScope.all)
     case "inbox": self = .documents(DocumentScope.inbox)
@@ -334,6 +337,12 @@ final class AppModel {
     }
     // `--import <path>` (demo only): the file as if it was opened in Vault.
     if isDemo, let path = LaunchOptions.value("--import") { importDocuments([URL(fileURLWithPath: path)]) }
+    #if os(macOS)
+      // `--agent-on <seconds>` (demo only, 0 = until turned off): the SSH agent on, as if a length was picked.
+      if isDemo, let seconds = LaunchOptions.value("--agent-on").flatMap(Int.init) {
+        Task { await VaultSSHAgent.shared.turnOn(for: VaultSSHAgent.Length(rawValue: seconds)) }
+      }
+    #endif
     if selectedLogin == nil { selectedLogin = vault.logins.first { $0.favorite }?.id ?? vault.logins.first?.id }
     if selectedHost == nil { selectedHost = vault.hosts.first?.id }
     if selectedDatabase == nil { selectedDatabase = vault.databases.first?.id }

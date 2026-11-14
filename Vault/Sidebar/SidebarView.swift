@@ -68,9 +68,13 @@ struct SidebarView: View {
   }
 
   private var keysSection: some View {
+    // Once a minute, for the agent's minutes left.
+    TimelineView(.everyMinute) { _ in keysCard }
+  }
+
+  private var keysCard: some View {
     KitSection(
-      "Keys", meta: [app.devices.count.devicesLabel, app.sharing.people.count.peopleLabel],
-      systemImage: "checkmark.shield", hue: .green
+      "Keys", meta: keysMeta, systemImage: "checkmark.shield", hue: agentIsOn ? .orange : .green, status: agentStatus
     ) {
       SidebarRow(value: SidebarItem.devices, "Devices & People", systemImage: "person.2") {
         Count(app.devices.count + app.sharing.people.count)
@@ -83,10 +87,42 @@ struct SidebarView: View {
           Text(hubs.isEmpty ? "Off" : "\(hubs.flatMap(\.members).count)").kitFont(.caption)
         }
       }
+      #if os(macOS)
+        SidebarRow(value: SidebarItem.sshAgent, "SSH Agent", systemImage: "key.horizontal") {
+          SSHAgentTrail()
+        }
+      #endif
       SidebarRow(value: SidebarItem.recoveryKey, "Recovery Key", systemImage: "key") {
         Text(app.recovery.isOn ? "On" : "Off").kitFont(.caption)
       }
     }
+  }
+
+  private var agentIsOn: Bool {
+    #if os(macOS)
+      VaultSSHAgent.shared.isOn
+    #else
+      false
+    #endif
+  }
+
+  /// "Agent on · 42 min left" while the SSH agent runs, else the devices and people.
+  private var keysMeta: [String] {
+    #if os(macOS)
+      let agent = VaultSSHAgent.shared
+      if agent.isOn {
+        return [String(localized: "Agent on"), agent.until.map { SSHAgentText.left(until: $0) } ?? String(localized: "until turned off")]
+      }
+    #endif
+    return [app.devices.count.devicesLabel, app.sharing.people.count.peopleLabel]
+  }
+
+  /// The ring of time left while the agent runs for a length.
+  private var agentStatus: WorkStatus {
+    #if os(macOS)
+      if let fraction = VaultSSHAgent.shared.fractionLeft { return .working(progress: fraction) }
+    #endif
+    return .idle
   }
 }
 

@@ -42,6 +42,10 @@ struct SettingsView: View {
       SettingsPane("AutoFill", systemImage: "rectangle.and.pencil.and.ellipsis", hue: .gray) { AutoFillPane() }
       SettingsPane("Hub", systemImage: "point.3.connected.trianglepath.dotted", hue: .purple, value: hubValue) { HubPane() }
       SettingsPane("Privacy", systemImage: "hand.raised", hue: .blue) { VaultICloudCard() }
+      #if os(macOS)
+        // ssh and git in Terminal sign with a Secure Enclave key while the agent is on.
+        SettingsPane("SSH Agent", systemImage: "key.horizontal", hue: .orange, value: VaultSSHAgent.shared.isOn ? "On" : "Off") { SSHAgentSettingsPane() }
+      #endif
       // The accounts every v57 app shares; not in demo runs, which never open the user's vaults.
       if !app.isDemo {
         SettingsPane("Accounts", systemImage: "person.2", hue: .indigo, section: "v57") { VaultAccountsSettings() }

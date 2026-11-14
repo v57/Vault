@@ -23,8 +23,16 @@ struct VaultApp: App {
     _app = State(initialValue: AppModel.launch())
     #if os(macOS)
       updater.start()
+      // The SSH agent lives in this process: its socket answers (with no keys while off) as long as Vault runs.
+      SSHAgentPanels.install(VaultSSHAgent.shared, accent: .vaultAccent) {
+        AppModel.all.first?.selection = .sshAgent
+      }
     #endif
   }
+
+  #if os(macOS)
+    @State private var agent = VaultSSHAgent.shared
+  #endif
 
   var body: some Scene {
     // Each window shows one account, kept as the window's value, so Open … in a New Window opens one on an account.
@@ -49,6 +57,12 @@ struct VaultApp: App {
       #endif
     }
     #if os(macOS)
+      // Shown once the agent has been on, while the user keeps it (Settings ▸ SSH Agent).
+      MenuBarExtra(isInserted: Binding(get: { agent.showsInMenuBar && agent.hasBeenOn }, set: { if $0 != agent.showsInMenuBar { agent.showsInMenuBar = $0 } })) {
+        SSHAgentMenu()
+      } label: {
+        SSHAgentMenuLabel()
+      }
       Settings {
         SettingsView(updater: updater)
           .appLock()

@@ -164,6 +164,12 @@ struct DetailView: View {
     case .devices: DevicesView()
     case .hub: HubView()
     case .recoveryKey: RecoveryKeyScreen()
+    case .sshAgent:
+      #if os(macOS)
+        SSHAgentView()
+      #else
+        EmptyView()
+      #endif
     case .settings: TouchSettingsScreen()
     }
   }
