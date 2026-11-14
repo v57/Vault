@@ -298,6 +298,22 @@ extension VaultIdentity {
     return try key.signature(for: data)
   }
 
+  /// For the SSH agent (Vault's "This Mac's key"): the signature of `data` through the agent's own `proof`, never the
+  /// app's window. The agent asked the user itself, so this never asks.
+  public static func signature(for data: Data, proof: SSHAgentProof) throws -> P256.Signing.ECDSASignature {
+    let loaded = try key()
+    #if canImport(LocalAuthentication)
+      lock.lock()
+      let blob = presenceBlob
+      lock.unlock()
+      if let blob, let context = proof.context {
+        return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob, authenticationContext: context)
+          .signature(for: data)
+      }
+    #endif
+    return try loaded.signature(for: data)
+  }
+
   /// For a login: asks if the key needs the user and no window is open, unless it's `unattended` or inside `quietly`. Blocks
   /// while asking, so call it off the main thread. Throws `presenceNeeded` if there's no yes. Does nothing for a key that
   /// doesn't need the user.
