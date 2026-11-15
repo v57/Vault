@@ -152,6 +152,13 @@ public struct VaultProject: VaultRecord, Hashable {
   /// random, and the project's identity folds it when the key comes, so a second clone has to be told by what's here, not by
   /// its id, or the fold would lose a path. Anything else that goes wrong throws: a random id then would make a duplicate.
   static func newIdentity(remoteURL: String?, path: String, in store: VaultStore) throws -> (id: String, separateCopy: String?) {
+    try newIdentity(remoteURL: remoteURL, path: path, in: store, projects: { try store.records(VaultProject.self) })
+  }
+
+  /// `newIdentity` with the store's projects at hand (read only for a remote).
+  static func newIdentity(
+    remoteURL: String?, path: String, in store: VaultStore, projects: () throws -> [VaultProject]
+  ) throws -> (id: String, separateCopy: String?) {
     let name = (path as NSString).lastPathComponent.lowercased()
     let byPath = "path:\(store.deviceID):\(path)"
     let derive = { (identity: String) throws -> String in
@@ -164,10 +171,23 @@ public struct VaultProject: VaultRecord, Hashable {
     guard let remote = remoteURL.flatMap(normalizedRemote) else { return (try derive(byPath), nil) }
     let identity = "remote:\(remote)|\(name)"
     let id = try derive(identity)
-    let isSecondClone = try store.records(VaultProject.self).contains {
+    let isSecondClone = try projects().contains {
       $0.identity == identity && $0.paths[store.deviceID] != nil && $0.paths[store.deviceID] != path
     }
     return isSecondClone ? (try derive(byPath), "\(store.deviceID):\(path)") : (id, nil)
+  }
+}
+
+/// A folder to add as a project (`VaultStore.addProjects`).
+public struct VaultProjectFolder: Sendable {
+  public var path: String
+  public var name: String?
+  public var remoteURL: String?
+
+  public init(path: String, name: String? = nil, remoteURL: String? = nil) {
+    self.path = path
+    self.name = name
+    self.remoteURL = remoteURL
   }
 }
 
@@ -175,7 +195,10 @@ extension VaultStore {
   /// The project for a folder on this device, or the same checkout added on another device (same remote and
   /// folder name, not yet on this device).
   public func project(path: String, remoteURL: String?) throws -> VaultProject? {
-    let projects = try records(VaultProject.self)
+    Self.project(path: path, remoteURL: remoteURL, in: try records(VaultProject.self), deviceID: deviceID)
+  }
+
+  static func project(path: String, remoteURL: String?, in projects: [VaultProject], deviceID: String) -> VaultProject? {
     if let project = projects.first(where: { $0.paths[deviceID] == path }) { return project }
     let name = (path as NSString).lastPathComponent
     guard let remote = remoteURL.flatMap(VaultProject.normalizedRemote) else { return nil }
@@ -187,22 +210,46 @@ extension VaultStore {
   /// kinds. A new project goes at the end of the top level of the tree.
   @discardableResult
   public func addProject(path: String, name: String? = nil, remoteURL: String? = nil) throws -> VaultProject {
-    let folderName = (path as NSString).lastPathComponent
-    let kinds = VaultProject.Kind.detect(in: URL(fileURLWithPath: path, isDirectory: true))
-    if var project = try project(path: path, remoteURL: remoteURL) {
-      project.paths[deviceID] = path
-      if project.remoteURL == nil, let remoteURL { project.remoteURL = remoteURL }
-      if let kinds, !kinds.isEmpty { project.kinds = kinds }
+    try addProjects([VaultProjectFolder(path: path, name: name, remoteURL: remoteURL)])[0]
+  }
+
+  /// `addProject` for several folders, in order, with the projects read once: one at a time, each read them all again
+  /// (and the whole tree for its place), so adding a folder of 300 repositories took 4 s.
+  @discardableResult
+  public func addProjects(_ folders: [VaultProjectFolder]) throws -> [VaultProject] {
+    guard !folders.isEmpty else { return [] }
+    var projects = try records(VaultProject.self)
+    var order: Int?
+    var added: [VaultProject] = []
+    for folder in folders {
+      let path = folder.path
+      let kinds = VaultProject.Kind.detect(in: URL(fileURLWithPath: path, isDirectory: true))
+      if var project = Self.project(path: path, remoteURL: folder.remoteURL, in: projects, deviceID: deviceID) {
+        project.paths[deviceID] = path
+        if project.remoteURL == nil, let remoteURL = folder.remoteURL { project.remoteURL = remoteURL }
+        if let kinds, !kinds.isEmpty { project.kinds = kinds }
+        try save(project)
+        if let index = projects.firstIndex(where: { $0.id == project.id }) { projects[index] = project }
+        added.append(project)
+        continue
+      }
+      let identity = try VaultProject.newIdentity(
+        remoteURL: folder.remoteURL, path: path, in: self, projects: { projects })
+      let next = try order ?? endOrder(in: nil)
+      order = next + 1
+      var project = VaultProject(
+        id: identity.id, name: folder.name ?? (path as NSString).lastPathComponent,
+        remoteURL: folder.remoteURL, order: next, paths: [deviceID: path], kinds: kinds ?? [])
+      project.separateCopy = identity.separateCopy
       try save(project)
-      return project
+      if let index = projects.firstIndex(where: { $0.id == project.id }) {
+        projects[index] = project
+      } else {
+        projects.append(project)
+      }
+      added.append(project)
     }
-    let identity = try VaultProject.newIdentity(remoteURL: remoteURL, path: path, in: self)
-    var project = VaultProject(
-      id: identity.id, name: name ?? folderName,
-      remoteURL: remoteURL, order: try endOrder(in: nil), paths: [deviceID: path], kinds: kinds ?? [])
-    project.separateCopy = identity.separateCopy
-    try save(project)
-    return project
+    return added
   }
 
   /// Removes this device's folder from a project; the project goes when no device has it any more, and so

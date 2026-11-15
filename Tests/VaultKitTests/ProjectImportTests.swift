@@ -45,7 +45,7 @@ struct ProjectImportTests {
     func arrange(_ count: Int) throws -> (Duration, String) {
       let store = try store()
       let paths = (0..<count).map { "/dev/many/Folder\($0 % 4)/Project\(String(format: "%03d", $0))" }
-      for path in paths { try store.addProject(path: path) }
+      try store.addProjects(paths.map { VaultProjectFolder(path: $0) })
       let time = try ContinuousClock().measure { try store.arrangeProjects(paths, roots: ["/dev/many"]) }
       return (time, try outline(store))
     }
@@ -53,6 +53,31 @@ struct ProjectImportTests {
     let (large, _) = try arrange(160)
     #expect(smallOutline.hasPrefix("many[Folder0[Project000, Project004, Project008"))
     #expect(large < small * 8, "4× the projects took \(large) against \(small)")
+  }
+
+  @Test func addingManyProjectsTakesLinearTime() throws {
+    func add(_ count: Int) throws -> (Duration, [VaultProject]) {
+      let store = try store()
+      let folders = (0..<count).map { VaultProjectFolder(path: "/dev/many/Project\(String(format: "%03d", $0))") }
+      var added: [VaultProject] = []
+      let time = try ContinuousClock().measure { added = try store.addProjects(folders) }
+      return (time, try store.records(VaultProject.self).sorted { $0.order < $1.order })
+    }
+    let (small, _) = try add(40)
+    let (large, projects) = try add(160)
+    #expect(projects.map(\.name) == (0..<160).map { "Project\(String(format: "%03d", $0))" })
+    #expect(Set(projects.map(\.order)).count == 160)
+    #expect(large < small * 8, "4× the projects took \(large) against \(small)")
+  }
+
+  @Test func addingProjectsTwiceKeepsOne() throws {
+    let store = try store()
+    let folders = ["/dev/a/One", "/dev/a/Two", "/dev/a/One"].map { VaultProjectFolder(path: $0) }
+    let added = try store.addProjects(folders)
+    #expect(added[0].id == added[2].id)
+    #expect(try store.records(VaultProject.self).count == 2)
+    let again = try store.addProject(path: "/dev/a/Two")
+    #expect(again.id == added[1].id && again.order == added[1].order)
   }
 
   @Test func droppingAgainJoinsTheGroupItMade() throws {
