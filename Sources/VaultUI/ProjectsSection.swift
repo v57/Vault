@@ -95,6 +95,10 @@ public enum VaultProjectsSort: String, CaseIterable, Identifiable, Sendable {
 /// .accessory { Button("Add Project…", systemImage: "plus") { … } }   // the list header's buttons
 /// ```
 ///
+/// Several projects can be picked together, as in Finder: ⌘-click adds one or takes it out, ⇧-click picks a range.
+/// The picked rows are tinted and their context menu acts on them all (Copy Paths, Remove from List, and the app's
+/// `selectionMenu` items); the project shown stays the one last clicked plainly.
+///
 /// Pass a tree already narrowed to what the app lists (`tree.filter { … }`), and put it in a `KitSidebar`: the list
 /// and the project's section stick at the top as they scroll by. Without `content:` it is the list alone, for an app
 /// that opens the picked project elsewhere (Git on iPhone and iPad).
@@ -130,7 +134,12 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   var isExpanded: Binding<Bool>?
   var rowContent: ((VaultProject) -> AnyView)?
   var asksBeforeRemovingAll = true
+  var selectionMenu: (([VaultProject]) -> AnyView)?
   @State private var renamingGroup: String?
+  /// The projects picked together with ⌘- or ⇧-click; one or none while a single project is picked.
+  @State private var picked: Set<String> = []
+  /// Where a ⇧-click's range starts: the last plain or ⌘-click.
+  @State private var anchor: String?
   @State private var confirmsRemoveAll = false
   @KitStorage private var layout: VaultProjectsLayout
   @KitStorage private var sort: VaultProjectsSort
@@ -275,6 +284,21 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
     return section
   }
 
+  /// The items of the menu of several picked projects (⌘-click adds a project to the picked ones or takes it out,
+  /// ⇧-click picks the rows from the last click), given the projects in list order: before Copy Paths and Remove
+  /// from List, which every list has.
+  ///
+  /// ```swift
+  /// .selectionMenu { projects in
+  ///   Button("Install \(projects.count) Apps") { … }
+  /// }
+  /// ```
+  public func selectionMenu<V: View>(@ViewBuilder _ items: @escaping ([VaultProject]) -> V) -> Self {
+    var section = self
+    section.selectionMenu = { AnyView(items($0)) }
+    return section
+  }
+
   /// The apps of a project row's Open With row, in its order (nil: not installed). The section adds the file manager
   /// and Terminal unless the list has them, and leaves out the app showing it. Without this the row is Code, the file
   /// manager and Terminal; groups always get that one. `first` puts the row before the `rowMenu` items.
@@ -416,10 +440,14 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
       withAnimation(.kit) { remove?(tree.projects().map(\.id)) }
     }
     // A picked project folds the list away again (`.folding`).
-    .onChange(of: selection) { _, new in
-      if layout == .folding, !opensElsewhere, new != nil { withKitAnimation { isListOpen = false } }
-    }
+    .onChange(of: selection) { _, new in selectionChanged(to: new) }
     .kitSticky()
+  }
+
+  private func selectionChanged(to new: String?) {
+    if layout == .folding, !opensElsewhere, new != nil { withKitAnimation { isListOpen = false } }
+    // Another project shown some other way (the keyboard, the app) ends a selection it isn't part of.
+    if let new, !picked.contains(new) { picked = [new] }
   }
 
   private func projectSection(_ project: VaultProject) -> some View {
@@ -475,44 +503,113 @@ public struct VaultProjectsSection<Content: View, Menu: View>: View {
   // MARK: Rows
 
   private func projectRow(_ project: VaultProject) -> some View {
-    SidebarRow(project.name, subtitle: rowSubtitle?(project)) {
+    let picked = pickedTogether(with: project)
+    return SidebarRow(project.name, subtitle: rowSubtitle?(project)) {
       projectIcon(project, size: rowIconSize)
     } trailing: {
       trailing?(project)
     }
     .progress(rowProgress?(project), status: .working)
-    .isCurrent(project.id == selection)
-    .action {
-      withKitAnimation {
-        selection = project.id
-        // Folded here too: an app that shows the project by rebuilding the section (Code's window switching to it)
-        // never reaches the onChange below.
-        if layout == .folding, !opensElsewhere { isListOpen = false }
+    .isCurrent(project.id == selection && picked.isEmpty)
+    .action { click(project, modifiers: KitDesktop.modifierKeys) }
+    .modifier(ModifiedClicks { click(project, modifiers: $0) })
+    .background {
+      if !picked.isEmpty {
+        RoundedRectangle(cornerRadius: KitMetrics.radius, style: .continuous).fill(Hue.accent.soft())
       }
     }
+    .animation(.kit, value: picked.isEmpty)
+    .accessibilityAddTraits(!picked.isEmpty ? .isSelected : [])
     .opacity(rowDimmed?(project) == true ? 0.5 : 1)
     .kitHelp(project.name, meta: project.localPath.map(Self.place))
-    // No menu without items: a held row on iPhone opened an empty one.
-    .contextMenu(if: project.localURL != nil || rowMenu != nil || remove != nil) {
-      // What the row does first (the app's items), then where the project is, then taking it out of the list.
-      if openWithFirst, let folder = project.localURL {
-        KitOpenWithRow(Self.openApps(project.name, at: folder, openApps?(project)))
-      }
-      if let rowMenu {
-        rowMenu(project)
-        if project.localURL != nil || remove != nil { Divider() }
-      }
-      if let folder = project.localURL {
-        if !openWithFirst { KitOpenWithRow(Self.openApps(project.name, at: folder, openApps?(project))) }
-        Button("Copy Path", systemImage: "doc.on.doc") { KitPasteboard.copy(folder.path) }
-          .kitMenuPreview(folder.path)
-        if remove != nil { Divider() }
-      }
-      if let remove {
-        Button("Remove from List", systemImage: "minus.circle") { withAnimation(.kit) { remove([project.id]) } }
-          .kitMenuPreview("Takes \(project.name) off this list. Its folder stays.")
+    .contextMenu(if: !picked.isEmpty || hasSingleMenu(project)) {
+      if picked.isEmpty { singleMenu(project) } else { pickedMenu(picked) }
+    }
+  }
+
+  /// The projects picked with `project`, in list order: empty unless it is one of several picked.
+  private func pickedTogether(with project: VaultProject) -> [VaultProject] {
+    guard picked.count > 1, picked.contains(project.id) else { return [] }
+    return shownOrder.filter(picked.contains).compactMap { tree.node(id: $0)?.project }
+  }
+
+  /// The projects as the list shows them, top to bottom, leaving out those in closed groups.
+  private var shownOrder: [String] {
+    func walk(_ nodes: [VaultProjectTree.Node]) -> [String] {
+      sorted(nodes).flatMap { node -> [String] in
+        switch node {
+        case .group(let group, let children): collapsedGroups.contains(group.id) ? [] : walk(children)
+        case .project(let project): [project.id]
+        }
       }
     }
+    return walk(tree.roots)
+  }
+
+  /// A click shows the project, as in Finder: ⌘ adds it to the picked ones or takes it out, ⇧ picks the range from
+  /// the last click (⇧⌘ adds the range).
+  private func click(_ project: VaultProject, modifiers keys: EventModifiers) {
+    let click = ProjectClicks(picked: picked, anchor: anchor, shown: selection, order: shownOrder)
+      .click(project.id, modifiers: keys)
+    anchor = click.anchor
+    guard click.shows else {
+      withKitAnimation { picked = click.picked }
+      return
+    }
+    picked = click.picked
+    withKitAnimation {
+      selection = project.id
+      // Folded here too: an app that shows the project by rebuilding the section (Code's window switching to it)
+      // never reaches the onChange below.
+      if layout == .folding, !opensElsewhere { isListOpen = false }
+    }
+  }
+
+  /// The menu of a row picked with others: the app's items for them all, their paths, taking them off the list.
+  @ViewBuilder private func pickedMenu(_ projects: [VaultProject]) -> some View {
+    if let selectionMenu {
+      selectionMenu(projects)
+      Divider()
+    }
+    let paths = projects.compactMap(\.localPath)
+    if !paths.isEmpty {
+      Button("Copy \(paths.count) Paths", systemImage: "doc.on.doc") { KitPasteboard.copy(paths.joined(separator: "\n")) }
+        .kitMenuPreview(paths.map(Self.place).joined(separator: "\n"))
+    }
+    if let remove {
+      Divider()
+      Button("Remove \(projects.count) Projects from List", systemImage: "minus.circle") {
+        withAnimation(.kit) { remove(projects.map(\.id)) }
+      }
+      .kitMenuPreview("Takes them off this list. Their folders stay.")
+    }
+  }
+
+  /// One project's menu.
+  @ViewBuilder private func singleMenu(_ project: VaultProject) -> some View {
+    // What the row does first (the app's items), then where the project is, then taking it out of the list.
+    if openWithFirst, let folder = project.localURL {
+      KitOpenWithRow(Self.openApps(project.name, at: folder, openApps?(project)))
+    }
+    if let rowMenu {
+      rowMenu(project)
+      if project.localURL != nil || remove != nil { Divider() }
+    }
+    if let folder = project.localURL {
+      if !openWithFirst { KitOpenWithRow(Self.openApps(project.name, at: folder, openApps?(project))) }
+      Button("Copy Path", systemImage: "doc.on.doc") { KitPasteboard.copy(folder.path) }
+        .kitMenuPreview(folder.path)
+      if remove != nil { Divider() }
+    }
+    if let remove {
+      Button("Remove from List", systemImage: "minus.circle") { withAnimation(.kit) { remove([project.id]) } }
+        .kitMenuPreview("Takes \(project.name) off this list. Its folder stays.")
+    }
+  }
+
+  /// Whether a lone project's row has a menu: none without items (a held row on iPhone opened an empty one).
+  private func hasSingleMenu(_ project: VaultProject) -> Bool {
+    project.localURL != nil || rowMenu != nil || remove != nil
   }
 
   /// The Open With row's apps for `folder`: the app's (else Code), then the file manager and Terminal unless they're
@@ -700,6 +797,56 @@ extension VaultProjectsSection where Content == EmptyView, Menu == EmptyView {
     key: String = "Projects", collapsedGroups: Binding<Set<String>>
   ) {
     self.init(tree, selection: selection, sort: sort, key: key, collapsedGroups: collapsedGroups) { EmptyView() }
+  }
+}
+
+/// What a click on a project row does to the projects picked together, as in Finder: a click picks the project
+/// alone and shows it, ⌘ adds it to the picked ones or takes it out, ⇧ picks the rows from the last click (or the
+/// shown project) to it, ⇧⌘ adds that range. Only a plain click shows the project; the others leave it shown.
+struct ProjectClicks {
+  var picked: Set<String>
+  /// Where a ⇧-click's range starts: the last plain or ⌘-click.
+  var anchor: String?
+  /// The project shown.
+  var shown: String?
+  /// The projects as the list shows them, top to bottom.
+  var order: [String]
+
+  /// The picked projects and the anchor after a click on `id`, and whether the click shows it.
+  func click(_ id: String, modifiers: EventModifiers) -> (picked: Set<String>, anchor: String?, shows: Bool) {
+    if modifiers.contains(.shift), let start = anchor ?? shown, let from = order.firstIndex(of: start),
+      let to = order.firstIndex(of: id)
+    {
+      let range = Set(order[min(from, to)...max(from, to)])
+      return (modifiers.contains(.command) ? picked.union(range) : range, anchor ?? start, false)
+    }
+    if modifiers.contains(.command) {
+      var ids = picked.isEmpty ? Set(shown.map { [$0] } ?? []) : picked
+      if ids.contains(id) {
+        if ids.count > 1 { ids.remove(id) }
+      } else {
+        ids.insert(id)
+      }
+      return (ids, id, false)
+    }
+    return ([id], id, true)
+  }
+}
+
+/// ⌘-, ⇧- and ⇧⌘-clicks on a project row, as ComponentKit's rows take them: each gesture knows its own event's
+/// modifiers, which the row's action can't read (SwiftUI runs it after the event, when `NSApp.currentEvent` is gone).
+private struct ModifiedClicks: ViewModifier {
+  let clicked: (EventModifiers) -> Void
+
+  func body(content: Content) -> some View {
+    #if os(macOS)
+      content
+        .highPriorityGesture(TapGesture().modifiers([.command, .shift]).onEnded { clicked([.command, .shift]) })
+        .highPriorityGesture(TapGesture().modifiers(.command).onEnded { clicked(.command) })
+        .highPriorityGesture(TapGesture().modifiers(.shift).onEnded { clicked(.shift) })
+    #else
+      content
+    #endif
   }
 }
 
