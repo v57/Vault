@@ -27,6 +27,10 @@ enum DemoVault {
       let pad = try VaultStore(directory: root.appendingPathComponent("store"), keys: keys, deviceID: padDevice, notifier: nil)
       try seed(store: store, air: air, pad: pad, keys: keys, root: root)
       try DemoDocuments.seed(store)
+      #if DEBUG || PERF_HOOKS
+        // `--demo-scale <n>`: n more logins, hosts, notes and projects, for performance runs on long lists.
+        if let count = LaunchOptions.value("--demo-scale").flatMap(Int.init), count > 0 { try seedScale(store, count: count) }
+      #endif
       let vault = Vault(store: store)
       let demoSync = DemoFolderSync(vault: vault)
       let folders = FolderLibrary(vault: vault, keys: keys, sync: demoSync, decryptedRoot: root.appendingPathComponent("Decrypted"))
@@ -202,6 +206,20 @@ enum DemoVault {
       try store.setCardCode("123", forCard: card.id)
     }
   }
+
+  #if DEBUG || PERF_HOOKS
+    /// `count` generated logins, hosts, notes and projects after the hand-written ones.
+    private static func seedScale(_ store: VaultStore, count: Int) throws {
+      let words = ["atlas", "harbor", "orbit", "cedar", "lumen", "quartz", "ember", "delta", "nimbus", "fjord", "sable", "tundra"]
+      func name(_ i: Int) -> String { "\(words[i % words.count])-\(words[(i / words.count) % words.count])-\(i)" }
+      for i in 0..<count {
+        try store.save(VaultLogin(title: "Service \(name(i))", website: "\(name(i)).example.com", username: "user\(i)", order: 100 + i, created: day(8, 1)))
+        try store.save(VaultHost(name: "host-\(name(i))", hostname: "\(name(i)).example.net", user: "deploy", order: 100 + i))
+        try store.save(VaultNote(folder: ["Atlas", "Personal", "Home"][i % 3], name: "Note \(name(i))", encrypted: i % 4 == 0, text: "Generated note \(i)."))
+      }
+      _ = try store.addProjects((0..<count).map { VaultProjectFolder(path: "\(NSHomeDirectory())/Developer/Generated/\(name($0))", name: name($0)) })
+    }
+  #endif
 
   /// An encrypted (or plain) folder on disk with demo files, its record pointing at it on this device.
   private static func makeFolder(
