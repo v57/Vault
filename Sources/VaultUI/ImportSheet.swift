@@ -153,7 +153,7 @@ public struct VaultImportSheet: View {
     let roots = offer.roots.map(\.standardizedFileURL.path)
     vault.perform { store in
       let paths = projects.map(\.standardizedFileURL.path)
-      for path in paths { try store.addProject(path: path) }
+      try store.addProjects(paths.map { VaultProjectFolder(path: $0) })
       try store.arrangeProjects(paths, roots: roots)
       for database in databases { try store.addDatabaseFile(database) }
     }

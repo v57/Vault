@@ -18,7 +18,7 @@ extension VaultStore {
   ///   given, projects already at the top level stay where they are.
   ///
   /// ```swift
-  /// for repository in found.repositories { try store.addProject(path: repository.path) }
+  /// try store.addProjects(found.repositories.map { VaultProjectFolder(path: $0.path) })
   /// try store.arrangeProjects(found.repositories.map(\.path), roots: [found.root.path])
   /// ```
   public func arrangeProjects(
