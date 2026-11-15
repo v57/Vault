@@ -39,6 +39,22 @@ struct ProjectImportTests {
     #expect(agentus.note == nil)
   }
 
+  /// A folder's projects move into its group in one step: one at a time, every move read the whole tree again, and
+  /// 300 repositories in five folders held an app's launch for over 10 s.
+  @Test func arrangingManyProjectsTakesLinearTime() throws {
+    func arrange(_ count: Int) throws -> (Duration, String) {
+      let store = try store()
+      let paths = (0..<count).map { "/dev/many/Folder\($0 % 4)/Project\(String(format: "%03d", $0))" }
+      for path in paths { try store.addProject(path: path) }
+      let time = try ContinuousClock().measure { try store.arrangeProjects(paths, roots: ["/dev/many"]) }
+      return (time, try outline(store))
+    }
+    let (small, smallOutline) = try arrange(40)
+    let (large, _) = try arrange(160)
+    #expect(smallOutline.hasPrefix("many[Folder0[Project000, Project004, Project008"))
+    #expect(large < small * 8, "4× the projects took \(large) against \(small)")
+  }
+
   @Test func droppingAgainJoinsTheGroupItMade() throws {
     let store = try store()
     try importFolder("/dev/v57", ["Code", "Git"], into: store)

@@ -203,16 +203,22 @@ private struct ProjectArranger {
         moving.append(item)
       }
     }
+    // The projects between two folders move in one step: one at a time, each move read the whole tree again and
+    // wrote the group's order, so a folder of 300 repositories held an app's launch for over 10 s.
+    var run: [String] = []
     for item in sortedItems(moving) {
       switch item {
       case .project(let path):
         let id = projects[path]!
         if let parent = tree.parent(of: id) { left.insert(parent) }
-        try store.moveProjects([id], into: groupID)
+        run.append(id)
       case .folder(let child):
+        try store.moveProjects(run, into: groupID)
+        run = []
         try materialize(child, existing: groups[child.path], in: groupID, isRoot: false)
       }
     }
+    try store.moveProjects(run, into: groupID)
     tree = try store.projectTree()
   }
 
