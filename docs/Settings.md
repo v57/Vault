@@ -42,8 +42,10 @@ Your document collections and the people documents belong to. See
 - **Hub:** **Vault records through** each of your Hubs that's on for this device. See
   [Hub](Hub.md#sync-your-vault-through-a-hub). **Live changes from your Hub** is off and can't be turned on yet:
   folder changes come with **Check remotes**.
-- **Notify about conflicts:** the switch is there, but Vault doesn't send notifications yet. Conflicts show in the
-  folder until you choose.
+- **Notify about conflicts** (on): when a sync finds a file changed here and on another device, or a file edited in
+  a read-only folder, Vault shows a notification. Each one is notified once, after the sync that found it, so only
+  while Vault is open (or, on iPhone and iPad, in its background refresh). The system asks to allow notifications at
+  the first one. Opening the notification opens the folder; the conflict stays there until you choose.
 
 ## Recovery Key
 

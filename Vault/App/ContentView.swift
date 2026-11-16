@@ -1,4 +1,5 @@
 import ComponentKit
+import PlatformNotifications
 import SwiftUI
 import VaultKit
 
@@ -53,6 +54,12 @@ struct ContentView: View {
       }
     #endif
     .modifier(SelectionFollower(compactColumn: $compactColumn))
+    // A conflict notification opens its folder (set early: one that launched the app arrives too).
+    .task {
+      UserNotifications.onOpen { [app] info in
+        if let folder = info[ConflictNotifier.folderKey] { app.open(.folder(folder)) }
+      }
+    }
     .onOpenURL { url in
       // Open in Vault: a PDF or picture goes to Add Document; anything else is an invite link.
       if url.isFileURL { app.importDocuments([url]) } else { app.sharing.open(url) }

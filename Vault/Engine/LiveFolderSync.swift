@@ -125,7 +125,12 @@ final class LiveFolderSync: FolderSyncEngine {
         folder: folder, remote: backend, local: local, device: device, identity: try identity(),
         stateDirectory: stateDirectory))
     let handler: @Sendable (FolderSyncStatus) -> Void = { [weak self] status in
-      Task { @MainActor [weak self] in self?.statuses[id] = status }
+      Task { @MainActor [weak self] in
+        self?.statuses[id] = status
+        if let folder = self?.record(id) {
+          ConflictNotifier.shared.update(folderID: id, folderName: folder.name, status: status)
+        }
+      }
     }
     Task { await sync.observe(handler) }
     engines[id] = Engine(key: key, sync: sync)

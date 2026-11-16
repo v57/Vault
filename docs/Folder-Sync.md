@@ -109,6 +109,9 @@ here**:
 When the remote changes a file you edited here, it shows as a conflict with both versions side by side (text shows its
 lines). Your edit is kept until you choose **Keep Mine** or **Revert to Remote**.
 
+With **Settings ▸ Sync ▸ Notify about conflicts** on (the default), Vault also shows a notification for a new conflict
+and for a file edited here in a read-only folder, once each. Opening it opens the folder.
+
 Every change is signed by the person who made it, and devices ignore changes from members who may only read.
 
 ## Edits made at once

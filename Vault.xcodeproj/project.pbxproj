@@ -17,6 +17,7 @@
 		C0C0DE000000000000000003 /* ComponentKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0C0DE000000000000000002 /* ComponentKit */; };
 		55C0DE000000000000000003 /* SSHKit in Frameworks */ = {isa = PBXBuildFile; productRef = 55C0DE000000000000000002 /* SSHKit */; };
 		9A7F0E000000000000000003 /* PlatformScan in Frameworks */ = {isa = PBXBuildFile; productRef = 9A7F0E000000000000000002 /* PlatformScan */; };
+		9A7F0E000000000000000005 /* PlatformNotifications in Frameworks */ = {isa = PBXBuildFile; productRef = 9A7F0E000000000000000004 /* PlatformNotifications */; };
 		AF0000000000000000000301 /* VaultKit in Frameworks */ = {isa = PBXBuildFile; productRef = AF0000000000000000000201 /* VaultKit */; };
 		5A0000000000000000000301 /* VaultKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5A0000000000000000000201 /* VaultKit */; };
 		AF0000000000000000000302 /* ComponentKit in Frameworks */ = {isa = PBXBuildFile; productRef = AF0000000000000000000202 /* ComponentKit */; };
@@ -24,6 +25,7 @@
 		AF0000000000000000000303 /* VaultAutoFill.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AF0000000000000000000120 /* VaultAutoFill.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		5A0000000000000000000303 /* VaultShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5A0000000000000000000120 /* VaultShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		5A0000000000000000000304 /* PlatformScan in Frameworks */ = {isa = PBXBuildFile; productRef = 5A0000000000000000000203 /* PlatformScan */; };
+		5A0000000000000000000305 /* PlatformNotifications in Frameworks */ = {isa = PBXBuildFile; productRef = 5A0000000000000000000204 /* PlatformNotifications */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -149,6 +151,7 @@
 				C0C0DE000000000000000003 /* ComponentKit in Frameworks */,
 				55C0DE000000000000000003 /* SSHKit in Frameworks */,
 				9A7F0E000000000000000003 /* PlatformScan in Frameworks */,
+				9A7F0E000000000000000005 /* PlatformNotifications in Frameworks */,
 				5C56F8A6336B183BEBF30E38 /* VaultKit in Frameworks */,
 				7A11E7000000000000000002 /* VaultUI in Frameworks */,
 			);
@@ -166,6 +169,7 @@
 				5A0000000000000000000301 /* VaultKit in Frameworks */,
 				5A0000000000000000000302 /* ComponentKit in Frameworks */,
 				5A0000000000000000000304 /* PlatformScan in Frameworks */,
+				5A0000000000000000000305 /* PlatformNotifications in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -223,6 +227,7 @@
 				C0C0DE000000000000000002 /* ComponentKit */,
 				55C0DE000000000000000002 /* SSHKit */,
 				9A7F0E000000000000000002 /* PlatformScan */,
+				9A7F0E000000000000000004 /* PlatformNotifications */,
 				699545B0CBF14D31A04E078E /* VaultKit */,
 				7A11E7000000000000000001 /* VaultUI */,
 				DE5C0DE0000000000000000002 /* DevScreenshots */,
@@ -271,6 +276,7 @@
 				5A0000000000000000000201 /* VaultKit */,
 				5A0000000000000000000202 /* ComponentKit */,
 				5A0000000000000000000203 /* PlatformScan */,
+				5A0000000000000000000204 /* PlatformNotifications */,
 			);
 			productName = VaultShare;
 			productReference = 5A0000000000000000000120 /* VaultShare.appex */;
@@ -900,6 +906,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 9A7F0E000000000000000001 /* XCRemoteSwiftPackageReference "Platform" */;
 			productName = PlatformScan;
+		};
+		9A7F0E000000000000000004 /* PlatformNotifications */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9A7F0E000000000000000001 /* XCRemoteSwiftPackageReference "Platform" */;
+			productName = PlatformNotifications;
+		};
+		5A0000000000000000000204 /* PlatformNotifications */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9A7F0E000000000000000001 /* XCRemoteSwiftPackageReference "Platform" */;
+			productName = PlatformNotifications;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
