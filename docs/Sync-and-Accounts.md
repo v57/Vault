@@ -1,13 +1,17 @@
 # Sync and Accounts
 
+How your vault reaches your other devices, the iCloud switch, and accounts kept apart from Personal.
+
 ## How your vault syncs
 
-Every v57 app on a device reads the same vault and sees the others' changes within a second. Between devices, the vault
+Every v57 app on a device reads the same vault and sees the others' changes right away. Between devices, the vault
 syncs through your iCloud:
 
-- Records are encrypted on the device first, then go to iCloud. iCloud only sees ciphertext.
+- Records are encrypted on the device first, then go to iCloud. iCloud only sees ciphertext. See
+  [Privacy and Security](Privacy-and-Security.md#how-your-vault-is-encrypted).
 - Passwords and keys go through iCloud Keychain.
-- Vault syncs when it opens and each time it comes to the front. **Sync Now** (⌘R) syncs at once.
+- Vault syncs when it opens and each time it comes to the front, and on the Mac when another device changes
+  something. **Sync Now** (⌘R, or **Vault ▸ Sync Now** on the Mac) syncs at once.
 - There's no helper process or login item: the app that makes a change sends it, or the next v57 app that opens.
 
 When two devices change the same item, each field keeps the later change. Edits to different fields both survive.
@@ -34,14 +38,16 @@ Turn **Use iCloud** on again to send what waited and fetch what you missed. Each
 
 ## Replaced values
 
-If a password or code changed on two devices at once, the later value is used and the other is kept. **Settings ▸
-Sync ▸ Replaced values ▸ Show…** lists the kept values. They're never deleted.
+If a password or code changed on two devices at once, the later value is used and the other is kept. Once there's
+one, **Settings ▸ Sync** shows **Replaced values**; its **Show…** button lists the kept values, after Touch ID, Face ID
+or your password. They're never deleted.
 
 ## Other sync settings
 
 - **Check remotes** in **Settings ▸ Sync** sets how often Vault checks the remotes your folders sync through while it's
-  open. See [Folder Sync](Folder-Sync.md#when-it-syncs). **Notify about conflicts** comes in a later version.
-- **Live changes from your Hub** says "Not yet".
+  open. See [Folder Sync](Folder-Sync.md#when-it-syncs).
+- **Notify about conflicts** is a switch that doesn't notify yet, and **Live changes from your Hub** can't be turned on
+  yet. See [Settings](Settings.md#sync).
 
 ## Accounts
 
@@ -61,24 +67,25 @@ With more than one account, an account picker shows at the top of the sidebar.
 
 - Pick an account in the sidebar's picker. Every list then shows only that account's records.
 - With a keyboard (the Mac, or an iPad with one connected), press ⌃⌘1 to ⌃⌘9 to switch to the first nine accounts.
-- On iPad and the Mac, **Open in a New Window** in the picker opens an account in a window of its own. Each window keeps
-  its account.
+- On iPad and the Mac, **Open in a New Window** in the picker (with two accounts, **Open … in a New Window**) opens an
+  account in a window of its own. Each window keeps its account.
 - The picker also has **New Account…** and **Manage Accounts…**, which opens Settings ▸ Accounts (on iPhone, it opens
   Settings, where you tap **Accounts**).
 
 ### Edit or delete an account
 
-In **Settings ▸ Accounts**, an account's **Edit…** (on iPhone, under its name) renames it or changes its colour. **Delete…** deletes its
-projects, hosts, passwords and settings on every device. Personal keeps everything. Windows showing the account go back
-to Personal.
+In **Settings ▸ Accounts**, an account's **Edit…** (on iPhone, under its name) renames it or changes its colour.
+**Delete…** asks first, then deletes its projects, hosts, passwords and settings on every device. Personal keeps
+everything. Windows showing the account go back to Personal.
 
 ### Your name and Apple Teams
 
 Each account card also has:
 
-- **Your Name:** **Set…** or **Edit…** your name and email, used for git commits. GitHub matches the email to your
-  account.
+- **Your Name:** **Set…** or **Edit…** your name and email for that account. Your commits, your keys on servers and
+  your Hub show them; GitHub matches the email to your account.
 - **Apple Teams:** **Add…** a 10-character Team ID and a name. Projects with that development team sign with this
   account's keys. **Remove** takes one out.
 
-The **This Mac** (or iPhone, iPad) card at the top has **Rename…** for this device.
+The card at the top, named after this device, has **Rename…**. The name shows on your Hub, on this device's SSH key and
+on the servers that let it in.
