@@ -69,10 +69,10 @@ struct AddRemoteSheet: View {
         }
       }
       Banner(
-        "The remote only ever holds ciphertext.",
+        "Your files reach the remote encrypted.",
         message: ThisDevice.isTouch
-          ? "Reached only while Vault is open, or when \(ThisDevice.system) runs its background refresh."
-          : "It sees chunk sizes and timing, nothing more. Vault reaches it only while a v57 app is open, and only for folders you sync through it.",
+          ? "It also sees each folder’s member list (names, public keys, roles), device ids, sizes and times. Reached only while Vault is open, or in \(ThisDevice.system)’s background refresh."
+          : "It also sees each folder’s member list (names, public keys, roles), device ids, sizes and times. Vault reaches it only while a v57 app is open.",
         systemImage: "shield", hue: .blue)
       if let error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text) }
     } footer: {

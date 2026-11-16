@@ -18,6 +18,10 @@ AWS). Vault has no server of its own in between. See [What the remote sees](#wha
 3. **Test** reaches the bucket once and says how many items it holds.
 4. Click **Add**.
 
+The sheet's banner says what the remote sees: your files only encrypted, but each folder's member list (names, public
+keys and roles) as it is, each device's random id, and the sizes and times of what changes. See
+[What the remote sees](#what-the-remote-sees).
+
 A remote you add is on: Vault reaches it only for folders that sync through it, or when you browse it under
 **Locations**. Its inspector's **Vault may reach it** switch turns it off; nothing contacts it then. Picking a remote
 that's off for a folder turns it on again.

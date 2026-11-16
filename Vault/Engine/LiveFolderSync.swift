@@ -289,7 +289,7 @@ final class LiveFolderSync: FolderSyncEngine {
       (String(localized: "Change logs"), facts.changeLogs.devicesLabel),
       (String(localized: "Snapshot"), facts.lastSnapshot.map(RelativeTime.dayTime) ?? String(localized: "none yet")),
       (String(localized: "Checks"), String(localized: "on open, every \(minutes) min while open")),
-      (String(localized: "The remote holds"), String(localized: "Ciphertext only")),
+      (String(localized: "The remote holds"), String(localized: "Encrypted files, the signed member list")),
     ]
     activity.checked = facts.lastCheck.map { RelativeTime.short($0) } ?? String(localized: "not yet")
     return activity

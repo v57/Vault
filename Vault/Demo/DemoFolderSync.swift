@@ -53,7 +53,7 @@ final class DemoFolderSync: FolderSyncEngine {
     case "Taxes 2026":
       var activity = FolderSyncActivity(folderName: folder.name)
       activity.sending = ["Estimated payments.numbers": 0.4]
-      activity.remoteFacts = [("Here", "Read-write"), ("Last change sent", "3 min ago"), ("The remote holds", "Ciphertext only")]
+      activity.remoteFacts = [("Here", "Read-write"), ("Last change sent", "3 min ago"), ("The remote holds", "Encrypted files, the signed member list")]
       activity.checked = "3 min ago"
       return activity
     case "atlas-design":
