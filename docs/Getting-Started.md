@@ -45,6 +45,11 @@ The sidebar has these sections:
 The **+** in the sidebar's bar opens the New menu: **New Login…**, **New Card…**, **New SSH Host…**, **New Document…**,
 **New Encrypted Folder…**, **Sync a Folder…** and **Add Remote…**.
 
+The search button in the sidebar's bar opens **Search Vault**. While it has text, the sidebar lists what matches by
+kind: logins (title, username or website), cards, notes (name or folder), SSH hosts (name, address or user),
+databases, projects and documents (by name). Pick one to open its list with it selected; clear the search to get the
+sections back.
+
 The sidebar's status shows where your vault syncs: iCloud, or this device when iCloud is off.
 
 With more than one account, an account picker shows at the top of the sidebar. See

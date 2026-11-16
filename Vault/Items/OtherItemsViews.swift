@@ -150,13 +150,14 @@ struct ProjectsView: View {
 struct CardsView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.kitIdiom) private var idiom
-  @State private var selected: String?
   @State private var pushed = false
 
   var body: some View {
+    @Bindable var app = app
     let cards = app.vault.cards
+    let selected = app.selectedCard
     ListAndInspector(name: "cards", pushed: $pushed) {
-      KitList(selection: $selected.pushing($pushed, on: idiom)) {
+      KitList(selection: $app.selectedCard.pushing($pushed, on: idiom)) {
         KitSection("Cards", meta: cards.count.cardsLabel, systemImage: "creditcard", hue: .orange) {
           ForEach(cards) { card in
             SidebarRow(value: card.id, card.title, subtitle: "\(card.brandName) •••• \(card.last4)", systemImage: "creditcard") {
@@ -192,13 +193,14 @@ struct CardsView: View {
 struct NotesView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.kitIdiom) private var idiom
-  @State private var selected: String?
   @State private var pushed = false
 
   var body: some View {
+    @Bindable var app = app
+    let selected = app.selectedNote
     let notes = app.notes.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     ListAndInspector(name: "notes", pushed: $pushed) {
-      KitList(selection: $selected.pushing($pushed, on: idiom)) {
+      KitList(selection: $app.selectedNote.pushing($pushed, on: idiom)) {
         KitSection("Notes", meta: [notes.count.notesLabel, String(localized: "\(notes.filter(\.encrypted).count) encrypted")], systemImage: "doc.text", hue: .yellow) {
           ForEach(notes) { note in
             SidebarRow(value: note.id, "\(note.name)", subtitle: note.folder.isEmpty ? "Notes" : "\(note.folder)", systemImage: "doc.text") {

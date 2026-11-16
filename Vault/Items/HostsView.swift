@@ -92,6 +92,8 @@ struct HostsView: View {
     }
     .onAppear { selection = app.selectedHost.map { [$0] } ?? [] }
     .onChange(of: selection) { _, ids in if let id = ids.first { app.selectedHost = id } }
+    // A host picked elsewhere (the sidebar's search) while the table is showing.
+    .onChange(of: app.selectedHost) { _, id in if let id, !selection.contains(id) { selection = [id] } }
   }
 
   private var columns: [KitGridColumn<VaultHost>] {

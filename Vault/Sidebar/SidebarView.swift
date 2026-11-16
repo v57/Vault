@@ -5,7 +5,7 @@ import VaultUI
 
 /// The sidebar: the window's account, Items (the record kinds the store holds), Folders (encrypted or synced),
 /// Locations (this device and every remote) and Keys (devices, people, the recovery key), with search, iCloud's state
-/// and New in the bottom bar.
+/// and New in the bottom bar. While the search has text, the sections give way to what matches it.
 struct SidebarView: View {
   @Binding var columnVisibility: NavigationSplitViewVisibility
   @Environment(AppModel.self) private var app
@@ -17,11 +17,16 @@ struct SidebarView: View {
     SelectingSidebar(searchText: $search, columnVisibility: idiom.isTouch ? $columnVisibility : nil) {
       // The window's account; nothing while Personal is the only one.
       VaultAccountPicker(meta: app.itemCount.itemsLabel)
-      itemsSection
-      DocumentsSection()
-      FoldersSection()
-      LocationsSection()
-      keysSection
+      let query = search.trimmingCharacters(in: .whitespaces)
+      if query.isEmpty {
+        itemsSection
+        DocumentsSection()
+        FoldersSection()
+        LocationsSection()
+        keysSection
+      } else {
+        SearchResults(query: query)
+      }
     } bottomBar: {
       if idiom.isTouch {
         // No Settings window on iPhone and iPad: Settings is pushed from the bar.
@@ -317,5 +322,78 @@ struct FolderGlyph: View {
       }
     }
     .frame(width: side, height: side)
+  }
+}
+
+/// What the sidebar's search finds: the logins, cards, notes, SSH hosts, databases, projects and documents whose name
+/// (or user, address, folder) has the text, a section per kind. A row opens its list with that one selected.
+private struct SearchResults: View {
+  let query: String
+  @Environment(AppModel.self) private var app
+
+  var body: some View {
+    let vault = app.vault
+    let logins = vault.logins.filter { matches($0.displayName, $0.username, $0.domain ?? "") }
+    let cards = vault.cards.filter { matches($0.title, $0.holder, $0.brandName) }
+    let notes = app.notes.filter { matches($0.name, $0.folder) }
+    let hosts = vault.hosts.filter { matches($0.displayName, $0.hostname, $0.user) }
+    let databases = vault.databases.filter { matches($0.name, $0.host) }
+    let projects = vault.projects.filter { matches($0.name) }
+    let documents = vault.documents.filter { matches($0.title) }
+    if logins.isEmpty, cards.isEmpty, notes.isEmpty, hosts.isEmpty, databases.isEmpty, projects.isEmpty, documents.isEmpty {
+      KitSection("Results", meta: String(localized: "Nothing found"), systemImage: "magnifyingglass") {
+        Text("Nothing matches “\(query)”.").kitFont(.caption).padding(8)
+      }
+    }
+    section("Logins", logins, systemImage: "key") { login in
+      row(login.displayName, [login.username, login.domain ?? ""], "key", opens: .logins) { app.selectedLogin = login.id }
+    }
+    section("Cards", cards, systemImage: "creditcard", hue: .orange) { card in
+      row(card.title, [card.brandName, "•••• \(card.last4)"], "creditcard", opens: .cards) { app.selectedCard = card.id }
+    }
+    section("Notes", notes, systemImage: "doc.text", hue: .yellow) { note in
+      row(note.name, [note.folder], "doc.text", opens: .notes) { app.selectedNote = note.id }
+    }
+    section("SSH Hosts", hosts, systemImage: "server.rack") { host in
+      row(host.displayName, ["\(host.user)@\(host.hostname)"], "server.rack", opens: .hosts) { app.selectedHost = host.id }
+    }
+    section("Databases", databases, systemImage: "cylinder") { database in
+      row(database.name, [database.host], "cylinder", opens: .databases) { app.selectedDatabase = database.id }
+    }
+    section("Projects", projects, systemImage: "folder", hue: .brown) { project in
+      row(project.name, [], "folder", opens: .projects) { app.selectedProject = project.id }
+    }
+    section("Documents", documents, systemImage: "doc.text.image", hue: .blue) { document in
+      row(document.title, [], "doc.text.image", opens: .documents(DocumentScope.all)) { app.selectedDocument = document.id }
+    }
+  }
+
+  private func matches(_ fields: String...) -> Bool {
+    fields.contains { $0.localizedCaseInsensitiveContains(query) }
+  }
+
+  @ViewBuilder
+  private func section<Item: Identifiable, Row: View>(
+    _ title: LocalizedStringKey, _ items: [Item], systemImage: String, hue: Hue = .accent,
+    @ViewBuilder row: @escaping (Item) -> Row
+  ) -> some View {
+    if !items.isEmpty {
+      KitSection(title, meta: String(localized: "\(items.count) found"), systemImage: systemImage, hue: hue) {
+        ForEach(items) { item in row(item) }
+      }
+    }
+  }
+
+  /// Selects the record, then opens its list.
+  private func row(
+    _ title: String, _ details: [String], _ systemImage: String, opens list: SidebarItem,
+    select: @escaping @MainActor () -> Void
+  ) -> some View {
+    let subtitle = details.filter { !$0.isEmpty }.joined(separator: " · ")
+    return SidebarRow(title, subtitle: subtitle.isEmpty ? nil : subtitle, systemImage: systemImage)
+      .action { [app] in
+        select()
+        app.open(list)
+      }
   }
 }

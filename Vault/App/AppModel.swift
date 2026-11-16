@@ -116,6 +116,8 @@ final class AppModel {
   var sheet: AppSheet?
   /// Which login, host… each list has selected.
   var selectedLogin: String?
+  var selectedCard: String?
+  var selectedNote: String?
   var selectedHost: String?
   var selectedDatabase: String?
   var selectedProject: String?
