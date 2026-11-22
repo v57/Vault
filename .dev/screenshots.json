@@ -56,60 +56,70 @@
     {
       "id": "21-iphone-vault",
       "platforms": ["iphone"],
+      "relaunch": true,
       "arguments": ["--demo"],
       "caption": "Everything in one list, at touch size"
     },
     {
       "id": "22-iphone-login",
       "platforms": ["iphone"],
+      "relaunch": true,
       "arguments": ["--demo", "--select", "logins", "--login", "Atlas admin", "--push"],
       "caption": "Passwords and one-time codes, linked to everything else"
     },
     {
       "id": "23-iphone-encrypted-folder",
       "platforms": ["iphone"],
+      "relaunch": true,
       "arguments": ["--demo", "--select", "folder:Taxes 2026"],
       "caption": "Encrypted folders only v57 apps can open"
     },
     {
       "id": "24-iphone-decrypt",
       "platforms": ["iphone"],
+      "relaunch": true,
       "arguments": ["--demo", "--select", "folder:Taxes 2026", "--sheet", "decrypt"],
       "caption": "Decrypt into Files for as long as you need"
     },
     {
       "id": "25-iphone-decrypted",
       "platforms": ["iphone"],
+      "relaunch": true,
       "arguments": ["--demo", "--select", "folder:atlas-design"],
       "caption": "Edits are sealed back as you save"
     },
     {
       "id": "26-iphone-sync",
       "platforms": ["iphone"],
+      "relaunch": true,
       "arguments": ["--demo", "--select", "folder:Photos 2026"],
       "caption": "Sync folders through any storage, with no server"
     },
     {
       "id": "27-iphone-people",
       "platforms": ["iphone"],
+      "relaunch": true,
       "arguments": ["--demo", "--select", "devices"],
       "caption": "Your devices and the people you share with"
     },
     {
       "id": "28-iphone-share",
       "platforms": ["iphone"],
+      "relaunch": true,
       "arguments": ["--demo", "--select", "folder:atlas-design", "--sheet", "share"],
       "caption": "Compare a safety code, then share"
     },
     {
       "id": "29-iphone-autofill",
       "platforms": ["iphone"],
+      "relaunch": true,
       "arguments": ["--demo", "--sheet", "autofill"],
       "caption": "Fills in Safari and apps through AutoFill"
     },
     {
       "id": "30-iphone-welcome",
       "platforms": ["iphone"],
+      "relaunch": true,
       "arguments": ["--demo", "--welcome"],
       "caption": "What your other v57 apps saved, ready on a new iPhone"
     },
@@ -122,6 +132,7 @@
     {
       "id": "31-iphone-hub",
       "platforms": ["iphone"],
+      "relaunch": true,
       "arguments": ["--demo", "--select", "hub"],
       "caption": "Your own Hub: every device, and the ones waiting to join"
     }
