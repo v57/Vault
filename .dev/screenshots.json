@@ -2,139 +2,139 @@
   "build": { "scheme": "Vault", "project": "Vault.xcodeproj" },
   "appearances": ["light", "dark"],
   "watch": ["Vault", "Sources"],
-  "mac": { "window": [1440, 900] },
+  "mac": {},
   "ios": { "devices": ["iPhone 18 Pro Max", "iPad Pro 13-inch (M5)"] },
   "scenes": [
     {
       "id": "01-logins",
-      "platforms": ["mac", "ipad"],
       "arguments": ["--demo", "--select", "logins", "--login", "Atlas admin"],
+      "platforms": ["mac", "ipad"],
       "caption": "Passwords and one-time codes, linked to everything else"
     },
     {
       "id": "02-hosts",
-      "platforms": ["mac"],
       "arguments": ["--demo", "--select", "hosts", "--host", "atlas-web-1"],
+      "platforms": ["mac"],
       "caption": "The SSH hosts Shell and Database share, with every device's key"
     },
     {
       "id": "03-encrypted-folder",
-      "platforms": ["mac"],
       "arguments": ["--demo", "--select", "folder:Taxes 2026"],
+      "platforms": ["mac"],
       "caption": "Encrypted folders only v57 apps can open"
     },
     {
       "id": "04-decrypt",
-      "platforms": ["mac"],
       "arguments": ["--demo", "--select", "folder:Taxes 2026", "--sheet", "decrypt"],
+      "platforms": ["mac"],
       "caption": "Decrypt for other apps, for as long as you need"
     },
     {
       "id": "05-decrypted",
-      "platforms": ["mac", "ipad"],
       "arguments": ["--demo", "--select", "folder:atlas-design"],
+      "platforms": ["mac", "ipad"],
       "caption": "Edits are sealed back as you save"
     },
     {
       "id": "06-sync",
-      "platforms": ["mac"],
       "arguments": ["--demo", "--select", "folder:Photos 2026"],
+      "platforms": ["mac"],
       "caption": "Sync folders through any storage, with no server"
     },
     {
       "id": "07-people",
-      "platforms": ["mac"],
       "arguments": ["--demo", "--select", "devices", "--person", "Maya Okafor"],
+      "platforms": ["mac"],
       "caption": "Share with people you've verified"
     },
     {
       "id": "08-share",
-      "platforms": ["mac"],
       "arguments": ["--demo", "--select", "folder:atlas-design", "--sheet", "share"],
+      "platforms": ["mac"],
       "caption": "Compare a safety code, then share"
     },
     {
       "id": "21-iphone-vault",
-      "platforms": ["iphone"],
-      "relaunch": true,
       "arguments": ["--demo"],
-      "caption": "Everything in one list, at touch size"
+      "platforms": ["iphone"],
+      "caption": "Everything in one list, at touch size",
+      "relaunch": true
     },
     {
       "id": "22-iphone-login",
-      "platforms": ["iphone"],
-      "relaunch": true,
       "arguments": ["--demo", "--select", "logins", "--login", "Atlas admin", "--push"],
-      "caption": "Passwords and one-time codes, linked to everything else"
+      "platforms": ["iphone"],
+      "caption": "Passwords and codes, linked to the rest",
+      "relaunch": true
     },
     {
       "id": "23-iphone-encrypted-folder",
-      "platforms": ["iphone"],
-      "relaunch": true,
       "arguments": ["--demo", "--select", "folder:Taxes 2026"],
-      "caption": "Encrypted folders only v57 apps can open"
+      "platforms": ["iphone"],
+      "caption": "Encrypted folders only v57 apps can open",
+      "relaunch": true
     },
     {
       "id": "24-iphone-decrypt",
-      "platforms": ["iphone"],
-      "relaunch": true,
       "arguments": ["--demo", "--select", "folder:Taxes 2026", "--sheet", "decrypt"],
-      "caption": "Decrypt into Files for as long as you need"
+      "platforms": ["iphone"],
+      "caption": "Decrypt into Files for as long as you need",
+      "relaunch": true
     },
     {
       "id": "25-iphone-decrypted",
-      "platforms": ["iphone"],
-      "relaunch": true,
       "arguments": ["--demo", "--select", "folder:atlas-design"],
-      "caption": "Edits are sealed back as you save"
+      "platforms": ["iphone"],
+      "caption": "Edits are sealed back as you save",
+      "relaunch": true
     },
     {
       "id": "26-iphone-sync",
-      "platforms": ["iphone"],
-      "relaunch": true,
       "arguments": ["--demo", "--select", "folder:Photos 2026"],
-      "caption": "Sync folders through any storage, with no server"
+      "platforms": ["iphone"],
+      "caption": "Sync folders through any storage, with no server",
+      "relaunch": true
     },
     {
       "id": "27-iphone-people",
-      "platforms": ["iphone"],
-      "relaunch": true,
       "arguments": ["--demo", "--select", "devices"],
-      "caption": "Your devices and the people you share with"
+      "platforms": ["iphone"],
+      "caption": "Your devices and the people you share with",
+      "relaunch": true
     },
     {
       "id": "28-iphone-share",
-      "platforms": ["iphone"],
-      "relaunch": true,
       "arguments": ["--demo", "--select", "folder:atlas-design", "--sheet", "share"],
-      "caption": "Compare a safety code, then share"
+      "platforms": ["iphone"],
+      "caption": "Compare a safety code, then share",
+      "relaunch": true
     },
     {
       "id": "29-iphone-autofill",
-      "platforms": ["iphone"],
-      "relaunch": true,
       "arguments": ["--demo", "--sheet", "autofill"],
-      "caption": "Fills in Safari and apps through AutoFill"
+      "platforms": ["iphone"],
+      "caption": "Fills in Safari and apps through AutoFill",
+      "relaunch": true
     },
     {
       "id": "30-iphone-welcome",
-      "platforms": ["iphone"],
-      "relaunch": true,
       "arguments": ["--demo", "--welcome"],
-      "caption": "What your other v57 apps saved, ready on a new iPhone"
+      "platforms": ["iphone"],
+      "caption": "Your apps’ data, ready on a new iPhone",
+      "relaunch": true
     },
     {
       "id": "09-hub",
-      "platforms": ["mac", "ipad"],
       "arguments": ["--demo", "--select", "hub", "--hub-device", "builder"],
-      "caption": "Your own Hub: every device, Linux, Windows and Android too, reached over SSH"
+      "platforms": ["mac", "ipad"],
+      "caption": "Your own Hub: every device, over SSH"
     },
     {
       "id": "31-iphone-hub",
-      "platforms": ["iphone"],
-      "relaunch": true,
       "arguments": ["--demo", "--select", "hub"],
-      "caption": "Your own Hub: every device, and the ones waiting to join"
+      "platforms": ["iphone"],
+      "caption": "Your Hub and every device on it",
+      "relaunch": true
     }
   ]
 }
