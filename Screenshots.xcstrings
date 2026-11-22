@@ -1,0 +1,70 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Compare a safety code, then share" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "Decrypt for other apps, for as long as you need" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "Decrypt into Files for as long as you need" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "Edits are sealed back as you save" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "Encrypted folders only v57 apps can open" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "Everything in one list, at touch size" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "Fills in Safari and apps through AutoFill" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "Passwords and codes, linked to the rest" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "Passwords and one-time codes, linked to everything else" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "Share with people you've verified" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "Sync folders through any storage, with no server" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "The SSH hosts Shell and Database share, with every device's key" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "Your apps’ data, ready on a new iPhone" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "Your devices and the people you share with" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "Your Hub and every device on it" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    },
+    "Your own Hub: every device, over SSH" : {
+      "comment" : "App Store screenshot caption",
+      "extractionState" : "manual"
+    }
+  },
+  "version" : "1.0"
+}
