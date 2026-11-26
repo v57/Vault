@@ -1,9 +1,10 @@
 import ComponentKit
 import PlatformNotifications
 import SwiftUI
+import VaultExtensions
 import VaultKit
 
-#if DEBUG
+#if DEBUG && canImport(DevScreenshots)
   import DevScreenshots
 #endif
 
@@ -81,7 +82,7 @@ struct ContentView: View {
       #if os(macOS)
         if LaunchOptions.flag("--settings") { openSettings() }
       #endif
-      #if DEBUG
+      #if DEBUG && canImport(DevScreenshots)
         // Screenshots (.dev/screenshots.json): each scene sets the window up again from its own arguments.
         Screenshots.prepare(waitsForReady: false) { scene in
           LaunchOptions.arguments = scene.arguments

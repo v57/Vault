@@ -7,8 +7,7 @@ import VaultUI
   import UpdateKit
 #endif
 
-@main
-struct VaultApp: App {
+public struct VaultApp: App {
   /// Personal's model (the demo's with `--demo`): the Settings window's, and the menu commands' while no window is
   /// focused. Each window shows its own account's (`MainWindow`).
   @State private var app: AppModel
@@ -19,7 +18,7 @@ struct VaultApp: App {
     private let updater = AppUpdater(github: "v57/Vault", assetName: "Vault.zip")
   #endif
 
-  init() {
+  public init() {
     _app = State(initialValue: AppModel.launch())
     #if os(macOS)
       updater.start()
@@ -34,7 +33,7 @@ struct VaultApp: App {
     @State private var agent = VaultSSHAgent.shared
   #endif
 
-  var body: some Scene {
+  public var body: some Scene {
     // Each window shows one account, kept as the window's value, so Open … in a New Window opens one on an account.
     WindowGroup(for: String.self) { $account in
       MainWindow(accountID: $account, personal: app)

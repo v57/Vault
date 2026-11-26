@@ -4,29 +4,36 @@ import VaultKit
 
 /// What the share extension shows: the files coming in, and whether they can be saved.
 @MainActor @Observable
-final class ShareModel {
-  var files: [SharedFile] = []
-  var isLoading = true
-  var isSaving = false
+public final class ShareModel {
+  public init() {}
+
+  public var files: [SharedFile] = []
+  public var isLoading = true
+  public var isSaving = false
   /// Why the files can't be added: none could be read, or this device has no vault yet.
-  var problem: String?
-  var add: () -> Void = {}
-  var cancel: () -> Void = {}
+  public var problem: String?
+  public var add: () -> Void = {}
+  public var cancel: () -> Void = {}
 }
 
 /// Share → Vault (from Mail, Safari, Files, Photos, Finder): the files land in the Inbox, encrypted on this device;
 /// Vault reads their pages the next time it opens, on this device. A share sheet, not a form: nothing to fill in.
-struct ShareView: View {
+public struct ShareView: View {
   @Bindable var model: ShareModel
   /// The extension's own screen: on iPhone and iPad the system shows it as a full sheet, so it fills it (the pages
   /// larger, the buttons at its foot) instead of a short card in the middle of a blank sheet. The app's preview of it
   /// sits in a kit sheet and doesn't.
-  var fillsSheet = false
+  public var fillsSheet = false
   @Environment(\.kitIdiom) private var idiom
 
   private var fills: Bool { fillsSheet && idiom.isTouch }
 
-  var body: some View {
+  public init(model: ShareModel, fillsSheet: Bool = false) {
+    self.model = model
+    self.fillsSheet = fillsSheet
+  }
+
+  public var body: some View {
     let pages = model.files.reduce(0) { $0 + $1.pageCount }
     VStack(alignment: .leading, spacing: 14) {
       HStack(spacing: 12) {

@@ -2,6 +2,7 @@ import ComponentKit
 import PlatformScan
 import SwiftUI
 import UniformTypeIdentifiers
+import VaultExtensions
 import VaultKit
 
 #if os(macOS)

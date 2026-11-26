@@ -6,49 +6,51 @@ import VaultKit
 /// when a site saves a passkey, what it's for.
 @MainActor
 @Observable
-final class AutoFillModel {
-  var suggested: [VaultLogin] = []
-  var all: [VaultLogin] = []
+public final class AutoFillModel {
+  public init() {}
+
+  public var suggested: [VaultLogin] = []
+  public var all: [VaultLogin] = []
   /// The site's passkeys, when it asked for one.
-  var passkeys: [VaultPasskey] = []
-  var wantsCode = false
-  var host: String?
+  public var passkeys: [VaultPasskey] = []
+  public var wantsCode = false
+  public var host: String?
   /// A site saving a new passkey: its relying party and the account.
-  var registration: (relyingParty: String, userName: String)?
+  public var registration: (relyingParty: String, userName: String)?
   /// The passkey being signed in with, while the system checks it's the device's owner.
-  var signingIn: VaultPasskey?
-  @ObservationIgnored var complete: ((VaultLogin) -> Void)?
-  @ObservationIgnored var completeCode: ((String) -> Void)?
-  @ObservationIgnored var completePasskey: ((VaultPasskey) -> Void)?
-  @ObservationIgnored var confirmRegistration: (() -> Void)?
-  @ObservationIgnored var cancel: (() -> Void)?
+  public var signingIn: VaultPasskey?
+  @ObservationIgnored public var complete: ((VaultLogin) -> Void)?
+  @ObservationIgnored public var completeCode: ((String) -> Void)?
+  @ObservationIgnored public var completePasskey: ((VaultPasskey) -> Void)?
+  @ObservationIgnored public var confirmRegistration: (() -> Void)?
+  @ObservationIgnored public var cancel: (() -> Void)?
 
   /// Every login in the shared store, by title.
-  static func logins() -> [VaultLogin] {
+  public static func logins() -> [VaultLogin] {
     ((try? VaultStore.shared?.records(VaultLogin.self)) ?? []).sorted {
       $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
     }
   }
 
-  static func login(id: String) -> VaultLogin? {
+  public static func login(id: String) -> VaultLogin? {
     try? VaultStore.shared?.record(VaultLogin.self, id: id)
   }
 
-  func load(identifiers: [String], wantsCode: Bool) {
+  public func load(identifiers: [String], wantsCode: Bool) {
     self.wantsCode = wantsCode
     all = Self.logins().filter { !wantsCode || $0.hasOneTimeCode }
     suggested = VaultAutoFill.logins(for: identifiers, in: all)
     host = identifiers.lazy.compactMap(VaultAutoFill.host(of:)).first
   }
 
-  func pick(passkey id: String) {
+  public func pick(passkey id: String) {
     if let passkey = passkeys.first(where: { $0.id == id }) {
       signingIn = passkey
       completePasskey?(passkey)
     }
   }
 
-  func pick(_ login: VaultLogin) {
+  public func pick(_ login: VaultLogin) {
     if wantsCode {
       if let code = login.oneTimeCode?.code() { completeCode?(code) }
     } else {
@@ -60,12 +62,14 @@ final class AutoFillModel {
 /// The AutoFill sheet (iPhone board 05): the site's passkeys and logins first, with the one-time code where there is
 /// one, then every other login (searchable). A tap fills it in; the system asks for Face ID before the sheet opens,
 /// and Vault asks again before a passkey signs in. A site saving a passkey gets the Save Passkey sheet instead.
-struct AutoFillPicker: View {
+public struct AutoFillPicker: View {
   @Bindable var model: AutoFillModel
   @State private var search = ""
   @State private var selection: String?
 
-  var body: some View {
+  public init(model: AutoFillModel) { self.model = model }
+
+  public var body: some View {
     if let registration = model.registration {
       SavePasskeySheet(relyingParty: registration.relyingParty, userName: registration.userName, model: model)
     } else if let passkey = model.signingIn {

@@ -67,7 +67,7 @@ side is made once with `FolderSync.createRemoteFolder(remote:remotePath:folderID
 someone shares arrives as `VaultFolder.shared(by:)` from their invite.
 
 `VaultPersonalIdentity.current()` is readable only by Vault and its AutoFill extension (it's in the secrets keychain
-group); elsewhere it throws. The Vault app is the one that runs folder sync (`Vault/Engine/LiveFolderSync.swift`): one
+group); elsewhere it throws. The Vault app is the one that runs folder sync (`App/Sources/VaultApp/Engine/LiveFolderSync.swift`): one
 engine per folder that syncs through an enabled S3 remote, on open, on Sync Now, when the app comes to the front,
 every few minutes while it's open, and in iOS background refresh. `--demo` shows sample sync data instead.
 

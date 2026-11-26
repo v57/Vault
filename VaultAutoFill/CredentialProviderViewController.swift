@@ -2,6 +2,7 @@ import AuthenticationServices
 import ComponentKit
 import LocalAuthentication
 import SwiftUI
+import VaultExtensions
 import VaultKit
 
 /// Vault's credential provider. The system starts it when a password, code or passkey field asks; it reads the

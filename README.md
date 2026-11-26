@@ -441,13 +441,13 @@ While it's off:
 
 ## The Vault app
 
-`Vault/` is a Mac and iPad app on VaultKit and VaultFiles (`Vault.xcodeproj`, bundle `dev.v57.vault`; build it against
+`App/` is a Mac and iPad app on VaultKit and VaultFiles (`Vault.xcodeproj`, bundle `dev.v57.vault`; build it against
 the checkouts next to this one with `Vault-Local.xcworkspace`). It imports only SwiftUI, ComponentKit, VaultKit,
 VaultFiles, VaultHub and VaultUI, plus UpdateKit on the Mac. Each window shows one account (`VaultAccountScope`, the
 picker first in the sidebar, Settings ▸ Accounts to make, rename and delete them); `--demo` has none. It shows the
 records every v57 app already shares (logins, cards, notes, SSH hosts, databases, projects, devices) and the newer
 pieces: encrypted folders with timed decryption for other apps, people and safety codes, remotes, and the user's own
-Hubs (`VaultHub`: connect per device, the devices with presence and SSH, approvals with the safety code, revoke). What VaultKit doesn't do yet is drawn against protocols in `Vault/Engine/`
+Hubs (`VaultHub`: connect per device, the devices with presence and SSH, approvals with the safety code, revoke). What VaultKit doesn't do yet is drawn against protocols in `App/Sources/VaultApp/Engine/`
 (`RemoteService` backends past S3, `RecoveryService`), each saying plainly what isn't there yet. `HubEngine` and
 `FolderSyncEngine` (`LiveFolderSync`: VaultSync on every folder that syncs through an S3 remote) are live, each with a demo.
 
@@ -480,7 +480,7 @@ Each launch starts over: its keys go with the process.
 | `Notes/` | `NotesMirror`, `EncryptedNote`, `NoteConflicts`, `NoteBaseCache`, `TextMerge` |
 | `VaultFiles/Format/` | `EncryptedFile` (chunked file format, `EncryptedFileReader` for ranges), `NameCipher` and `DiskName` (encrypted names, long-name sidecars), `FolderSubkeys` |
 | `VaultFiles/Folder/` | `FolderKey` (wrapped by the vault key), `EncryptedFolder` |
-| `Vault/` | The app: `App/` (model, window), `Sidebar/`, `Items/` (logins, hosts, databases, projects, cards, notes, New), `Folders/`, `Locations/`, `Keys/` (devices, people), `Settings/`, `Welcome/`, `Engine/` (folders on VaultFiles, people, the protocols), `Demo/` |
+| `App/Sources/VaultApp/` | The app: `App/` (model, window), `Sidebar/`, `Items/` (logins, hosts, databases, projects, cards, notes, New), `Folders/`, `Locations/`, `Keys/` (devices, people), `Settings/`, `Welcome/`, `Engine/` (folders on VaultFiles, people, the protocols), `Demo/` |
 | `VaultFiles/Session/` | `DecryptSession` (temporary decryption, crash recovery), `FolderActivity` (progress for the UI), `FolderWatcher` (macOS) |
 | `VaultHub/` | Hub as a backend: `HubKeys` (Ed25519 in Hub's encodings, `HubKeyStore`), `HubWire` (the protocol's types, auth and certificate headers), `HubConnection` (one Hub: status, devices, pending, approve and revoke), `HubDirectory` (the Hubs this device connects to) |
 | `VaultSync/` | Folder sync over plain storage: `FolderSync` (the engine, an actor the app drives), `FolderSyncStatus` (for the UI), `FolderMembers` (signed member list, key epochs), `ChangeLog` (changes, log files, snapshots, the remote layout), `SyncLocalFolder` (plain or encrypted local copy), `SyncState` (each device's index) |
