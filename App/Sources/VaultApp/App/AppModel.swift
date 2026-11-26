@@ -443,12 +443,21 @@ final class AppModel {
 
   /// Whether passwords, cards and codes go to iCloud Keychain: not while iCloud is off on this device, when they stay
   /// in its own keychain (`VaultKeychain`'s offline twin) and nothing syncs (V-012).
-  var keepsSecretsInICloud: Bool { isDemo || !VaultICloudStatus.shared.isOff }
+  var keepsSecretsInICloud: Bool { VaultICloud.isSupported && (isDemo || !VaultICloudStatus.shared.isOff) }
 
-  /// Where passwords, cards and codes are kept, for a card's meta: "iCloud Keychain" or "this iPhone's keychain".
+  /// Where passwords, cards and codes are kept, for a card's meta: "iCloud Keychain", "this iPhone's keychain", or off
+  /// Apple platforms the system's store ("Credential Manager", "Your login keyring").
   var secretsPlace: String {
-    keepsSecretsInICloud ? String(localized: "iCloud Keychain") : String(localized: "this \(ThisDevice.word)’s keychain")
+    if VaultSecrets.placeName != nil { return keysPlaceTitle }
+    return keepsSecretsInICloud ? String(localized: "iCloud Keychain") : String(localized: "this \(ThisDevice.word)’s keychain")
   }
+
+  /// Where this device keeps the vault's keys, inside a sentence: iCloud Keychain on Apple platforms, the system's
+  /// store elsewhere ("your login keyring").
+  var keysPlace: String { VaultSecrets.placeName ?? String(localized: "iCloud Keychain") }
+
+  /// `keysPlace` on its own, as a value or a meta: "Your login keyring".
+  var keysPlaceTitle: String { keysPlace.prefix(1).uppercased() + keysPlace.dropFirst() }
 
   /// "synced 3 min ago" at `now`: a view showing it redraws on `RelativeTimeSchedule(lastSync)`, or it keeps the text
   /// of its last draw (V-042)

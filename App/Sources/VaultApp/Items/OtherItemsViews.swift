@@ -178,7 +178,7 @@ struct CardsView: View {
           InspectorRow("Security code") { KitSecretValue(label: "Security Code") { card.securityCode } }
         }
       } else {
-        EmptyState(systemImage: "creditcard", title: "No Cards", message: "Cards fill in Safari and apps through AutoFill.") {
+        EmptyState(systemImage: "creditcard", title: "No Cards", message: VaultAutoFill.isSupported ? "Cards fill in Safari and apps through AutoFill." : "Card numbers stay encrypted until you copy them.") {
           Button("New Card…") { app.sheet = .newItem(.card) }.buttonStyle(.kitPrimary)
         }
       }

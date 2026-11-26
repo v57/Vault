@@ -23,14 +23,15 @@ struct NewItemSheet: View {
   private var sheet: some View {
     KitSheet(
       title: title,
-      meta: !app.keepsSecretsInICloud
+      meta: VaultSecrets.placeName.map { String(localized: "Saved in \($0), where your other programs can read it too") }
+        ?? (!app.keepsSecretsInICloud
         // iCloud off on this device: the keychain's own copy, nowhere else.
         ? String(localized: "Saved in this \(ThisDevice.word)’s keychain; iCloud is off")
         : app.devices.count == 1
         ? (idiom == .phone ? String(localized: "Saved in iCloud Keychain") : String(localized: "Saved in iCloud Keychain. Only v57 apps and AutoFill can read it."))
         : idiom == .phone
         ? String(localized: "Saved in iCloud Keychain on your \(app.devices.count) devices")
-        : String(localized: "Saved in iCloud Keychain on your \(app.devices.count) devices. Only v57 apps and AutoFill can read it."),
+        : String(localized: "Saved in iCloud Keychain on your \(app.devices.count) devices. Only v57 apps and AutoFill can read it.")),
       systemImage: kindImage(kind), width: 660
     ) {
       VStack(alignment: .leading, spacing: 6) {
@@ -261,7 +262,7 @@ private struct LoginForm: View {
       LinkPicker(selection: $links)
     }
     if let error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text) }
-    SheetFooterButtons(saveTitle: String(localized: "Save"), canSave: !title.isEmpty || !website.isEmpty, status: idiom == .phone ? String(localized: "Fills through AutoFill") : String(localized: "Fills in Safari and apps through AutoFill"), onSave: save)
+    SheetFooterButtons(saveTitle: String(localized: "Save"), canSave: !title.isEmpty || !website.isEmpty, status: !VaultAutoFill.isSupported ? String(localized: "Copy it from Vault when you sign in") : idiom == .phone ? String(localized: "Fills through AutoFill") : String(localized: "Fills in Safari and apps through AutoFill"), onSave: save)
   }
 
   private static let scannerID = "one-time-code-scanner"
@@ -466,7 +467,7 @@ private struct CardForm: View {
         }
       }
     }
-    SheetFooterButtons(saveTitle: String(localized: "Save"), canSave: !number.isEmpty, status: String(localized: "Fills in Safari and apps through AutoFill")) {
+    SheetFooterButtons(saveTitle: String(localized: "Save"), canSave: !number.isEmpty, status: VaultAutoFill.isSupported ? String(localized: "Fills in Safari and apps through AutoFill") : String(localized: "Copy it from Vault when you pay")) {
       guard let store = app.vault.store else { return }
       let card = VaultCard(title: title.isEmpty ? String(localized: "Card") : title, holder: holder, expiry: expiry)
       try? store.save(card)
@@ -635,7 +636,7 @@ struct NewFolderSheet: View {
         .kitSurface(.field)
       }
       if !app.recovery.isOn {
-        Text("If your keys are lost, so are its files: iCloud Keychain holds the only copy. ") + Text("Create a recovery key").foregroundStyle(.kitLink)
+        Text("If your keys are lost, so are its files: their only copy is in \(app.keysPlace). ") + Text("Create a recovery key").foregroundStyle(.kitLink)
       }
       if let error { Text(error).kitFont(.caption).foregroundStyle(Hue.red.text) }
     } footer: {

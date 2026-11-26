@@ -39,7 +39,9 @@ struct SettingsView: View {
       SettingsPane("Sync", systemImage: "arrow.triangle.2.circlepath", hue: .blue, value: iCloud.isOff ? "Off" : "iCloud") { SyncPane() }
       SettingsPane("Recovery Key", systemImage: "key", hue: .orange, value: app.recovery.isOn ? "On" : "Off") { RecoveryKeyPane() }
       SettingsPane("Backup", systemImage: "externaldrive", hue: .green) { BackupPane() }
-      SettingsPane("AutoFill", systemImage: "rectangle.and.pencil.and.ellipsis", hue: .gray) { AutoFillPane() }
+      if VaultAutoFill.isSupported {
+        SettingsPane("AutoFill", systemImage: "rectangle.and.pencil.and.ellipsis", hue: .gray) { AutoFillPane() }
+      }
       SettingsPane("Hub", systemImage: "point.3.connected.trianglepath.dotted", hue: .purple, value: hubValue) { HubPane() }
       SettingsPane("Privacy", systemImage: "hand.raised", hue: .blue) { VaultICloudCard() }
       #if os(macOS)
@@ -240,8 +242,8 @@ struct RecoveryKeyPane: View {
   var body: some View {
     let isOn = app.recovery.isOn
     VStack(alignment: .leading, spacing: 18) {
-      FormCard(footer: "If iCloud Keychain loses your keys and there’s no recovery key, your encrypted folders, notes and passwords can’t be opened. There’s no other way in, by design.") {
-        FormRow("Recovery key", help: isOn ? "On. Keep the kit somewhere safe." : "Off. iCloud Keychain holds the only copy of your keys.", systemImage: "key", hue: .orange, error: error.map { "\($0)" }) {
+      FormCard(footer: "If \(app.keysPlace) loses your keys and there’s no recovery key, your encrypted folders, notes and passwords can’t be opened. There’s no other way in, by design.") {
+        FormRow("Recovery key", help: isOn ? "On. Keep the kit somewhere safe." : "Off. Your keys have one copy, in \(app.keysPlace).", systemImage: "key", hue: .orange, error: error.map { "\($0)" }) {
           if !isOn {
             Button("Create Recovery Key…") { create() }.buttonStyle(.kit)
               .disabled(!app.recovery.isAvailable || working)
@@ -288,12 +290,12 @@ struct RecoveryKeyPane: View {
     .kitSheet(item: $wordsSheet) { mode in RecoveryWordsSheet(mode: mode) }
     .kitConfirmation(
       "Replace the Recovery Key?", isPresented: $replacing,
-      message: "The old kit stops opening the current vault key. Every device gets the new vault key through iCloud Keychain.",
+      message: VaultICloud.isSupported ? "The old kit stops opening the current vault key. Every device gets the new vault key through iCloud Keychain." : "The old kit stops opening the current vault key.",
       systemImage: "arrow.clockwise", confirm: "Replace", role: nil
     ) { run { words = try await app.recovery.replace() } }
     .kitConfirmation(
       "Turn Off the Recovery Key?", isPresented: $turningOff,
-      message: "Every sealed copy is deleted, here and in iCloud. iCloud Keychain then holds the only copy of your keys.",
+      message: VaultICloud.isSupported ? "Every sealed copy is deleted, here and in iCloud. iCloud Keychain then holds the only copy of your keys." : "Every sealed copy is deleted. Your keys then have one copy, in \(app.keysPlace).",
       systemImage: "trash", confirm: "Turn Off"
     ) { run { try await app.recovery.turnOff(); words = nil } }
   }

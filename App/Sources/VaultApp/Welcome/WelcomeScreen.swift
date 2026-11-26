@@ -65,7 +65,7 @@ struct WelcomeScreen: View {
           app.sheet = .addRemote
         }
         if idiom != .phone {
-          WelcomeAction("New Login", detail: "Passwords and one-time codes, filled by AutoFill", systemImage: "key.horizontal") {
+          WelcomeAction("New Login", detail: VaultAutoFill.isSupported ? "Passwords and one-time codes, filled by AutoFill" : "Passwords and one-time codes, encrypted", systemImage: "key.horizontal") {
             app.sheet = .newItem(.login)
           }
         }

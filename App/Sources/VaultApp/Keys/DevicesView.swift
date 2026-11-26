@@ -173,16 +173,16 @@ struct DevicesView: View {
   @ViewBuilder
   private var identitySection: some View {
     if let identity = app.sharing.identity {
-      KitSection("Your identity", meta: ["X25519 + Ed25519", String(localized: "on all your Apple devices")], systemImage: "person", hue: .purple) {
+      KitSection("Your identity", meta: ["X25519 + Ed25519", VaultICloud.isSupported ? String(localized: "on all your Apple devices") : String(localized: "on this \(ThisDevice.word)")], systemImage: "person", hue: .purple) {
         InspectorRow("Signing", copyText: identity.text) { Text(identity.fingerprint).kitFont(.mono) }
         InspectorRow("Key wrapping", value: identity.agreementFingerprint, copyable: false)
-        InspectorRow("Kept in", value: "iCloud Keychain, apart from the device keys", copyable: false)
+        InspectorRow("Kept in", value: String(localized: "\(app.keysPlaceTitle), apart from the device keys"), copyable: false)
       } accessory: {
         if idiom != .phone { Button("Show QR Code") { app.sheet = .invite }.buttonStyle(.kit).controlSize(.small) }
       }
     } else {
       KitSection("Your identity", meta: String(localized: "made when you first share"), systemImage: "person", hue: .purple) {
-        Text("Sharing uses a key pair of its own, kept in iCloud Keychain apart from your devices’ SSH keys.")
+        Text("Sharing uses a key pair of its own, kept in \(app.keysPlace) apart from your devices’ SSH keys.")
           .kitFont(.caption).padding(8)
         if let identityError { Text(identityError).kitFont(.caption).foregroundStyle(Hue.red.text).padding(.horizontal, 8) }
       } accessory: {
