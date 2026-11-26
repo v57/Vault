@@ -21,6 +21,20 @@ public enum VaultSecrets {
   nonisolated(unsafe) private static var _backing: any VaultSecretBacking = VaultSecretTiers.forThisApp(
     shared: keychain, vaultOnly: vaultOnlyKeychain)
 
+  /// The system store secrets go to off Apple platforms, for a sentence ("Saved in \(placeName)"): the Credential
+  /// Manager on Windows, the login keyring (Secret Service) on Linux; nil on Apple platforms, whose screens name the
+  /// keychain and iCloud Keychain themselves. There other programs of the user can read the items (README, "Off Apple
+  /// platforms").
+  public static var placeName: String? {
+    #if os(Windows)
+      String(localized: "Credential Manager")
+    #elseif os(Linux)
+      String(localized: "your login keyring")
+    #else
+      nil
+    #endif
+  }
+
   /// Where secrets are kept: the keychain, or memory after `useInMemoryStore()`.
   public static var backing: any VaultSecretBacking {
     get { lock.withLock { _backing } }

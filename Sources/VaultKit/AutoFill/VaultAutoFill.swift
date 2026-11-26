@@ -53,6 +53,16 @@ public enum VaultAutoFill {
     }.map(\.0)
   }
 
+  /// Whether this platform fills Vault's logins into other apps (the AutoFill extension: macOS and iOS). Elsewhere a
+  /// password is copied and pasted, so the screens don't promise filling.
+  public static var isSupported: Bool {
+    #if canImport(AuthenticationServices) && (os(macOS) || os(iOS))
+      true
+    #else
+      false
+    #endif
+  }
+
   #if canImport(AuthenticationServices) && (os(macOS) || os(iOS))
     /// Whether the system offers Vault in password fields: the person turned it on in the system's AutoFill settings.
     public static var isEnabled: Bool {
