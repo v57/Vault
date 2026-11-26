@@ -233,11 +233,11 @@ public final class Vault {
     }
     lookForIcons()
     if let own = deviceKeys.first(where: { $0.id == store.deviceID }), own.platform != "custom" {
-      let wasRenamed = VaultDevice.customName != nil
       VaultDevice.customName = own.customName
-      // Renamed (here or on another device), or back to the system's name: publish the key with the name.
+      // Renamed (here or on another device), back to the system's name, the system's name changed, or a build that
+      // published the wrong platform (Windows and Linux went out as "iOS"): publish the key with the name.
       let name = VaultDevice.name
-      if own.customName != nil || wasRenamed, own.deviceName != name || !own.publicKey.hasSuffix(" \(name)") {
+      if own.deviceName != name || !own.publicKey.hasSuffix(" \(name)") || own.platform != VaultDevice.platform {
         Task { @MainActor [weak self] in self?.perform { try $0.publishDeviceKey() } }
       }
     }

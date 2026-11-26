@@ -431,14 +431,12 @@ extension VaultStore {
     let key = try VaultIdentity.key()
     let name = VaultDevice.name
     let line = VaultIdentity.publicKeyLine(key, comment: name)
-    #if os(macOS)
-      let platform = "macOS"
-    #else
-      let platform = "iOS"
-    #endif
+    let platform = VaultDevice.platform
     let model = VaultDevice.model
     let existing = try record(VaultDeviceKey.self, id: deviceID)
-    if let existing, existing.publicKey == line, existing.deviceName == name, existing.model == model { return }
+    if let existing, existing.publicKey == line, existing.deviceName == name, existing.model == model,
+      existing.platform == platform
+    { return }
     try save(
       VaultDeviceKey(
         id: deviceID, deviceName: name, customName: existing?.customName, publicKey: line, platform: platform,

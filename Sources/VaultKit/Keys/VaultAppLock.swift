@@ -29,6 +29,17 @@ public enum VaultAppLock {
   /// The clock, for tests.
   nonisolated(unsafe) static var now: @Sendable () -> Date = { Date() }
 
+  /// Whether this platform has an owner check to ask for (Touch ID, Face ID or the password, through
+  /// LocalAuthentication). Elsewhere there's none yet (Windows Hello and polkit would be): `unlock` always succeeds and
+  /// the apps don't offer the setting.
+  public static var isSupported: Bool {
+    #if canImport(LocalAuthentication)
+      true
+    #else
+      false
+    #endif
+  }
+
   /// Whether Vault asks at all (the setting, on unless turned off).
   public static var isEnabled: Bool { read(offAccount) == nil }
 
@@ -131,7 +142,7 @@ public enum VaultAppLock {
       let shown = standalone ? sentence(reason) : reason
       return (try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: shown)) ?? false
     #else
-      // Linux and Windows have no Vault app yet; their kits read secrets as every app does.
+      // No owner check here yet (`isSupported`): secrets open as they do in every app reading them.
       return true
     #endif
   }

@@ -8,6 +8,8 @@ import Observation
   import Darwin
 #elseif canImport(Glibc)
   import Glibc
+#elseif os(Windows)
+  import WinSDK
 #endif
 
 /// This device: an id every app on it shares, and its name.
@@ -67,8 +69,40 @@ public enum VaultDevice {
       Host.current().localizedName ?? "Mac"
     #elseif canImport(UIKit)
       UIDevice.current.name
+    #elseif os(Windows)
+      // The name Settings shows ("Device name"); Foundation's hostName is "localhost" on Windows.
+      windowsComputerName ?? "PC"
     #else
       ProcessInfo.processInfo.hostName
+    #endif
+  }
+
+  #if os(Windows)
+    /// The computer's DNS host name as the user typed it ("Studio-PC"), not NetBIOS's upper-case one.
+    static var windowsComputerName: String? {
+      var size: DWORD = 0
+      _ = GetComputerNameExW(ComputerNamePhysicalDnsHostname, nil, &size)
+      guard size > 0 else { return nil }
+      var buffer = [WCHAR](repeating: 0, count: Int(size))
+      guard GetComputerNameExW(ComputerNamePhysicalDnsHostname, &buffer, &size) else { return nil }
+      let name = String(decoding: buffer.prefix(Int(size)), as: UTF16.self)
+      return name.isEmpty ? nil : name
+    }
+  #endif
+
+  /// The system this device runs, as its published key records it (`VaultDeviceKey.platform`): "macOS", "iOS" (an
+  /// iPad too), "Windows" or "Linux".
+  public static var platform: String {
+    #if os(macOS)
+      "macOS"
+    #elseif os(iOS)
+      "iOS"
+    #elseif os(Windows)
+      "Windows"
+    #elseif os(Linux)
+      "Linux"
+    #else
+      "Other"
     #endif
   }
 

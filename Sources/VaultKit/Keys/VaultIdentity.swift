@@ -255,6 +255,28 @@ extension VaultIdentity {
     }
   #endif
 
+  /// What holds this device's key, for a screen: "Secure Enclave" on Apple platforms; elsewhere CryptoKit's stand-in seals
+  /// it to the user's account ("DPAPI" on Windows, "login keyring" on Linux), and it's in memory while it signs.
+  public static var holder: String {
+    #if os(Windows)
+      "DPAPI"
+    #elseif os(Linux)
+      String(localized: "login keyring")
+    #else
+      "Secure Enclave"
+    #endif
+  }
+
+  /// Whether a key here can be made to need the user (Touch ID, Face ID or the password, with LocalAuthentication).
+  /// Off Apple platforms keys sign with nothing asked.
+  public static var canAskForPresence: Bool {
+    #if canImport(LocalAuthentication)
+      true
+    #else
+      false
+    #endif
+  }
+
   /// Whether this device's key was made to need the user. False for a key made before that, and with no key yet. Doesn't make one.
   public static var asksForPresence: Bool {
     #if canImport(LocalAuthentication)
