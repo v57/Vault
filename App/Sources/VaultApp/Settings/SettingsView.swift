@@ -103,21 +103,24 @@ private struct GeneralPane: View {
 
   var body: some View {
     FormCard {
-      // Security audit M13: on by default; turning it off asks first (`VaultAppLock.setEnabled`).
-      FormRow(
-        "Ask for Touch ID or Face ID",
-        help: "When Vault opens or comes back after 5 minutes, and before a password, card or document number is shown or copied. One unlock lasts 5 minutes, AutoFill included.",
-        systemImage: "faceid", hue: .green
-      ) {
-        Toggle("Ask for Touch ID or Face ID", isOn: Binding(get: { locks }, set: { on in
-          Task {
-            let changed = await VaultAppLock.setEnabled(on, reason: String(localized: "turn off the app lock"))
-            locks = VaultAppLock.isEnabled
-            if changed { AppLock.shared.enabledChanged() }
-          }
-        }))
-        .toggleStyle(.kitSwitch)
-        .kitLabelsHidden()
+      // Security audit M13: on by default; turning it off asks first (`VaultAppLock.setEnabled`). Not shown where the
+      // system has no owner check Vault can ask for yet (Linux, Windows).
+      if VaultAppLock.isSupported {
+        FormRow(
+          "Ask for Touch ID or Face ID",
+          help: "When Vault opens or comes back after 5 minutes, and before a password, card or document number is shown or copied. One unlock lasts 5 minutes, AutoFill included.",
+          systemImage: "faceid", hue: .green
+        ) {
+          Toggle("Ask for Touch ID or Face ID", isOn: Binding(get: { locks }, set: { on in
+            Task {
+              let changed = await VaultAppLock.setEnabled(on, reason: String(localized: "turn off the app lock"))
+              locks = VaultAppLock.isEnabled
+              if changed { AppLock.shared.enabledChanged() }
+            }
+          }))
+          .toggleStyle(.kitSwitch)
+          .kitLabelsHidden()
+        }
       }
       FormRow("Lock decrypted folders after", help: "What the Decrypt sheet picks first.", systemImage: "lock", hue: .orange) {
         // On iPhone it goes under the title: the wide style's tighter segments fit the row.

@@ -29,7 +29,7 @@ struct DevicesView: View {
         if let device = app.thisDevice {
           KitSection(
             idiom == .phone ? "This \(ThisDevice.word)" : "\(device.deviceName)",
-            meta: idiom == .phone ? [ThisDevice.system, "Secure Enclave"] : [String(localized: "This \(ThisDevice.word)"), ThisDevice.system, "Secure Enclave"],
+            meta: idiom == .phone ? [ThisDevice.system, VaultIdentity.holder] : [String(localized: "This \(ThisDevice.word)"), ThisDevice.system, VaultIdentity.holder],
             systemImage: DeviceGlyph.systemImage(device)
           ) {
             InspectorRow("Name", copyText: device.deviceName) {
@@ -43,20 +43,20 @@ struct DevicesView: View {
               Text(idiom == .phone ? ShortKey.fingerprint(device.fingerprint) : "ecdsa-sha2-nistp256 \(ShortKey.fingerprint(device.fingerprint))")
                 .kitFont(.mono).lineLimit(1)
             }
-            InspectorRow("Never leaves", value: idiom == .phone ? String(localized: "this \(ThisDevice.word)") : String(localized: "this \(ThisDevice.word)’s Secure Enclave"), copyable: false)
+            InspectorRow("Never leaves", value: idiom == .phone ? String(localized: "this \(ThisDevice.word)") : VaultIdentity.canAskForPresence ? String(localized: "this \(ThisDevice.word)’s Secure Enclave") : String(localized: "this \(ThisDevice.word), sealed to your account"), copyable: false)
             if idiom != .phone { InspectorRow("Used by", value: "Shell, Database, Vault", copyable: false) }
             if !app.isDemo {
               InspectorRow(
                 "Signs",
                 value: VaultIdentity.asksForPresence
                   ? "After you confirm it’s you; a yes lasts 15 minutes in each app"
-                  : "With nothing asked: this key was made before keys could ask",
+                  : VaultIdentity.canAskForPresence ? "With nothing asked: this key was made before keys could ask" : "With nothing asked",
                 copyable: false)
             }
           }
         }
         KitSection(
-          "Your other devices", meta: [app.otherDevices.count.devicesLabel, idiom == .phone ? String(localized: "keys through iCloud Keychain") : String(localized: "vault keys arrive through iCloud Keychain")],
+          "Your other devices", meta: [app.otherDevices.count.devicesLabel, !VaultICloud.isSupported ? String(localized: "vault keys arrive with an invite") : idiom == .phone ? String(localized: "keys through iCloud Keychain") : String(localized: "vault keys arrive through iCloud Keychain")],
           systemImage: "laptopcomputer", hue: .gray
         ) {
           ForEach(app.otherDevices) { device in
@@ -91,7 +91,7 @@ struct DevicesView: View {
           ForEach(app.hubs.hubs.filter { $0.status == .connected }) { hub in
             HubDevicesRow(hub: hub)
           }
-          LinkRow(title: String(localized: "A device without iCloud Keychain"), subtitle: String(localized: "Linux, Windows or Android: it scans an invite from this \(ThisDevice.word)"), systemImage: "qrcode") {
+          LinkRow(title: VaultICloud.isSupported ? String(localized: "A device without iCloud Keychain") : String(localized: "Another device"), subtitle: String(localized: "Linux, Windows or Android: it scans an invite from this \(ThisDevice.word)"), systemImage: "qrcode") {
             app.sheet = .addDevice
           }
         } accessory: {
@@ -132,7 +132,7 @@ struct DevicesView: View {
         EmptyState(systemImage: "person.2", title: "No One Selected", message: "Pick someone to compare your safety code.")
       }
     }
-    .kitToolbar("Devices & People", meta: [app.devices.count.devicesLabel, people.count.peopleLabel, idiom == .phone ? "" : String(localized: "keys in iCloud Keychain")], systemImage: "checkmark.shield", hue: .green) {
+    .kitToolbar("Devices & People", meta: [app.devices.count.devicesLabel, people.count.peopleLabel, idiom == .phone ? "" : String(localized: "keys in \(app.keysPlace)")], systemImage: "checkmark.shield", hue: .green) {
       if idiom == .phone {
         Button("Invite", systemImage: "person.badge.plus") { app.sheet = .invite }.buttonStyle(.kitRound)
       } else {

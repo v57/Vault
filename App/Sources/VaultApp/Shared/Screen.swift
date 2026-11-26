@@ -181,13 +181,7 @@ struct LinkRow: View {
 enum ThisDevice {
   @MainActor static var word: String { KitDevice.name }
 
-  @MainActor static var system: String {
-    switch KitDevice.name {
-    case "iPhone": "iOS"
-    case "iPad": "iPadOS"
-    default: "macOS"
-    }
-  }
+  @MainActor static var system: String { KitDevice.name == "iPad" ? "iPadOS" : VaultDevice.platform }
 
   @MainActor static var isTouch: Bool { KitDevice.name == "iPhone" || KitDevice.name == "iPad" }
 }
